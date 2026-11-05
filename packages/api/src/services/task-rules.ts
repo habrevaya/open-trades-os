@@ -917,7 +917,9 @@ export async function escalateFor(
       if (!counting) return null;
       const branchId = branchOf.get(taskId) ?? null;
       if (!calendars.has(branchId)) {
-        calendars.set(branchId, { week: weekOf!(branchId).week, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone });
+        const chosen = weekOf!(branchId);
+        /** Seasons (summer hours) count their own hours on their dates. */
+        calendars.set(branchId, { week: chosen.week, seasons: chosen.seasons, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone });
       }
       return calendars.get(branchId)!;
     };

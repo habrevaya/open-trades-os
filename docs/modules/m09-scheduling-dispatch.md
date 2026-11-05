@@ -188,7 +188,8 @@ the customer as the days that suit them (and inside both when there are
 both). Never onto today or off it, because a customer expecting somebody
 this afternoon has not agreed to Thursday, and never onto a day the visit's
 branch is closed: a weekday its own week keeps closed (the company's week,
-for a branch that keeps none, M02) or a date on its holiday list, so a Houston
+for a branch that keeps none, M02), read date by date so a season over the
+week (summer hours) opens or shuts its weekdays on its own dates, or a date on its holiday list, so a Houston
 visit may go to Houston's Saturday while an Austin one may not. The same constraints hold on the new day (skills and time off at the
 hours the visit would have on that day, so a person with the afternoon off still
 takes a morning visit, the window at the same wall clock times, the overtime limit and
@@ -359,9 +360,21 @@ the share of one of the crew's people's window kept for members is refused the
 way a drop onto that person is, naming the people and the crews whose people
 all have room outside the hold, until the dispatcher presses "Send anyway"
 (`intoMemberHold` on `POST /v1/visits/{id}/crew`), which the audit log records
-for each person whose share it took (M08). Each crew with work today
-has a lane of its own beside the people, with its lead, and its day is a line
-on the map in its own colour from where it is based. The routes running today
+for each person whose share it took (M08). Every active crew the board shows
+has a lane of its own beside the people, work or not: each crew of the
+reader's branch for a branch manager, the branch's crews when the board is
+filtered to one, every crew for somebody who sees the whole company, and
+another branch's crew only while it is on a visit the reader can see (that
+lane takes nothing more from here). An empty lane says "Nothing yet. Drop a
+visit here to send it to the crew." and takes the drop, so a crew's first
+visit of a day is sent from the board. Each lane is drawn to the crew's hours
+that day: "Works 6:00 AM to 11:00 AM today" (its own for the weekday), its one
+set of hours, or the company's day, with a card whose window starts before
+them or runs past them marked "Outside the crew's hours", and the day said
+closed ("Closed on Saturdays.") when the crew's branch is shut that day. The
+board's axis is order, not the clock, so the hours are said rather than drawn
+as a scale. A crew's day is a line on the map in its own colour from where it
+is based. The routes running today
 are listed above the board with how many stops are done and who runs each,
 and so is the rota: who is on call today, or "Nobody is on call today" in
 words.
@@ -399,7 +412,8 @@ about one day rather than the weekday's template. It counts only the stops
 whose own cadence falls on that date, the rule making a day uses, and says
 how many it left out; and it reads the hours kept that date by the branch of
 whoever runs the route (the crew's, or the technician's), the company's week
-where that branch keeps none, with its holiday list over it (M02). A date
+where that branch keeps none, the season in force that date over the week
+where one covers it, and its holiday list over all of them (M02). A date
 that branch is shut, a holiday or a weekday its week keeps closed, has no
 working day to fit into: the answer says why (`dayBasis: closed`,
 `closedOn`) and gives no overtime verdict. A short day with no overtime
@@ -416,7 +430,7 @@ route's stops due that date that have not been made yet (`madeVisits` says how
 many visits it read). Their own day is read too (`servicer`): a technician's
 own working hours when they keep some (their hours on the People screen), the
 hours the branch keeps that date otherwise, less any approved leave inside
-them; a crew works its own hours when it keeps some ("its hours", `hoursFrom: own`), the hours the branch
+them; a crew works its own hours when it keeps some, its hours for the date's weekday first ("its hours", `hoursFrom: own`), the hours the branch
 keeps that date otherwise, and the members on leave that day are
 named ("Ana is on leave that day, so the crew is short"). `fits` says whether
 the work and the whole drive fit the hours left, and `refusedBecause` says
@@ -595,6 +609,20 @@ person's own hours: the crew leaves at its start and anything past its finish is
 overtime. A route's fit for a date measures the crew against them. With none,
 the crew works the company's day, as before. The list says "Works 06:00 to
 11:00" or "Works the company's day" beside each crew.
+
+**And hours by weekday.** A crew can keep hours of its own for particular days
+of the week ("Hours by day" on its row on `/schedule/crews`, `weekdayHours` on
+`POST /v1/crews` and `PATCH /v1/crews/{id}`, the whole list replaced, empty
+clearing it, audited as `crew.updated`): six to four on weekdays and seven to
+eleven on Saturdays. On a date the crew works its hours for that weekday where
+it keeps some, its one set of hours otherwise, and the company's day where it
+keeps neither (core's `routing.crewHoursOn`, with unit tests). A day given
+twice, a time that is not one, or a day that ends before it starts is refused
+in words ("Saturday's working day has to end after it starts."), and on the
+screen a day with only a start or only a finish is refused too. The one day
+rebalance, the several day rebalance (date by date), a route's fit for a date
+and the board's lane all read it. The list says "Works 06:00 to 16:00, except
+Sat 07:00 to 11:00".
 Routes are seen by whoever sees the technician or crew that runs them. Booking,
 assigning, sending a crew or running a route writes the visit's shop: the
 lead's start or membership shop, or the crew's base (`docs/modules/m01-core-tenancy-access.md`).
@@ -732,20 +760,21 @@ whose day starts off the map or carries containers. Each of its people is
 held to its window on their own day; the plan does not make them arrive
 together. The rebalance plans lunch and overtime from company settings and
 each person's and each crew's own hours, not from the overtime policy's
-thresholds. A crew's own hours are one start and one end for every day: there
-are no hours per weekday, no hours a crew keeps on one date only, and a crew on
-a day its branch is closed is still planned in its hours. Lunch and the most
+thresholds. A crew's own hours are a start and a finish for each weekday or for
+every day: there are no hours a crew keeps on one date only, a weekday cannot
+be marked as one the crew does not work (it keeps its usual hours, and its
+people's leave says who is off), and a crew on a day its branch is closed is
+still planned in its hours; the board's lane says the day is closed. Lunch and the most
 overtime a plan may use are the company's for a crew, as for a person. The crew
 check (`GET /v1/crews/{id}/availability`) asked about a date alone still reads
-the company's working hours for whether a member's leave covers the day, and
-the crew's lane on the board is not drawn to its hours.
+the company's working hours for whether a member's leave covers the day, not
+the crew's own.
 A technician whose day has no start
 on the map is left out of it, with their work where it is, and so is a
 driver whose day has containers on it, which "Optimise route" orders by
 what is on the truck instead. The truck's load in the morning of a day
 already under way is worked out from the stops done so far, not recorded.
-A crew has a lane on the board only on a day it has work, so its first
-visit of a day is sent from the crews screen or the API; a card dropped on a
+A card dropped on a
 crew's lane keeps its place in the order, and the crew's day is reordered by
 the rebalance, not by where the card was dropped. Live positions come only from the phone app; `/my-day`
 in a browser shares none. The path on the map is today's only, from the

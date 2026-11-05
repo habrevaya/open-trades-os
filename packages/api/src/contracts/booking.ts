@@ -387,6 +387,90 @@ export const clearBranchHours = defineRoute({
 });
 
 /**
+ * SEASONS: DATED WEEKS OVER THE NORMAL ONE
+ *
+ * Summer hours from June 1 to August 31: seven days that replace the
+ * company's or a branch's normal week on every date between the two, once or
+ * every year. Read by every reader that asks about a date: online booking,
+ * the board, a route's fit, the rebalance, the phones, the after hours rate,
+ * the crew check and task escalation. A branch on the company's week reads
+ * the company's seasons too; a branch with a week of its own reads only its
+ * own. An owner's seasons may not overlap.
+ */
+const SeasonFields = z.object({
+  name: z.string().min(1).max(80),
+  /** `YYYY-MM-DD`, both days kept. For one that repeats, only the month and day are read. */
+  startsOn: z.string().date(),
+  endsOn: z.string().date(),
+  /** Every year on the same month and day. It may run across the new year. */
+  repeatsYearly: z.boolean().optional(),
+  days: z.array(WeekDay).length(7),
+});
+
+const Season = z.object({
+  id: Uuid,
+  /** The branch whose season it is, or null for the company's. */
+  businessUnitId: Uuid.nullable(),
+  branchName: z.string().nullable(),
+  name: z.string(),
+  startsOn: z.string(),
+  endsOn: z.string(),
+  repeatsYearly: z.boolean(),
+  /** When it runs, in words: "June 1 to August 31, every year". */
+  when: z.string(),
+  days: z.array(WeekDay),
+  /** In force today, in the company's zone. */
+  inForceToday: z.boolean(),
+});
+
+export const listHoursSeasons = defineRoute({
+  method: "get",
+  path: "/v1/booking/seasons",
+  summary: "The company's seasons and each branch's",
+  description:
+    "Dated weeks over the normal one, in the order they start. Somebody who sees only their own branch's work sees the company's and their own branch's.",
+  module: "M02",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: z.object({ seasons: z.array(Season) }),
+});
+
+export const addHoursSeason = defineRoute({
+  method: "post",
+  path: "/v1/booking/seasons",
+  summary: "Add a season: hours kept between two dates",
+  description:
+    "All seven days, as for the week. Without `businessUnitId` it is the company's, read by every branch on the company's week; with one, that branch's own. A season that would be in force on a date another of the same owner's is (two dated ones whose dates meet, or a yearly one whose months and days meet another's) is refused in words naming the other. A holiday on a date in a season still wins. Somebody who sees only their own branch's work keeps only its seasons.",
+  module: "M02",
+  permissions: ["booking:configure"],
+  idempotent: true,
+  input: SeasonFields.extend({ businessUnitId: Uuid.nullable().optional() }),
+  output: Season,
+});
+
+export const changeHoursSeason = defineRoute({
+  method: "put",
+  path: "/v1/booking/seasons/{id}",
+  summary: "Change a season's name, dates or days",
+  description: "The whole season every time. It stays with its owner: a company's season is not moved to a branch.",
+  module: "M02",
+  permissions: ["booking:configure"],
+  input: SeasonFields.extend({ id: Uuid }),
+  output: Season,
+});
+
+export const removeHoursSeason = defineRoute({
+  method: "delete",
+  path: "/v1/booking/seasons/{id}",
+  summary: "Take a season off",
+  description: "Its dates keep the normal week again. The audit log keeps what it said. Removing one already gone succeeds and says so.",
+  module: "M02",
+  permissions: ["booking:configure"],
+  input: z.object({ id: Uuid }),
+  output: z.object({ removed: z.boolean() }),
+});
+
+/**
  * A SHARE OF EACH WINDOW HELD FOR MEMBERS
  *
  * What a plan's priority dispatch reserves: online booking keeps a share of
@@ -433,6 +517,7 @@ export const setMemberHold = defineRoute({
 
 export const bookingRoutes = {
   createBookableService, setArrivalWindows, setBusinessHours, listBusinessHours, clearBranchHours,
+  listHoursSeasons, addHoursSeason, changeHoursSeason, removeHoursSeason,
   listBookableServices, getAvailability, createBookingRequest,
   listBookingRequests, confirmBookingRequest, declineBookingRequest,
   configureBookableService, getMemberHold, setMemberHold,

@@ -54,6 +54,8 @@ const CrewWorkday = z.object({
   endsAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "A time of day, HH:MM"),
 });
 
+const CrewWeekdayHours = CrewWorkday.extend({ dayOfWeek: z.number().int().min(0).max(6) });
+
 export const Crew = z.object({
   id: Uuid,
   name: z.string(),
@@ -84,6 +86,12 @@ export const Crew = z.object({
    * company's day.
    */
   workday: CrewWorkday.nullable(),
+  /**
+   * Hours of its own for some days of the week (Saturday seven to noon), read
+   * on that weekday in place of `workday`. A weekday not listed keeps
+   * `workday`, and with neither the company's day. 0 is Sunday.
+   */
+  weekdayHours: z.array(CrewWeekdayHours),
   active: z.boolean(),
   members: z.array(CrewMember),
 });
@@ -126,6 +134,8 @@ export const createCrew = defineRoute({
     color: z.string().max(20).nullable().optional(),
     /** Its own working hours, local time; left out or null for the company's day. The end must be after the start. */
     workday: CrewWorkday.nullable().optional(),
+    /** Hours of its own for some weekdays, one entry a day at most, read in place of `workday` on that weekday. */
+    weekdayHours: z.array(CrewWeekdayHours).max(7).optional(),
   }),
   output: z.object({ id: Uuid, name: z.string(), active: z.boolean() }),
 });
@@ -135,7 +145,7 @@ export const updateCrew = defineRoute({
   path: "/v1/crews/{id}",
   summary: "Change a crew's rate, kit, skills or hours",
   description:
-    "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.",
+    "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. `weekdayHours` is the whole list of hours it keeps on particular weekdays, read on that weekday in place of `workday` (a day given twice, or one ending before it starts, is refused in words); empty clears them. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.",
   module: "M09",
   permissions: ["visit:dispatch"],
   idempotent: true,
@@ -151,6 +161,8 @@ export const updateCrew = defineRoute({
     color: z.string().max(20).nullable().optional(),
     /** Its own working hours, local time, or null to go back to the company's day. Left out keeps them. */
     workday: CrewWorkday.nullable().optional(),
+    /** Its hours on particular weekdays, the whole list replaced. Empty clears them; left out keeps them. */
+    weekdayHours: z.array(CrewWeekdayHours).max(7).optional(),
     active: z.boolean().optional(),
   }),
   output: z.object({ id: Uuid, name: z.string(), active: z.boolean() }),

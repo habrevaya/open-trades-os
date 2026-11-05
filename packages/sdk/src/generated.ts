@@ -292,6 +292,38 @@ export interface AddExpenseReceiptOutput {
   id: string;
 }
 
+export interface AddHoursSeasonInput {
+  name: string;
+  startsOn: string;
+  endsOn: string;
+  repeatsYearly?: boolean;
+  days: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+  businessUnitId?: string | null;
+}
+
+export interface AddHoursSeasonOutput {
+  id: string;
+  businessUnitId: string | null;
+  branchName: string | null;
+  name: string;
+  startsOn: string;
+  endsOn: string;
+  repeatsYearly: boolean;
+  when: string;
+  days: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+  inForceToday: boolean;
+}
+
 export interface AddIncidentFollowUpInput {
   title: string;
   assigneeUserId?: string;
@@ -2239,6 +2271,37 @@ export interface CancelWebhookReplayOutput {
   finishedAt: string | null;
 }
 
+export interface ChangeHoursSeasonInput {
+  name: string;
+  startsOn: string;
+  endsOn: string;
+  repeatsYearly?: boolean;
+  days: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+}
+
+export interface ChangeHoursSeasonOutput {
+  id: string;
+  businessUnitId: string | null;
+  branchName: string | null;
+  name: string;
+  startsOn: string;
+  endsOn: string;
+  repeatsYearly: boolean;
+  when: string;
+  days: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+  inForceToday: boolean;
+}
+
 export interface ChargeInvoiceCardOnFileInput {
   cardId: string;
   amount?: string;
@@ -3412,6 +3475,11 @@ export interface CreateCrewInput {
     startsAt: string;
     endsAt: string;
   } | null;
+  weekdayHours?: Array<{
+    startsAt: string;
+    endsAt: string;
+    dayOfWeek: number;
+  }>;
 }
 
 export interface CreateCrewOutput {
@@ -8514,6 +8582,16 @@ export interface GetDiscountPolicyOutput {
 
 export interface GetDispatchBoardOutput {
   date: string;
+  hours: {
+    branchId: string | null;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+    known: boolean;
+    season: string | null;
+    holiday: string | null;
+    words: string;
+  };
   technicians: Array<{
     id: string;
     displayName: string;
@@ -8553,7 +8631,15 @@ export interface GetDispatchBoardOutput {
     color: string | null;
     leadName: string | null;
     memberNames: string[];
+    inScope: boolean;
+    hours: {
+      startsAt: string;
+      endsAt: string;
+      from: "weekday" | "own" | "company";
+    };
+    branchClosed: string | null;
     visits: Array<{
+      outsideHours: boolean;
       id: string;
       jobNumber: number;
       summary: string;
@@ -15420,6 +15506,11 @@ export interface ListCrewsOutput {
       startsAt: string;
       endsAt: string;
     } | null;
+    weekdayHours: Array<{
+      startsAt: string;
+      endsAt: string;
+      dayOfWeek: number;
+    }>;
     active: boolean;
     members: Array<{
       technicianId: string;
@@ -16237,6 +16328,26 @@ export interface ListHolidaysOutput {
     closesAt: string | null;
     nextOn: string | null;
     hours: string;
+  }>;
+}
+
+export interface ListHoursSeasonsOutput {
+  seasons: Array<{
+    id: string;
+    businessUnitId: string | null;
+    branchName: string | null;
+    name: string;
+    startsOn: string;
+    endsOn: string;
+    repeatsYearly: boolean;
+    when: string;
+    days: Array<{
+      dayOfWeek: number;
+      opensAt: string | null;
+      closesAt: string | null;
+      closed: boolean;
+    }>;
+    inForceToday: boolean;
   }>;
 }
 
@@ -23094,6 +23205,12 @@ export interface RemoveHolidayOutput {
   removed: boolean;
 }
 
+export type RemoveHoursSeasonInput = Record<string, unknown>;
+
+export interface RemoveHoursSeasonOutput {
+  removed: boolean;
+}
+
 export type RemoveKnowledgeNoteInput = Record<string, unknown>;
 
 export interface RemoveKnowledgeNoteOutput {
@@ -29302,6 +29419,11 @@ export interface UpdateCrewInput {
     startsAt: string;
     endsAt: string;
   } | null;
+  weekdayHours?: Array<{
+    startsAt: string;
+    endsAt: string;
+    dayOfWeek: number;
+  }>;
   active?: boolean;
 }
 
@@ -32284,6 +32406,10 @@ export interface CancelWebhookReplayParams {
   replayId: string;
 }
 
+export interface ChangeHoursSeasonParams {
+  id: string;
+}
+
 export interface ChargeInvoiceCardOnFileParams {
   id: string;
 }
@@ -33897,6 +34023,8 @@ export type ListFormsInput = Record<string, never>;
 
 export type ListHolidaysInput = Record<string, never>;
 
+export type ListHoursSeasonsInput = Record<string, never>;
+
 export type ListImportMappingsInput = Record<string, never>;
 
 export type ListImportsInput = Record<string, never>;
@@ -34940,6 +35068,10 @@ export interface RemoveEstimateOptionPhotoParams {
 }
 
 export interface RemoveHolidayParams {
+  id: string;
+}
+
+export interface RemoveHoursSeasonParams {
   id: string;
 }
 
@@ -36000,6 +36132,7 @@ export interface OperationTypes {
   addEmergencyContact: { input: AddEmergencyContactParams & AddEmergencyContactInput; output: AddEmergencyContactOutput };
   addEstimateOptionPhoto: { input: AddEstimateOptionPhotoParams & AddEstimateOptionPhotoInput; output: AddEstimateOptionPhotoOutput };
   addExpenseReceipt: { input: AddExpenseReceiptParams & AddExpenseReceiptInput; output: AddExpenseReceiptOutput };
+  addHoursSeason: { input: AddHoursSeasonInput; output: AddHoursSeasonOutput };
   addIncidentFollowUp: { input: AddIncidentFollowUpParams & AddIncidentFollowUpInput; output: AddIncidentFollowUpOutput };
   addIncidentPhoto: { input: AddIncidentPhotoParams & AddIncidentPhotoInput; output: AddIncidentPhotoOutput };
   addMileageOverride: { input: AddMileageOverrideInput; output: AddMileageOverrideOutput };
@@ -36072,6 +36205,7 @@ export interface OperationTypes {
   cancelMailCampaign: { input: CancelMailCampaignParams & CancelMailCampaignInput; output: CancelMailCampaignOutput };
   cancelVisit: { input: CancelVisitParams & CancelVisitInput; output: CancelVisitOutput };
   cancelWebhookReplay: { input: CancelWebhookReplayParams & CancelWebhookReplayInput; output: CancelWebhookReplayOutput };
+  changeHoursSeason: { input: ChangeHoursSeasonParams & ChangeHoursSeasonInput; output: ChangeHoursSeasonOutput };
   chargeInvoiceCardOnFile: { input: ChargeInvoiceCardOnFileParams & ChargeInvoiceCardOnFileInput; output: ChargeInvoiceCardOnFileOutput };
   checkCallTracking: { input: CheckCallTrackingInput; output: CheckCallTrackingOutput };
   checkImport: { input: CheckImportParams & CheckImportInput; output: CheckImportOutput };
@@ -36567,6 +36701,7 @@ export interface OperationTypes {
   listFinancingApplications: { input: ListFinancingApplicationsInput; output: ListFinancingApplicationsOutput };
   listForms: { input: ListFormsInput; output: ListFormsOutput };
   listHolidays: { input: ListHolidaysInput; output: ListHolidaysOutput };
+  listHoursSeasons: { input: ListHoursSeasonsInput; output: ListHoursSeasonsOutput };
   listImportMappings: { input: ListImportMappingsInput; output: ListImportMappingsOutput };
   listImportSheets: { input: ListImportSheetsInput; output: ListImportSheetsOutput };
   listImports: { input: ListImportsInput; output: ListImportsOutput };
@@ -36877,6 +37012,7 @@ export interface OperationTypes {
   removeEmergencyContact: { input: RemoveEmergencyContactParams & RemoveEmergencyContactInput; output: RemoveEmergencyContactOutput };
   removeEstimateOptionPhoto: { input: RemoveEstimateOptionPhotoParams & RemoveEstimateOptionPhotoInput; output: RemoveEstimateOptionPhotoOutput };
   removeHoliday: { input: RemoveHolidayParams & RemoveHolidayInput; output: RemoveHolidayOutput };
+  removeHoursSeason: { input: RemoveHoursSeasonParams & RemoveHoursSeasonInput; output: RemoveHoursSeasonOutput };
   removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
   removeMileageOverride: { input: RemoveMileageOverrideParams & RemoveMileageOverrideInput; output: RemoveMileageOverrideOutput };
   removeMileageRate: { input: RemoveMileageRateParams & RemoveMileageRateInput; output: RemoveMileageRateOutput };
@@ -37266,6 +37402,7 @@ export const OPERATIONS = {
   addEmergencyContact: { method: "POST", path: "/v1/people/{membershipId}/emergency-contacts", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   addEstimateOptionPhoto: { method: "POST", path: "/v1/estimate-options/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   addExpenseReceipt: { method: "POST", path: "/v1/me/expenses/{id}/receipts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["expense:own"] },
+  addHoursSeason: { method: "POST", path: "/v1/booking/seasons", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   addIncidentFollowUp: { method: "POST", path: "/v1/safety/incidents/{id}/follow-ups", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   addIncidentPhoto: { method: "POST", path: "/v1/safety/incidents/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
   addMileageOverride: { method: "POST", path: "/v1/payroll/mileage-overrides", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
@@ -37338,6 +37475,7 @@ export const OPERATIONS = {
   cancelMailCampaign: { method: "POST", path: "/v1/marketing/mail/{id}/cancel", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:write"] },
   cancelVisit: { method: "POST", path: "/v1/visits/{id}/cancelled", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   cancelWebhookReplay: { method: "POST", path: "/v1/webhooks/endpoints/{id}/replays/{replayId}/cancel", pathParams: ["id","replayId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
+  changeHoursSeason: { method: "PUT", path: "/v1/booking/seasons/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   chargeInvoiceCardOnFile: { method: "POST", path: "/v1/invoices/{id}/charge-card", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:charge_saved","payment:collect"] },
   checkCallTracking: { method: "POST", path: "/v1/call-tracking/check", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   checkImport: { method: "POST", path: "/v1/imports/{id}/check", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
@@ -37833,6 +37971,7 @@ export const OPERATIONS = {
   listFinancingApplications: { method: "GET", path: "/v1/financing/applications", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:read"] },
   listForms: { method: "GET", path: "/v1/marketing/forms", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listHolidays: { method: "GET", path: "/v1/holidays", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
+  listHoursSeasons: { method: "GET", path: "/v1/booking/seasons", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listImportMappings: { method: "GET", path: "/v1/import-mappings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listImportSheets: { method: "POST", path: "/v1/import-sheets", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listImports: { method: "GET", path: "/v1/imports", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
@@ -38143,6 +38282,7 @@ export const OPERATIONS = {
   removeEmergencyContact: { method: "POST", path: "/v1/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   removeEstimateOptionPhoto: { method: "DELETE", path: "/v1/estimate-option-photos/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
   removeHoliday: { method: "DELETE", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
+  removeHoursSeason: { method: "DELETE", path: "/v1/booking/seasons/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
   removeMileageOverride: { method: "POST", path: "/v1/payroll/mileage-overrides/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   removeMileageRate: { method: "POST", path: "/v1/payroll/mileage-rates/{from}/removal", pathParams: ["from"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
@@ -38651,6 +38791,15 @@ export abstract class GeneratedOperations {
    */
   addExpenseReceipt(input: AddExpenseReceiptParams & AddExpenseReceiptInput, options?: CallOptions): Promise<AddExpenseReceiptOutput> {
     return this.call("addExpenseReceipt", input, options);
+  }
+
+  /**
+   * Add a season: hours kept between two dates.
+   *
+   * POST /v1/booking/seasons. Needs booking:configure.
+   */
+  addHoursSeason(input: AddHoursSeasonInput, options?: CallOptions): Promise<AddHoursSeasonOutput> {
+    return this.call("addHoursSeason", input, options);
   }
 
   /**
@@ -39299,6 +39448,15 @@ export abstract class GeneratedOperations {
    */
   cancelWebhookReplay(input: CancelWebhookReplayParams & CancelWebhookReplayInput, options?: CallOptions): Promise<CancelWebhookReplayOutput> {
     return this.call("cancelWebhookReplay", input, options);
+  }
+
+  /**
+   * Change a season's name, dates or days.
+   *
+   * PUT /v1/booking/seasons/{id}. Needs booking:configure.
+   */
+  changeHoursSeason(input: ChangeHoursSeasonParams & ChangeHoursSeasonInput, options?: CallOptions): Promise<ChangeHoursSeasonOutput> {
+    return this.call("changeHoursSeason", input, options);
   }
 
   /**
@@ -43757,6 +43915,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The company's seasons and each branch's.
+   *
+   * GET /v1/booking/seasons. Needs settings:read.
+   */
+  listHoursSeasons(input: ListHoursSeasonsInput = {} as ListHoursSeasonsInput, options?: CallOptions): Promise<ListHoursSeasonsOutput> {
+    return this.call("listHoursSeasons", input, options);
+  }
+
+  /**
    * The column mappings saved by name.
    *
    * GET /v1/import-mappings. Needs data:import.
@@ -46544,6 +46711,15 @@ export abstract class GeneratedOperations {
    */
   removeHoliday(input: RemoveHolidayParams & RemoveHolidayInput, options?: CallOptions): Promise<RemoveHolidayOutput> {
     return this.call("removeHoliday", input, options);
+  }
+
+  /**
+   * Take a season off.
+   *
+   * DELETE /v1/booking/seasons/{id}. Needs booking:configure.
+   */
+  removeHoursSeason(input: RemoveHoursSeasonParams & RemoveHoursSeasonInput, options?: CallOptions): Promise<RemoveHoursSeasonOutput> {
+    return this.call("removeHoursSeason", input, options);
   }
 
   /**

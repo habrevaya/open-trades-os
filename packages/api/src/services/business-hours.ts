@@ -1,10 +1,12 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, holidays as rules } from "@opentradesos/core";
+import { assertCan, holidays as rules, time } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, scopeOf, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, scopeOf, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
 import { liveBranch } from "./branches";
+import { remember, replayed } from "./once";
+import { loadHolidays } from "./holidays";
 
 /**
  * THE WEEK'S HOURS: THE COMPANY'S, AND A BRANCH'S OWN
@@ -26,9 +28,17 @@ import { liveBranch } from "./branches";
  * their own branch's work sees the company's week and their own branch's,
  * and changes only their own branch's, because the company's week opens and
  * closes every branch that keeps none.
+ *
+ * SEASONS. The company or a branch can keep dated weeks over its normal one
+ * (summer hours from June 1 to August 31), in `business_hours_season` with
+ * their seven rows here. Every reader that asks about a date reads the week
+ * in force on it (core's `holidays.weekOn`, `hoursOnDate`, `bookedAt` and
+ * the working calendar all take the seasons `loadWeek` hands them). An
+ * owner's seasons never overlap: one that would is refused in words.
  */
 
 type Row = typeof schema.businessHours.$inferSelect;
+type SeasonRow = typeof schema.businessHoursSeason.$inferSelect;
 
 /**
  * Every week the company keeps, in core's shape. Filtered by the
@@ -41,12 +51,32 @@ export async function weekRows(db: Database, organizationId: string): Promise<Ro
     .where(eq(schema.businessHours.organizationId, organizationId));
 }
 
-/** The week a reader that knows a branch reads: the branch's own, or the company's. */
+/** Every season the company keeps, its own and its branches', in core's shape. Filtered as `weekRows` is. */
+export async function seasonRows(db: Database, organizationId: string): Promise<rules.SeasonDef[]> {
+  const rows = await db.select().from(schema.businessHoursSeason)
+    .where(eq(schema.businessHoursSeason.organizationId, organizationId))
+    .orderBy(asc(schema.businessHoursSeason.startsOn));
+  return rows.map(seasonDef);
+}
+
+const seasonDef = (row: SeasonRow): rules.SeasonDef => ({
+  id: row.id, businessUnitId: row.businessUnitId, name: row.name,
+  startsOn: row.startsOn, endsOn: row.endsOn, repeatsYearly: row.repeatsYearly,
+});
+
+/**
+ * The week a reader that knows a branch reads: the branch's own, or the
+ * company's, with the seasons over it. A reader asking about a date reads
+ * `rules.weekOn(chosen, date)` or hands `seasons` to core with the week.
+ */
 export async function loadWeek(
   db: Database, organizationId: string, branchId: string | null = null,
 ): Promise<rules.ChosenWeek<Row>> {
-  return rules.weekFor(await weekRows(db, organizationId), branchId);
+  return rules.weekFor(await weekRows(db, organizationId), branchId, await seasonRows(db, organizationId));
 }
+
+/** The normal week and its seasons, as core's date readers (`bookedAt`, the working calendar) take them. */
+export const weekAndSeasons = (chosen: rules.ChosenWeek<Row>) => ({ week: chosen.week, seasons: chosen.seasons });
 
 /**
  * The weeks of several branches from one read, for a reader that asks about
@@ -56,10 +86,76 @@ export async function weeksByBranch(
   db: Database, organizationId: string,
 ): Promise<(branchId: string | null) => rules.ChosenWeek<Row>> {
   const rows = await weekRows(db, organizationId);
+  const seasons = await seasonRows(db, organizationId);
   const cache = new Map<string | null, rules.ChosenWeek<Row>>();
   return (branchId) => {
-    if (!cache.has(branchId)) cache.set(branchId, rules.weekFor(rows, branchId));
+    if (!cache.has(branchId)) cache.set(branchId, rules.weekFor(rows, branchId, seasons));
     return cache.get(branchId)!;
+  };
+}
+
+/* ------------------------------------------------------------- one date */
+
+/** What a branch (or the company) keeps on one date, for the board. */
+export interface DayHoursView {
+  /** The branch asked about, or null for the company. */
+  branchId: string | null;
+  /** "HH:MM" in the company's zone. Null on a closed day or when nobody has said. */
+  opensAt: string | null;
+  closesAt: string | null;
+  closed: boolean;
+  /** False when no week is declared and no holiday says anything: then not known, never closed. */
+  known: boolean;
+  /** The season in force that date (summer hours), or null for the normal week. */
+  season: string | null;
+  /** The holiday on that date, when the list says something about it. */
+  holiday: string | null;
+  /** The day in a sentence: "Open 6:00 AM to 2:00 PM, Summer hours." */
+  words: string;
+}
+
+const WEEKDAYS = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"];
+const hhmm = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+/** "6:00 AM", as the board writes a time. */
+export const clockWords = (minute: number) => {
+  if (minute >= 24 * 60) return "midnight";
+  const h = Math.floor(minute / 60);
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(minute % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+};
+
+/**
+ * The hours several branches keep on one date, from one read of the weeks,
+ * seasons and holidays: the week in force (a season's where one covers the
+ * date), with the holiday list over it.
+ */
+export async function hoursOnDay(
+  db: Database, organizationId: string, date: string,
+): Promise<(branchId: string | null) => Promise<DayHoursView>> {
+  const weekOf = await weeksByBranch(db, organizationId);
+  const cache = new Map<string | null, DayHoursView>();
+  return async (branchId) => {
+    if (cache.has(branchId)) return cache.get(branchId)!;
+    const chosen = weekOf(branchId);
+    const inForce = rules.weekOn(chosen, date);
+    const kept = rules.hoursOnDate(date, chosen.week, await loadHolidays(db, organizationId, branchId), chosen.seasons);
+    const season = kept.holiday ? null : inForce.season?.name ?? null;
+    const holiday = kept.holiday?.name ?? null;
+    const words = !kept.known ? "No opening hours set."
+      : kept.hours === null
+        ? holiday ? `Closed for ${holiday}.` : `Closed on ${WEEKDAYS[new Date(`${date}T00:00:00Z`).getUTCDay()]}${season ? ` in ${season}` : ""}.`
+        : `Open ${clockWords(kept.hours.openMinute)} to ${clockWords(kept.hours.closeMinute)}${holiday ? ` for ${holiday}` : season ? `, ${season}` : ""}.`;
+    const view: DayHoursView = {
+      branchId,
+      opensAt: kept.hours ? hhmm(kept.hours.openMinute) : null,
+      closesAt: kept.hours ? hhmm(kept.hours.closeMinute) : null,
+      closed: kept.known && kept.hours === null,
+      known: kept.known,
+      season,
+      holiday,
+      words,
+    };
+    cache.set(branchId, view);
+    return view;
   };
 }
 
@@ -185,6 +281,8 @@ const ownerIs = (organizationId: string, branchId: string | null) => and(
   eq(schema.businessHours.organizationId, organizationId),
   branchId ? eq(schema.businessHours.businessUnitId, branchId) : isNull(schema.businessHours.businessUnitId),
   isNull(schema.businessHours.phoneNumberId),
+  /** A season's rows are the season's, changed with it. */
+  isNull(schema.businessHours.seasonId),
 );
 
 /**
@@ -241,10 +339,206 @@ export async function followCompany(
   });
 }
 
+
+/* ------------------------------------------------------------- seasons */
+
+export interface SeasonView {
+  id: string;
+  /** The branch whose season it is, or null for the company's. */
+  businessUnitId: string | null;
+  branchName: string | null;
+  name: string;
+  startsOn: string;
+  endsOn: string;
+  repeatsYearly: boolean;
+  /** When it runs, in words: "June 1 to August 31, every year". */
+  when: string;
+  /** Its seven days. */
+  days: DayView[];
+  /** Whether it is in force today, in the company's zone. */
+  inForceToday: boolean;
+}
+
+export interface SeasonInput {
+  name: string;
+  /** `YYYY-MM-DD`. For one that repeats, only the month and day are read. */
+  startsOn: string;
+  endsOn: string;
+  repeatsYearly?: boolean | undefined;
+  /** A branch's own season. Absent or null is the company's. */
+  businessUnitId?: string | null | undefined;
+  days: WeekInput["days"];
+}
+
+async function seasonViews(tx: Database, ctx: ServiceContext, rows: SeasonRow[]): Promise<SeasonView[]> {
+  if (rows.length === 0) return [];
+  const today = time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+  const days = await tx.select().from(schema.businessHours)
+    .where(inArray(schema.businessHours.seasonId, rows.map((r) => r.id)));
+  const branchIds = [...new Set(rows.map((r) => r.businessUnitId).filter((id): id is string => id !== null))];
+  const units = branchIds.length === 0 ? [] : await tx.select({ id: schema.businessUnit.id, name: schema.businessUnit.name })
+    .from(schema.businessUnit).where(inArray(schema.businessUnit.id, branchIds));
+  return rows.map((row) => ({
+    id: row.id,
+    businessUnitId: row.businessUnitId,
+    branchName: row.businessUnitId ? units.find((u) => u.id === row.businessUnitId)?.name ?? null : null,
+    name: row.name,
+    startsOn: row.startsOn,
+    endsOn: row.endsOn,
+    repeatsYearly: row.repeatsYearly,
+    when: rules.describeSeason(row),
+    days: sorted(days.filter((d) => d.seasonId === row.id)),
+    inForceToday: rules.seasonCovers(row, today),
+  }));
+}
+
+/**
+ * The company's seasons and each branch's, coming first in the order they
+ * start. Somebody who sees one branch sees the company's and their own
+ * branch's, as with the week.
+ */
+export async function listSeasons(ctx: ServiceContext): Promise<{ seasons: SeasonView[] }> {
+  return guardedRead(ctx, "settings:read", async (tx) => {
+    const own = ownBranchOnly(ctx);
+    const rows = (await tx.select().from(schema.businessHoursSeason)
+      .where(eq(schema.businessHoursSeason.organizationId, ctx.actor.organizationId))
+      .orderBy(asc(schema.businessHoursSeason.startsOn), asc(schema.businessHoursSeason.name)))
+      .filter((row) => own === false || row.businessUnitId === null || row.businessUnitId === own);
+    return { seasons: await seasonViews(tx, ctx, rows) };
+  });
+}
+
+/** The dates and the week, checked, in words when they are wrong. */
+function checkedSeason(input: SeasonInput): { name: string; startsOn: string; endsOn: string; repeatsYearly: boolean } {
+  const season = {
+    name: input.name.trim(), startsOn: input.startsOn, endsOn: input.endsOn, repeatsYearly: input.repeatsYearly ?? false,
+  };
+  const check = rules.checkSeason(season);
+  if (!check.ok) throw new ConflictError(check.message);
+  checkWeek(input.days);
+  return season;
+}
+
+/**
+ * Refuses a season that would be in force on a date another of the same
+ * owner's already is, naming it. Under a lock on the owner, so two people
+ * saving overlapping seasons at once cannot both get in.
+ */
+async function refuseOverlap(
+  tx: Database, organizationId: string, branchId: string | null, season: rules.SeasonSpan, exceptId: string | null,
+): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`hours-season:${organizationId}:${branchId ?? "company"}`}))`);
+  const others = (await tx.select().from(schema.businessHoursSeason)
+    .where(and(
+      eq(schema.businessHoursSeason.organizationId, organizationId),
+      branchId ? eq(schema.businessHoursSeason.businessUnitId, branchId) : isNull(schema.businessHoursSeason.businessUnitId),
+    )))
+    .filter((row) => row.id !== exceptId);
+  const clash = rules.seasonClash(season, others);
+  if (clash) {
+    throw new ConflictError(
+      `This season runs ${rules.describeSeason(season)}, which overlaps "${clash.name}" (${rules.describeSeason(clash)}). `
+      + "A day can keep only one season's hours. Change the dates of one of them.",
+    );
+  }
+}
+
+/** A season's seven days, with its branch (or none, for the company's) beside its id. */
+async function writeSeasonDays(
+  tx: Database, organizationId: string, branchId: string | null, seasonId: string, days: WeekInput["days"],
+): Promise<void> {
+  await tx.insert(schema.businessHours).values(days.map((day) => ({
+    organizationId,
+    businessUnitId: branchId,
+    seasonId,
+    dayOfWeek: day.dayOfWeek,
+    opensAt: day.closed ? null : day.opensAt,
+    closesAt: day.closed ? null : day.closesAt,
+    closed: day.closed,
+  })));
+}
+
+/** A season the person may see, or not found: another branch's reads as not there. */
+async function seasonWithin(tx: Database, ctx: ServiceContext, id: string): Promise<SeasonRow> {
+  const [row] = await tx.select().from(schema.businessHoursSeason)
+    .where(and(eq(schema.businessHoursSeason.id, id), eq(schema.businessHoursSeason.organizationId, ctx.actor.organizationId)))
+    .limit(1);
+  const own = ownBranchOnly(ctx);
+  if (!row || (own !== false && row.businessUnitId !== null && row.businessUnitId !== own)) throw new NotFoundError("Season");
+  return row;
+}
+
+/**
+ * A season for the company or a branch: its dates and its seven days. The
+ * same permission and the same branch rule as the week it sits over.
+ */
+export async function addSeason(ctx: ServiceContext, input: SeasonInput): Promise<SeasonView> {
+  assertCan(ctx.actor, "booking:configure");
+  return guardedWrite(ctx, "booking:configure", async (tx) => {
+    const seen = await replayed<SeasonView>(tx, ctx, "business_hours_season");
+    if (seen) return seen;
+    const branchId = input.businessUnitId ?? null;
+    await mayKeep(tx, ctx, branchId);
+    const season = checkedSeason(input);
+    await refuseOverlap(tx, ctx.actor.organizationId, branchId, season, null);
+    const [row] = await tx.insert(schema.businessHoursSeason)
+      .values({ organizationId: ctx.actor.organizationId, businessUnitId: branchId, ...season }).returning();
+    await writeSeasonDays(tx, ctx.actor.organizationId, branchId, row!.id, input.days);
+    const [answer] = await seasonViews(tx, ctx, [row!]);
+    await audit(tx, ctx, "booking.season.added", "business_hours_season", row!.id, null, answer);
+    await remember(tx, ctx, "business_hours_season", row!.id, answer!);
+    return answer!;
+  });
+}
+
+/**
+ * A season's name, dates or days changed. It stays with its owner: a
+ * company's season does not become a branch's, which is a new season.
+ */
+export async function changeSeason(ctx: ServiceContext, input: Omit<SeasonInput, "businessUnitId"> & { id: string }): Promise<SeasonView> {
+  assertCan(ctx.actor, "booking:configure");
+  return guardedWrite(ctx, "booking:configure", async (tx) => {
+    const before = await seasonWithin(tx, ctx, input.id);
+    await mayKeep(tx, ctx, before.businessUnitId);
+    const season = checkedSeason(input);
+    await refuseOverlap(tx, ctx.actor.organizationId, before.businessUnitId, season, before.id);
+    const [beforeView] = await seasonViews(tx, ctx, [before]);
+    const [row] = await tx.update(schema.businessHoursSeason)
+      .set({ ...season, updatedAt: new Date() })
+      .where(eq(schema.businessHoursSeason.id, before.id)).returning();
+    await tx.delete(schema.businessHours).where(eq(schema.businessHours.seasonId, before.id));
+    await writeSeasonDays(tx, ctx.actor.organizationId, before.businessUnitId, before.id, input.days);
+    const [answer] = await seasonViews(tx, ctx, [row!]);
+    await audit(tx, ctx, "booking.season.changed", "business_hours_season", before.id, beforeView, answer);
+    return answer!;
+  });
+}
+
+/** A season taken off: its dates keep the normal week again. The audit log keeps what it said. Removing one already gone succeeds. */
+export async function removeSeason(ctx: ServiceContext, input: { id: string }): Promise<{ removed: boolean }> {
+  assertCan(ctx.actor, "booking:configure");
+  return guardedWrite(ctx, "booking:configure", async (tx) => {
+    const [existing] = await tx.select({ id: schema.businessHoursSeason.id }).from(schema.businessHoursSeason)
+      .where(and(eq(schema.businessHoursSeason.id, input.id), eq(schema.businessHoursSeason.organizationId, ctx.actor.organizationId)))
+      .limit(1);
+    if (!existing) return { removed: false };
+    const before = await seasonWithin(tx, ctx, input.id);
+    await mayKeep(tx, ctx, before.businessUnitId);
+    const [beforeView] = await seasonViews(tx, ctx, [before]);
+    await tx.delete(schema.businessHoursSeason).where(eq(schema.businessHoursSeason.id, before.id));
+    await audit(tx, ctx, "booking.season.removed", "business_hours_season", before.id, beforeView, null);
+    return { removed: true };
+  });
+}
+
 /* ------------------------------------------------------------- handlers */
 
 export const handlers = {
   listBusinessHours: (ctx: ServiceContext) => list(ctx),
   setBusinessHours: (ctx: ServiceContext, input: WeekInput) => setWeek(ctx, input),
   clearBranchHours: (ctx: ServiceContext, input: { businessUnitId: string }) => followCompany(ctx, input),
+  listHoursSeasons: (ctx: ServiceContext) => listSeasons(ctx),
+  addHoursSeason: (ctx: ServiceContext, input: SeasonInput) => addSeason(ctx, input),
+  changeHoursSeason: (ctx: ServiceContext, input: Omit<SeasonInput, "businessUnitId"> & { id: string }) => changeSeason(ctx, input),
+  removeHoursSeason: (ctx: ServiceContext, input: { id: string }) => removeSeason(ctx, input),
 } as const;

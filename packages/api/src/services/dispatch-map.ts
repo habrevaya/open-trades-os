@@ -20,6 +20,7 @@ import { truckOf } from "./trucks";
 import { facilitiesForPlan, addressText, planTerms } from "./disposal-facilities";
 import { priorityWithin } from "./agreements";
 import { heldOnPeople } from "./booking";
+import { DEFAULT_DAY_ENDS_AT, DEFAULT_DAY_STARTS_AT } from "./company-day";
 
 /**
  * THE DAY ON A MAP, AND WHAT ORDER TO DRIVE IT IN
@@ -66,7 +67,7 @@ export interface TravelSettings {
 const DEFAULT_TRAVEL: TravelSettings = {
   averageKmh: geo.DEFAULT_DRIVE.averageKmh,
   roadFactor: geo.DEFAULT_DRIVE.roadFactor,
-  dayStartsAt: "08:00",
+  dayStartsAt: DEFAULT_DAY_STARTS_AT,
 };
 
 /**
@@ -139,7 +140,7 @@ export interface WorkdaySettings {
 }
 
 const DEFAULT_WORKDAY: WorkdaySettings = {
-  dayEndsAt: "17:00", lunchMinutes: 30, lunchEarliest: "11:00", lunchLatest: "13:30", maxOvertimeMinutes: 60,
+  dayEndsAt: DEFAULT_DAY_ENDS_AT, lunchMinutes: 30, lunchEarliest: "11:00", lunchLatest: "13:30", maxOvertimeMinutes: 60,
 };
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -1317,7 +1318,16 @@ export interface PlannedCrew {
   start: Place | null;
   /** The crew's own working day (`crew.workday`), or null for the company's. */
   hours: { startsAt: string; endsAt: string } | null;
+  /** Its own hours on particular weekdays (`crew.weekday_hours`), read before `hours` on that weekday. */
+  weekdayHours?: routing.CrewWeekdayHours[] | undefined;
 }
+
+/**
+ * The hours a planned crew works on a date: its own for that weekday, its
+ * one set of hours, or null for the company's day (core's `crewHoursOn`).
+ */
+export const crewHoursOnDay = (crew: PlannedCrew, date: string) =>
+  routing.crewHoursOn({ workday: crew.hours, weekdayHours: crew.weekdayHours }, date).hours;
 
 export const CREW = "crew:";
 export const crewKey = (id: string) => `${CREW}${id}`;
@@ -1378,6 +1388,7 @@ export async function crewsOver(tx: Database, ctx: ServiceContext, days: Day[]):
       return {
         id: c.id, name: c.name, color: c.color, start: placeOfLocation(c.homeLocationId ?? lead?.home ?? null),
         hours: c.workday && HHMM.test(c.workday.startsAt) && HHMM.test(c.workday.endsAt) ? c.workday : null,
+        weekdayHours: c.weekdayHours,
       };
     });
 }
@@ -1385,15 +1396,16 @@ export async function crewsOver(tx: Database, ctx: ServiceContext, days: Day[]):
 /**
  * A crew's day as the planner plans it, the way `rebalanceTechnicians`
  * plans a person's: work under way or finished first and not planned, the
- * crew's own hours where it keeps some (else the company's working day) and
- * lunch around the rest.
+ * crew's own hours for the day's weekday, or its one set of hours, where it
+ * keeps some (else the company's working day) and lunch around the rest.
  */
 export function crewDay(day: Day, crew: PlannedCrew, points: Points, prefix: string) {
+  const hours = crewHoursOnDay(crew, day.date);
   const stops = day.visits.filter((v) => v.crewId === crew.id && !(NOT_STOPS as readonly string[]).includes(v.status));
   const locked = stops.filter((v) =>
     (UNDER_WAY as readonly string[]).includes(v.status) || (FINISHED as readonly string[]).includes(v.status));
   const lastLocked = [...locked].reverse().find((v) => v.place !== null);
-  let departAt = departureOf(day, crew.hours?.startsAt ?? day.travel.dayStartsAt);
+  let departAt = departureOf(day, hours?.startsAt ?? day.travel.dayStartsAt);
   if (lastLocked && (UNDER_WAY as readonly string[]).includes(lastLocked.status)) {
     departAt = Math.max(departAt, minutesFrom(day.origin, lastLocked.arrivedAt ?? new Date()) + lastLocked.estimatedDurationMinutes);
   }
@@ -1409,7 +1421,7 @@ export function crewDay(day: Day, crew: PlannedCrew, points: Points, prefix: str
     end: `end:${prefix}${key}`,
     departAt,
     shift: {
-      endsAt: atLocal(day, crew.hours?.endsAt ?? day.workday.dayEndsAt),
+      endsAt: atLocal(day, hours?.endsAt ?? day.workday.dayEndsAt),
       maxOvertimeMinutes: day.workday.maxOvertimeMinutes,
       lunch: lunch && departAt <= lunch.latest ? lunch : null,
     },

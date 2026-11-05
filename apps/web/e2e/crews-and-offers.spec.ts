@@ -51,6 +51,8 @@ test("A crew's visit dragged onto one person on the board becomes theirs", async
   const visitId = job.visits[0]!.id;
   await api(owner, "post", `/v1/visits/${visitId}/crew`, { crewId: crew.id });
 
+  /** Every active crew has a lane now, so the board is wide: wide enough that Sam and the crew are on screen together. */
+  await owner.setViewportSize({ width: 2400, height: 1000 });
   await owner.goto(`/schedule?date=${DAY}`);
   const lane = owner.getByRole("region", { name: `Crew Fence crew ${run}` });
   const card = lane.getByRole("article").filter({ hasText: name });
@@ -58,10 +60,10 @@ test("A crew's visit dragged onto one person on the board becomes theirs", async
   const samColumn = owner.locator("section").filter({ has: owner.getByRole("heading", { name: "Sam Reyes", exact: true }) });
   await card.dragTo(samColumn);
 
-  /** On Sam's day, and the crew has nothing left that day, so its lane is gone. */
+  /** On Sam's day, and the crew has nothing left that day: its lane stays, empty, ready for its next visit. */
   await expect(samColumn.getByText(name, { exact: true })).toBeVisible();
   await owner.reload();
-  await expect(owner.getByRole("region", { name: `Crew Fence crew ${run}` })).toHaveCount(0);
+  await expect(owner.getByRole("region", { name: `Crew Fence crew ${run}` })).toContainText("Nothing yet. Drop a visit here to send it to the crew.");
   await expect(owner.locator("section").filter({ has: owner.getByRole("heading", { name: "Sam Reyes", exact: true }) })
     .getByText(name, { exact: true })).toBeVisible();
 });

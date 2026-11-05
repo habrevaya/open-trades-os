@@ -4,7 +4,7 @@ import { assertCan, holidays as rules, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { checkWeek, dayView, sorted, weekRows, type DayView } from "./business-hours";
+import { checkWeek, dayView, seasonRows, sorted, weekRows, type DayView } from "./business-hours";
 import {
   checked, columns, loadHolidays, loadNumberHolidays, refuseClash, view as holidayView,
   type HolidayInput, type HolidayView,
@@ -46,20 +46,26 @@ export interface NumberHours {
   rows: (typeof schema.businessHours.$inferSelect)[];
   holidays: rules.CompanyHoliday[];
   source: rules.WeekSource;
+  /** The season whose week it is on the date asked about, or null for the normal week. */
+  season: string | null;
 }
 
 /**
  * The week and the days off a number's calls are routed by, inside a
- * transaction the caller holds (the voice webhook's).
+ * transaction the caller holds (the voice webhook's). Asked about a date
+ * (the company's today, for a call), the week in force on it: the season's
+ * of the branch or company it follows, where one covers the date. A number
+ * keeping its own week has no seasons.
  */
-export async function hoursOfNumber(db: Database, organizationId: string, number: NumberRow): Promise<NumberHours> {
+export async function hoursOfNumber(db: Database, organizationId: string, number: NumberRow, on?: string): Promise<NumberHours> {
   const chosen = rules.weekForNumber(await weekRows(db, organizationId), {
     id: number.id, businessUnitId: number.businessUnitId, hoursFrom: number.hoursFrom,
-  });
+  }, await seasonRows(db, organizationId));
+  const inForce = on ? rules.weekOn(chosen, on) : { rows: chosen.rows, week: chosen.week, season: null };
   const holidays = number.hoursFrom === "own"
     ? await loadNumberHolidays(db, organizationId, number.id)
     : await loadHolidays(db, organizationId, number.hoursFrom === "branch" ? number.businessUnitId : null);
-  return { week: chosen.week, rows: chosen.rows, holidays, source: chosen.source };
+  return { week: inForce.week, rows: inForce.rows, holidays, source: chosen.source, season: inForce.season?.name ?? null };
 }
 
 export interface NumberHoursView {
@@ -91,20 +97,25 @@ async function numberWithin(tx: Database, organizationId: string, id: string): P
 async function viewWithin(tx: Database, organizationId: string, number: NumberRow): Promise<NumberHoursView> {
   const rows = await weekRows(tx, organizationId);
   const own = rows.filter((r) => r.phoneNumberId === number.id);
-  const chosen = rules.weekForNumber(rows, { id: number.id, businessUnitId: number.businessUnitId, hoursFrom: number.hoursFrom });
+  const today = time.dateIn(new Date(), await timezoneOf(tx, organizationId));
+  const chosen = rules.weekForNumber(rows, { id: number.id, businessUnitId: number.businessUnitId, hoursFrom: number.hoursFrom },
+    await seasonRows(tx, organizationId));
+  /** The week its calls are routed by today: a season's, where one is in force. */
+  const inForce = rules.weekOn(chosen, today);
   const [unit] = number.businessUnitId
     ? await tx.select({ name: schema.businessUnit.name }).from(schema.businessUnit)
       .where(eq(schema.businessUnit.id, number.businessUnitId)).limit(1)
     : [];
   const branchName = unit?.name ?? null;
-  const today = time.dateIn(new Date(), await timezoneOf(tx, organizationId));
   const holidayRows = await tx.select().from(schema.companyHoliday)
     .where(eq(schema.companyHoliday.phoneNumberId, number.id)).orderBy(asc(schema.companyHoliday.date));
   const ownHolidays = holidayRows.map((row) => holidayView(row, today, null));
-  const whose = chosen.source === "number" ? "Its own hours"
-    : chosen.source === "branch" ? `${branchName ?? "Its branch"}'s hours`
-      : chosen.source === "company" ? "The company's hours"
-        : number.hoursFrom === "own" ? "No hours yet: its own week has not been set" : "No hours: the company has not set its week";
+  const owner = inForce.season?.businessUnitId ? `${branchName ?? "Its branch"}'s` : "The company's";
+  const whose = inForce.season ? `${owner} ${inForce.season.name}, ${rules.describeSeason(inForce.season)}`
+    : chosen.source === "number" ? "Its own hours"
+      : chosen.source === "branch" ? `${branchName ?? "Its branch"}'s hours`
+        : chosen.source === "company" ? "The company's hours"
+          : number.hoursFrom === "own" ? "No hours yet: its own week has not been set" : "No hours: the company has not set its week";
   return {
     id: number.id,
     e164: number.e164,
@@ -119,7 +130,7 @@ async function viewWithin(tx: Database, organizationId: string, number: NumberRo
       ...ownHolidays.filter((h) => h.nextOn !== null).sort((a, b) => a.nextOn!.localeCompare(b.nextOn!)),
       ...ownHolidays.filter((h) => h.nextOn === null),
     ],
-    routedBy: { source: chosen.source, whose, days: chosen.rows.map(dayView).sort((a, b) => a.dayOfWeek - b.dayOfWeek) },
+    routedBy: { source: chosen.source, whose, days: inForce.rows.map(dayView).sort((a, b) => a.dayOfWeek - b.dayOfWeek) },
   };
 }
 

@@ -15821,6 +15821,471 @@
         ]
       }
     },
+    "/v1/booking/seasons": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "addHoursSeason",
+        "summary": "Add a season: hours kept between two dates",
+        "description": "All seven days, as for the week. Without `businessUnitId` it is the company's, read by every branch on the company's week; with one, that branch's own. A season that would be in force on a date another of the same owner's is (two dated ones whose dates meet, or a yearly one whose months and days meet another's) is refused in words naming the other. A holiday on a date in a season still wins. Somebody who sees only their own branch's work keeps only its seasons.\n\nRequires a session holding: booking:configure.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddHoursSeasonInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a season: hours kept between two dates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddHoursSeasonOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:configure"
+        ]
+      },
+      "get": {
+        "operationId": "listHoursSeasons",
+        "summary": "The company's seasons and each branch's",
+        "description": "Dated weeks over the normal one, in the order they start. Somebody who sees only their own branch's work sees the company's and their own branch's.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M02"
+        ],
+        "responses": {
+          "200": {
+            "description": "The company's seasons and each branch's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListHoursSeasonsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/booking/seasons/{id}": {
+      "description": "Served at this path: DELETE, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PUT"
+      ],
+      "put": {
+        "operationId": "changeHoursSeason",
+        "summary": "Change a season's name, dates or days",
+        "description": "The whole season every time. It stays with its owner: a company's season is not moved to a branch.\n\nRequires a session holding: booking:configure.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeHoursSeasonInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change a season's name, dates or days",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeHoursSeasonOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:configure"
+        ]
+      },
+      "delete": {
+        "operationId": "removeHoursSeason",
+        "summary": "Take a season off",
+        "description": "Its dates keep the normal week again. The audit log keeps what it said. Removing one already gone succeeds and says so.\n\nRequires a session holding: booking:configure.",
+        "tags": [
+          "M02"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveHoursSeasonInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a season off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveHoursSeasonOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:configure"
+        ]
+      }
+    },
     "/v1/booking/services": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -38624,7 +39089,7 @@
       "patch": {
         "operationId": "updateCrew",
         "summary": "Change a crew's rate, kit, skills or hours",
-        "description": "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
+        "description": "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. `weekdayHours` is the whole list of hours it keeps on particular weekdays, read on that weekday in place of `workday` (a day given twice, or one ending before it starts, is refused in words); empty clears them. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
         "tags": [
           "M09"
         ],
@@ -157030,6 +157495,164 @@
           "id"
         ]
       },
+      "AddHoursSeasonInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "endsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dayOfWeek",
+                "opensAt",
+                "closesAt",
+                "closed"
+              ]
+            }
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "name",
+          "startsOn",
+          "endsOn",
+          "days"
+        ]
+      },
+      "AddHoursSeasonOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "startsOn": {
+            "type": "string"
+          },
+          "endsOn": {
+            "type": "string"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "when": {
+            "type": "string"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dayOfWeek",
+                "opensAt",
+                "closesAt",
+                "closed"
+              ]
+            }
+          },
+          "inForceToday": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "businessUnitId",
+          "branchName",
+          "name",
+          "startsOn",
+          "endsOn",
+          "repeatsYearly",
+          "when",
+          "days",
+          "inForceToday"
+        ]
+      },
       "AddIncidentFollowUpInput": {
         "type": "object",
         "properties": {
@@ -166956,6 +167579,157 @@
           "finishedAt"
         ]
       },
+      "ChangeHoursSeasonInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "endsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dayOfWeek",
+                "opensAt",
+                "closesAt",
+                "closed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "name",
+          "startsOn",
+          "endsOn",
+          "days"
+        ]
+      },
+      "ChangeHoursSeasonOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "startsOn": {
+            "type": "string"
+          },
+          "endsOn": {
+            "type": "string"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "when": {
+            "type": "string"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dayOfWeek",
+                "opensAt",
+                "closesAt",
+                "closed"
+              ]
+            }
+          },
+          "inForceToday": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "businessUnitId",
+          "branchName",
+          "name",
+          "startsOn",
+          "endsOn",
+          "repeatsYearly",
+          "when",
+          "days",
+          "inForceToday"
+        ]
+      },
       "ChargeInvoiceCardOnFileInput": {
         "type": "object",
         "properties": {
@@ -172779,6 +173553,33 @@
               "startsAt",
               "endsAt"
             ]
+          },
+          "weekdayHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsAt": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "endsAt": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                }
+              },
+              "required": [
+                "startsAt",
+                "endsAt",
+                "dayOfWeek"
+              ]
+            },
+            "maxItems": 7
           }
         },
         "required": [
@@ -199164,6 +199965,61 @@
             "type": "string",
             "format": "date"
           },
+          "hours": {
+            "type": "object",
+            "properties": {
+              "branchId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "opensAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closesAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closed": {
+                "type": "boolean"
+              },
+              "known": {
+                "type": "boolean"
+              },
+              "season": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "holiday": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "words": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "branchId",
+              "opensAt",
+              "closesAt",
+              "closed",
+              "known",
+              "season",
+              "holiday",
+              "words"
+            ]
+          },
           "technicians": {
             "type": "array",
             "items": {
@@ -199372,11 +200228,47 @@
                     "type": "string"
                   }
                 },
+                "inScope": {
+                  "type": "boolean"
+                },
+                "hours": {
+                  "type": "object",
+                  "properties": {
+                    "startsAt": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "type": "string",
+                      "enum": [
+                        "weekday",
+                        "own",
+                        "company"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "startsAt",
+                    "endsAt",
+                    "from"
+                  ]
+                },
+                "branchClosed": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "visits": {
                   "type": "array",
                   "items": {
                     "type": "object",
                     "properties": {
+                      "outsideHours": {
+                        "type": "boolean"
+                      },
                       "id": {
                         "type": "string",
                         "format": "uuid"
@@ -199474,6 +200366,7 @@
                       }
                     },
                     "required": [
+                      "outsideHours",
                       "id",
                       "jobNumber",
                       "summary",
@@ -199497,6 +200390,9 @@
                 "color",
                 "leadName",
                 "memberNames",
+                "inScope",
+                "hours",
+                "branchClosed",
                 "visits"
               ]
             }
@@ -199676,6 +200572,7 @@
         },
         "required": [
           "date",
+          "hours",
           "technicians",
           "crews",
           "routes",
@@ -235658,6 +236555,32 @@
                     "endsAt"
                   ]
                 },
+                "weekdayHours": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "startsAt": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "endsAt": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "dayOfWeek": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6
+                      }
+                    },
+                    "required": [
+                      "startsAt",
+                      "endsAt",
+                      "dayOfWeek"
+                    ]
+                  }
+                },
                 "active": {
                   "type": "boolean"
                 },
@@ -235700,6 +236623,7 @@
                 "skills",
                 "color",
                 "workday",
+                "weekdayHours",
                 "active",
                 "members"
               ]
@@ -240230,6 +241154,105 @@
         },
         "required": [
           "holidays"
+        ]
+      },
+      "ListHoursSeasonsOutput": {
+        "type": "object",
+        "properties": {
+          "seasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "branchName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "startsOn": {
+                  "type": "string"
+                },
+                "endsOn": {
+                  "type": "string"
+                },
+                "repeatsYearly": {
+                  "type": "boolean"
+                },
+                "when": {
+                  "type": "string"
+                },
+                "days": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "dayOfWeek": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6
+                      },
+                      "opensAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^\\d{2}:\\d{2}$"
+                      },
+                      "closesAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^\\d{2}:\\d{2}$"
+                      },
+                      "closed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "dayOfWeek",
+                      "opensAt",
+                      "closesAt",
+                      "closed"
+                    ]
+                  }
+                },
+                "inForceToday": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "businessUnitId",
+                "branchName",
+                "name",
+                "startsOn",
+                "endsOn",
+                "repeatsYearly",
+                "when",
+                "days",
+                "inForceToday"
+              ]
+            }
+          }
+        },
+        "required": [
+          "seasons"
         ]
       },
       "ListImportMappingsOutput": {
@@ -275356,6 +276379,21 @@
           "removed"
         ]
       },
+      "RemoveHoursSeasonInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveHoursSeasonOutput": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed"
+        ]
+      },
       "RemoveKnowledgeNoteInput": {
         "type": "object",
         "properties": {}
@@ -305620,6 +306658,33 @@
               "startsAt",
               "endsAt"
             ]
+          },
+          "weekdayHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startsAt": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "endsAt": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                }
+              },
+              "required": [
+                "startsAt",
+                "endsAt",
+                "dayOfWeek"
+              ]
+            },
+            "maxItems": 7
           },
           "active": {
             "type": "boolean"

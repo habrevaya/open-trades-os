@@ -450,3 +450,4 @@ export * from "./rebalance.js";
 export * from "./days.js";
 export * from "./truck.js";
 export * from "./real-day.js";
+export * from "./crew-hours.js";

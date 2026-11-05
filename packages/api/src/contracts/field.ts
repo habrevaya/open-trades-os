@@ -646,6 +646,21 @@ const BoardHold = z.object({
   words: z.string(),
 }).nullable().optional();
 
+/** What a branch, or the company, keeps on one date. */
+const DayHours = z.object({
+  branchId: Uuid.nullable(),
+  /** "HH:MM" in the company's zone. Null on a closed day or when nobody has said. */
+  opensAt: z.string().nullable(),
+  closesAt: z.string().nullable(),
+  closed: z.boolean(),
+  /** False when no week is declared and no holiday says anything. */
+  known: z.boolean(),
+  /** The season in force (summer hours), or null for the normal week. */
+  season: z.string().nullable(),
+  holiday: z.string().nullable(),
+  words: z.string(),
+});
+
 /**
  * The dispatch board.
  *
@@ -666,6 +681,12 @@ export const getDispatchBoard = defineRoute({
   }),
   output: z.object({
     date: z.string().date(),
+    /**
+     * What the shop keeps on the date: the week in force (a season's, where
+     * one covers the date) with the holiday list over it, for the branch the
+     * board shows, or the company's. `words` is the day in a sentence.
+     */
+    hours: DayHours,
     technicians: z.array(z.object({
       id: Uuid,
       displayName: z.string(),
@@ -712,7 +733,8 @@ export const getDispatchBoard = defineRoute({
       })),
     })),
     /**
-     * Crews with work on the day, each a lane of its own. Crew work used to
+     * Every active crew the reader's board shows, work or not, each a lane of
+     * its own, and any other crew on a visit they can see. Crew work used to
      * land in the unassigned pile, because nobody is in its assignment list.
      */
     crews: z.array(z.object({
@@ -721,7 +743,18 @@ export const getDispatchBoard = defineRoute({
       color: z.string().nullable(),
       leadName: z.string().nullable(),
       memberNames: z.array(z.string()),
+      /** One of the reader's own active crews, so work can be sent to it. False for another branch's crew drawn for a visit they see. */
+      inScope: z.boolean(),
+      /**
+       * The hours the crew works that day, "HH:MM": its own for the weekday
+       * (`weekday`), its one set of hours (`own`), or the company's day.
+       */
+      hours: z.object({ startsAt: z.string(), endsAt: z.string(), from: z.enum(["weekday", "own", "company"]) }),
+      /** The day in words when the crew's branch (or the company) is shut that day, else null. */
+      branchClosed: z.string().nullable(),
       visits: z.array(z.object({
+        /** The window starts before the crew's hours that day or ends after them. */
+        outsideHours: z.boolean(),
         id: Uuid,
         jobNumber: z.number().int(),
         summary: z.string(),

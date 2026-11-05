@@ -8,6 +8,8 @@ import { crews, onCall, ConflictError } from "@opentradesos/api/services";
 
 export type CrewState = FormState;
 
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 /**
  * Crew and rota writes, through their service handlers.
  *
@@ -66,6 +68,23 @@ export async function act(_previous: CrewState, form: FormData): Promise<CrewSta
         }
         await crews.update(ctx, { id, workday: startsAt && endsAt ? { startsAt, endsAt } : null });
         return { message: startsAt && endsAt ? `Saved. The crew works ${startsAt} to ${endsAt}.` : "Saved. The crew works the company's day." };
+      }
+      case "weekdayHours": {
+        /**
+         * A day's own hours, both times or neither: neither keeps the crew's
+         * usual hours that day. One alone is refused, so half a day is never kept.
+         */
+        const weekdayHours = [];
+        for (let day = 0; day < 7; day += 1) {
+          const startsAt = field(form, `startsAt-${day}`);
+          const endsAt = field(form, `endsAt-${day}`);
+          if ((startsAt === undefined) !== (endsAt === undefined)) {
+            throw new ConflictError(`Give ${DAYS[day]}'s start and finish, or leave both empty for the crew's usual hours.`);
+          }
+          if (startsAt && endsAt) weekdayHours.push({ dayOfWeek: day, startsAt, endsAt });
+        }
+        await crews.update(ctx, { id, weekdayHours });
+        return { message: weekdayHours.length > 0 ? "Saved. Its hours by day are kept." : "Saved. It works its usual hours every day." };
       }
       case "retire":
         await crews.update(ctx, { id, active: false });

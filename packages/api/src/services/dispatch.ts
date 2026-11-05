@@ -6,12 +6,13 @@ import {
   type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, timezoneOf, audit, scopeOf,
 } from "./context";
 import { jobVisibility, technicianScopeFilter } from "./scope";
-import { dispatchPeople } from "./people-scope";
+import { crews as crewsInView, dispatchPeople } from "./people-scope";
+import { companyDayOf } from "./company-day";
 import { shopOfPeople } from "./visit-shop";
 import { announce, sideOf } from "./visit-notices";
 import { chemicalOf, inForceAt } from "./pricebook";
 import { renderWithin } from "./message-templates";
-import { can, money as m, time, work } from "@opentradesos/core";
+import { can, money as m, routing, time, work } from "@opentradesos/core";
 import { sendTransactional } from "./comms-send";
 import type {
   getDispatchBoard, assignVisit, reorderRoute, sendArrivalNotice, getFieldSnapshot, VisitForField,
@@ -31,6 +32,7 @@ import * as files from "./files";
 import * as partRequests from "./part-requests";
 import * as customerNotes from "./customer-notes";
 import * as plugins from "./plugins";
+import { hoursOnDay } from "./business-hours";
 
 
 /**
@@ -252,11 +254,31 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       .map((v, index) => ({ v, index, plan: priority.get(v.id) ?? null }))
       .sort((a, b) => Number(b.plan !== null) - Number(a.plan !== null) || a.index - b.index);
 
-    /** The crews with work today, their people, and who leads. */
-    const crewIds = [...byCrew.keys()];
-    const crewRows = crewIds.length === 0 ? [] : await tx.select({
-      id: schema.crew.id, name: schema.crew.name, color: schema.crew.color,
-    }).from(schema.crew).where(inArray(schema.crew.id, crewIds)).orderBy(asc(schema.crew.name));
+    /**
+     * EVERY CREW HAS A LANE, work or not: each active crew this person's
+     * board shows (their branch's, for a branch manager; the branch filtered
+     * to, when the board is), so a crew's first visit of a day can be dropped
+     * on it, and any crew on a visit they can see, which keeps that visit and
+     * takes nothing more from here.
+     */
+    const crewIdsWithWork = [...byCrew.keys()];
+    const inView = crewsInView(ctx);
+    const own = and(
+      eq(schema.crew.active, true),
+      inView,
+      input.businessUnitId ? eq(schema.crew.businessUnitId, input.businessUnitId) : undefined,
+    )!;
+    const crewRows = await tx.select({
+      id: schema.crew.id, name: schema.crew.name, color: schema.crew.color, businessUnitId: schema.crew.businessUnitId,
+      workday: schema.crew.workday, weekdayHours: schema.crew.weekdayHours,
+      inScope: sql<boolean>`${own}`,
+    }).from(schema.crew)
+      .where(and(
+        eq(schema.crew.organizationId, ctx.actor.organizationId),
+        crewIdsWithWork.length === 0 ? own : or(own, inArray(schema.crew.id, crewIdsWithWork)),
+      ))
+      .orderBy(asc(schema.crew.name));
+    const crewIds = crewRows.map((c) => c.id);
     const crewPeople = crewIds.length === 0 ? [] : await tx.select({
       crewId: schema.crewMember.crewId, isLead: schema.crewMember.isLead, name: schema.technician.displayName,
     }).from(schema.crewMember)
@@ -302,8 +324,50 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
       ))
       .orderBy(asc(schema.onCallRotation.startsAt));
 
+    /**
+     * WHAT THE SHOP KEEPS THAT DAY: the week in force on the date (a
+     * season's, where summer hours cover it) with the holiday list over it,
+     * for the branch the board shows (the one filtered to, or the reader's
+     * own when they see one branch), or the company's. Said on the board so
+     * a dispatcher filling a Saturday in summer sees that it is open.
+     */
+    const dayOf = await hoursOnDay(tx, ctx.actor.organizationId, input.date);
+    const boardBranch = input.businessUnitId ?? (scope === "all" ? null : ctx.actor.businessUnitId ?? null);
+    const hours = await dayOf(boardBranch);
+
+    /**
+     * EACH CREW'S LANE IS DRAWN TO ITS HOURS that day: its own for the
+     * weekday, its one set of hours, or the company's day (core's
+     * `crewHoursOn`), a card whose window runs outside them marked, and the
+     * crew's branch said closed when the week in force (or a holiday) keeps
+     * it shut that day.
+     */
+    const companyDay = await companyDayOf(tx, ctx.actor.organizationId);
+    const minuteOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+    const crewLane = async (c: (typeof crewRows)[number]) => {
+      const own = routing.crewHoursOn({ workday: c.workday, weekdayHours: c.weekdayHours }, input.date);
+      const kept = own.hours ?? companyDay;
+      const branchDay = await dayOf(c.businessUnitId);
+      const start = minuteOf(kept.startsAt);
+      const end = minuteOf(kept.endsAt);
+      const visits = (byCrew.get(c.id) ?? []).map((v) => {
+        const from = v.windowStart ? time.minutesInDay(new Date(v.windowStart), zone) : null;
+        const until = v.windowEnd ? time.minutesInDay(new Date(v.windowEnd), zone) : null;
+        /** A window ending at midnight or after is the end of the day, not its start. */
+        const ends = until !== null && until === 0 && v.windowEnd !== v.windowStart ? 24 * 60 : until;
+        return { ...v, outsideHours: (from !== null && from < start) || (ends !== null && ends > end) };
+      });
+      return {
+        hours: { startsAt: kept.startsAt, endsAt: kept.endsAt, from: own.from },
+        branchClosed: branchDay.closed ? branchDay.words : null,
+        visits,
+      };
+    };
+    const lanes = new Map(await Promise.all(crewRows.map(async (c) => [c.id, await crewLane(c)] as const)));
+
     return {
       date: input.date,
+      hours,
       crews: crewRows.map((c) => {
         const people = crewPeople.filter((p) => p.crewId === c.id);
         return {
@@ -312,7 +376,9 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
           color: c.color,
           leadName: people.find((p) => p.isLead)?.name ?? null,
           memberNames: people.map((p) => p.name).sort(),
-          visits: byCrew.get(c.id) ?? [],
+          /** One of the reader's own crews: work can be dropped on it. False for another branch's crew on a visit they see. */
+          inScope: Boolean(c.inScope),
+          ...lanes.get(c.id)!,
         };
       }),
       routes: [...routeStops.entries()].map(([id, r]) => {

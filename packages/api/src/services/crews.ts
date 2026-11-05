@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assets as assetCore, holidays as holidayRules, time } from "@opentradesos/core";
+import { assets as assetCore, holidays as holidayRules, routing, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, scopeOf,
   type ServiceContext,
@@ -67,10 +67,26 @@ export interface CrewInput {
   color?: string | null | undefined;
   /** The crew's own working hours, local time, or null for the company's day. */
   workday?: CrewWorkday | null | undefined;
+  /** Hours of its own for some weekdays, read on that weekday in place of `workday`. */
+  weekdayHours?: CrewWeekdayHours[] | undefined;
 }
 
 /** A crew's own working day, local time, "06:00" to "14:30". */
 export interface CrewWorkday { startsAt: string; endsAt: string }
+
+/** One weekday's own hours, 0 for Sunday. */
+export interface CrewWeekdayHours extends CrewWorkday { dayOfWeek: number }
+
+/**
+ * A crew's hours by weekday, checked in core (one entry a day, the end after
+ * the start). Left out keeps what it has; an empty list clears them all.
+ */
+function checkedWeekdayHours(hours: CrewWeekdayHours[] | undefined): CrewWeekdayHours[] | undefined {
+  if (hours === undefined) return undefined;
+  const check = routing.checkCrewWeekdayHours(hours);
+  if (!check.ok) throw new ConflictError(check.message);
+  return check.hours;
+}
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const minuteOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
@@ -108,6 +124,7 @@ export async function create(ctx: ServiceContext, input: CrewInput) {
 
     assertRatePair(input.productionRatePerDay, input.productionUnit);
     const workday = checkedWorkday(input.workday) ?? null;
+    const weekdayHours = checkedWeekdayHours(input.weekdayHours) ?? [];
     assertCrewPlaceable(ctx, input.businessUnitId ?? null);
     if (input.businessUnitId) await liveBranch(tx, ctx, input.businessUnitId);
 
@@ -122,6 +139,7 @@ export async function create(ctx: ServiceContext, input: CrewInput) {
       skills: input.skills ?? [],
       color: input.color ?? null,
       workday,
+      weekdayHours,
     }).returning();
 
     await audit(tx, ctx, "crew.created", "crew", row!.id, null, row!);
@@ -142,6 +160,8 @@ export interface CrewUpdate {
   color?: string | null | undefined;
   /** The crew's own working hours, or null to go back to the company's day. Left out keeps them. */
   workday?: CrewWorkday | null | undefined;
+  /** Its hours for some weekdays, the whole list replaced. Empty clears them; left out keeps them. */
+  weekdayHours?: CrewWeekdayHours[] | undefined;
   active?: boolean | undefined;
 }
 
@@ -177,6 +197,7 @@ export async function update(ctx: ServiceContext, input: CrewUpdate) {
       ? before.productionUnit : input.productionUnit;
     assertRatePair(rate, unit);
     const workday = checkedWorkday(input.workday);
+    const weekdayHours = checkedWeekdayHours(input.weekdayHours);
 
     const [row] = await tx.update(schema.crew).set({
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
@@ -189,6 +210,7 @@ export async function update(ctx: ServiceContext, input: CrewUpdate) {
       ...(input.skills !== undefined ? { skills: input.skills } : {}),
       ...(input.color !== undefined ? { color: input.color } : {}),
       ...(workday !== undefined ? { workday } : {}),
+      ...(weekdayHours !== undefined ? { weekdayHours } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.crew.id, before.id)).returning();
@@ -261,6 +283,7 @@ export async function list(ctx: ServiceContext) {
       skills: crew.skills,
       color: crew.color,
       workday: crew.workday ?? null,
+      weekdayHours: crew.weekdayHours,
       active: crew.active,
       members: members
         .filter((m) => m.crewId === crew.id)
@@ -457,7 +480,9 @@ const DEFAULT_WEEK: holidayRules.WeekHours = Array.from({ length: 7 }, () => ({ 
 async function calendarOf(
   tx: Database, organizationId: string, zone: string, branchId: string | null,
 ): Promise<holidayRules.WorkingCalendar> {
-  return { week: (await loadWeek(tx, organizationId, branchId)).week ?? DEFAULT_WEEK, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone };
+  const { week, seasons } = await loadWeek(tx, organizationId, branchId);
+  /** A season (summer hours) over the week on its dates; the company's default day only where nobody declared a week. */
+  return { week: week ?? DEFAULT_WEEK, seasons, holidays: await loadHolidays(tx, organizationId, branchId), timeZone: zone };
 }
 
 /**

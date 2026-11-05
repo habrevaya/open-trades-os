@@ -28,7 +28,7 @@ export async function BookingSections({ ctx }: { ctx: ServiceContext }) {
       .orderBy(asc(schema.arrivalWindow.sortOrder)),
     /** The company's own week; a branch's is on Online booking, Branch hours. */
     hours: await tx.select().from(schema.businessHours)
-      .where(and(isNull(schema.businessHours.businessUnitId), isNull(schema.businessHours.phoneNumberId)))
+      .where(and(isNull(schema.businessHours.businessUnitId), isNull(schema.businessHours.phoneNumberId), isNull(schema.businessHours.seasonId)))
       .orderBy(asc(schema.businessHours.dayOfWeek)),
     branches: await tx.select({ id: schema.businessUnit.id }).from(schema.businessUnit)
       .where(eq(schema.businessUnit.active, true)),

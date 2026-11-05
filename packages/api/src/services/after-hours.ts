@@ -175,14 +175,14 @@ export async function offersWithin(
     .orderBy(asc(schema.visit.windowStart));
   const zone = await timezoneOf(tx, organizationId);
   /** The job's branch's own week and holidays, the company's where the branch keeps none. */
-  const week = (await loadWeek(tx, organizationId, job.branchId)).week;
+  const { week, seasons } = await loadWeek(tx, organizationId, job.branchId);
   const holidays = await holidaysForJob(tx, organizationId, input.jobId);
 
   const found = { after_hours: [] as string[], holiday: [] as string[] };
   for (const visit of visits) {
     if (!visit.windowStart) continue;
     const booked = holidayRules.bookedAt({
-      week, holidays, date: time.dateIn(visit.windowStart, zone), minute: time.minutesInDay(visit.windowStart, zone),
+      week, seasons, holidays, date: time.dateIn(visit.windowStart, zone), minute: time.minutesInDay(visit.windowStart, zone),
     });
     if (booked.holiday && row.holidayItemId) found.holiday.push(booked.why);
     else if (booked.outsideHours && row.afterHoursItemId) found.after_hours.push(booked.why);

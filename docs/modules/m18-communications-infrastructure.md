@@ -238,7 +238,10 @@ so the company's Christmas does not shut an emergency line; a day the line
 closes too is added to its own list. A number's own days off are on no other
 list: Settings, Holidays, booking and every other reader never see them. Its
 own week and days off are kept when it is switched to its branch or the
-company, and used again when it is switched back. The holiday list
+company, and used again when it is switched back. A number following its
+branch or the company is routed by the week in force today: a season (summer
+hours, M02) on its dates, and its page names the season it goes by now. A
+number keeping its own week has no seasons. The holiday list
 (`/settings/holidays`, M02) is read with them: on a closed holiday a call goes
 where an after hours call goes whatever the weekday, and on a short day the
 day's own hours decide. Every save is checked

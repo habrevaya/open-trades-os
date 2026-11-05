@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, eq, gt, gte, inArray, isNull, lt, notInArray } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { assertCan, isSystem, project as plan, time } from "@opentradesos/core";
+import { assertCan, holidays as holidayRules, isSystem, project as plan, time } from "@opentradesos/core";
 import {
   audit, guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
@@ -374,7 +374,7 @@ async function visitClashesOf(
     .from(schema.technician)
     .where(and(eq(schema.technician.organizationId, organizationId), eq(schema.technician.active, true), dispatchPeople(ctx)))
     .orderBy(asc(schema.technician.displayName));
-  const week = (await loadWeek(tx, organizationId, project.businessUnitId)).week;
+  const chosenWeek = await loadWeek(tx, organizationId, project.businessUnitId);
   const phaseOf = new Map(phases.map((p) => [p.id, p]));
   const label = (visitId: string) => {
     const v = byVisit.get(visitId);
@@ -420,6 +420,8 @@ async function visitClashesOf(
     const length = span.end - span.start;
     const freeDays: string[] = [];
     for (let day = time.addDays(date, 1); day <= lastDay && freeDays.length < 3; day = time.addDays(day, 1)) {
+      /** The week in force on that day: a season's, where one covers it. */
+      const week = holidayRules.weekOn(chosenWeek, day).week;
       if (week && week[new Date(`${day}T12:00:00Z`).getUTCDay()] === null) continue;
       const start = time.instantOfLocal(day, startMinute, zone).getTime();
       const others = mine.visits.filter((h) => h.visitId !== visit.visitId);

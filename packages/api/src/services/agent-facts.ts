@@ -1,10 +1,11 @@
 import { and, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { agents as a, time } from "@opentradesos/core";
+import { agents as a, holidays as holidayRules, time } from "@opentradesos/core";
 import { memberTestAmong, openSlots, type MemberShare } from "./booking";
 import { inForceAt } from "./pricebook";
 import { upcomingSentences } from "./holidays";
 import { loadWeek } from "./business-hours";
+import { timezoneOf } from "./context";
 
 /**
  * THE COMPANY'S OWN FACTS, AS AN AGENT IS GIVEN THEM
@@ -140,11 +141,16 @@ export function contactsIn(texts: readonly string[]): { phone: string | null; em
  * anybody is working on the Friday after Thanksgiving is told the truth.
  */
 export async function hoursOf(tx: Database, organizationId: string): Promise<string[]> {
-  /** The company's week: the assistants know no branch, so a branch's own week is not theirs to quote. */
-  const { rows } = await loadWeek(tx, organizationId);
+  /**
+   * The company's week: the assistants know no branch, so a branch's own week
+   * is not theirs to quote. The week in force today, so a caller in summer
+   * is told the summer hours, with the season named.
+   */
+  const today = time.dateIn(new Date(), await timezoneOf(tx, organizationId));
+  const { rows, season } = holidayRules.weekOn(await loadWeek(tx, organizationId), today);
   const holidays = (await upcomingSentences(tx, organizationId)).map((line) => `Holiday ${line}`);
   if (rows.length === 0) return holidays;
-  return [...DAYS.map((day, index) => {
+  return [...(season ? [`Seasonal hours now: ${season.name}, ${holidayRules.describeSeason(season)}.`] : []), ...DAYS.map((day, index) => {
     const row = rows.find((r) => r.dayOfWeek === index);
     if (!row || row.closed || !row.opensAt || !row.closesAt) return `${day}: closed`;
     return `${day}: ${row.opensAt.slice(0, 5)} to ${row.closesAt.slice(0, 5)}`;
