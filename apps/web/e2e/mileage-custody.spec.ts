@@ -62,8 +62,8 @@ test("a claim in miles is worked out at the vehicle checked out that day, unless
   test.setTimeout(150_000);
   await prepare();
   try {
-    const inVan = `Drive, nothing picked ${run}`;
-    const inCar = `Drive in my own car ${run}`;
+    const inVan = `Van out, nothing picked ${run}`;
+    const inCar = `Own car while the van was out ${run}`;
 
     await tech.goto("/me/expenses");
     await expect(tech.getByText(`You have ${VAN} checked out today.`)).toBeVisible();
