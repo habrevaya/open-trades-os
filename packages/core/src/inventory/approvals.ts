@@ -1,4 +1,5 @@
 import { type Money, compare, format, round, sum } from "../money/index.js";
+import type { Quantity } from "./index.js";
 
 /**
  * WHO HAS TO SAY YES BEFORE AN ORDER GOES TO A VENDOR
@@ -56,6 +57,12 @@ export interface ApprovalRule {
    * warehouse" while the rest of the order is somebody else's concern.
    */
   readonly amountOf?: "order" | "matching_lines" | undefined;
+  /**
+   * A step on a line's quantity: for orders with a line of this many or more
+   * (the quantity ordered, in the order's own units). Absent or null is no
+   * quantity test. Counting only its lines, it adds up just those lines.
+   */
+  readonly lineQuantityAtLeast?: Quantity | null | undefined;
 }
 
 /** One line of an order, as far as a step cares: what it is, which shelf and place, and what it costs. */
@@ -66,6 +73,8 @@ export interface OrderLineShare {
   readonly categoryId: string | null;
   readonly locationId: string;
   readonly amount: Money;
+  /** How many were ordered, for a step on a line's quantity. Absent counts as under any minimum. */
+  readonly quantity?: Quantity | undefined;
 }
 
 /** What an order is, for deciding which scoped steps apply to it. */
@@ -84,20 +93,30 @@ export interface OrderScope {
 }
 
 /** True for a step that counts only the lines it is for. */
-export const countsPartOfOrder = (rule: Pick<ApprovalRule, "amountOf" | "categoryId" | "locationId">): boolean =>
-  rule.amountOf === "matching_lines" && Boolean(rule.categoryId || rule.locationId);
+export const countsPartOfOrder = (
+  rule: Pick<ApprovalRule, "amountOf" | "categoryId" | "locationId"> & Partial<Pick<ApprovalRule, "vendorId" | "lineQuantityAtLeast">>,
+): boolean =>
+  rule.amountOf === "matching_lines"
+  && Boolean(rule.categoryId || rule.locationId || rule.vendorId || rule.lineQuantityAtLeast);
+
+/** Is this line big enough for a step on a line's quantity? A step with no quantity test takes every line. */
+const bigEnough = (rule: Pick<ApprovalRule, "lineQuantityAtLeast">, line: OrderLineShare): boolean =>
+  !rule.lineQuantityAtLeast || (line.quantity !== undefined && line.quantity >= rule.lineQuantityAtLeast);
 
 /**
- * The lines a step is for: from its category and going to its location,
- * whichever of the two it names. A vendor is a fact about the whole order, so
- * it picks no lines. A step naming neither a category nor a location is for
- * every line.
+ * The lines a step is for: from its category, going to its location, and of
+ * its quantity or more, whichever it names. A vendor is a fact about the
+ * whole order, so it picks no lines of its own: a step that names only a
+ * vendor counts every line of that vendor's orders. A step naming none of
+ * these is for every line.
  */
 export function linesFor(
-  rule: Pick<ApprovalRule, "categoryId" | "locationId">, lines: readonly OrderLineShare[],
+  rule: Pick<ApprovalRule, "categoryId" | "locationId"> & Partial<Pick<ApprovalRule, "lineQuantityAtLeast">>,
+  lines: readonly OrderLineShare[],
 ): OrderLineShare[] {
   return lines.filter((l) =>
-    (!rule.categoryId || l.categoryId === rule.categoryId) && (!rule.locationId || l.locationId === rule.locationId));
+    (!rule.categoryId || l.categoryId === rule.categoryId) && (!rule.locationId || l.locationId === rule.locationId)
+    && bigEnough(rule, l));
 }
 
 /**
@@ -121,11 +140,13 @@ export function stepAmount(
  * for more approval than a narrower reading would is the safe mistake.
  */
 export function ruleCovers(rule: ApprovalRule, order: OrderScope | undefined): boolean {
-  if (!rule.vendorId && !rule.categoryId && !rule.locationId) return true;
+  if (!rule.vendorId && !rule.categoryId && !rule.locationId && !rule.lineQuantityAtLeast) return true;
   if (!order) return false;
   if (rule.vendorId && rule.vendorId !== order.vendorId) return false;
   if (rule.categoryId && !order.categoryIds.includes(rule.categoryId)) return false;
   if (rule.locationId && !order.locationIds.includes(rule.locationId)) return false;
+  /** With no line detail to read, asking is the safe mistake. */
+  if (rule.lineQuantityAtLeast && order.lines && !order.lines.some((l) => bigEnough(rule, l))) return false;
   return true;
 }
 

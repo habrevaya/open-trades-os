@@ -19,6 +19,7 @@ export async function addRuleAction(_previous: FormState, form: FormData): Promi
       vendorId: field(form, "vendorId") ?? null,
       categoryId: field(form, "categoryId") ?? null,
       locationId: field(form, "locationId") ?? null,
+      lineQuantityAtLeast: field(form, "lineQuantityAtLeast") ?? null,
       amountOf: field(form, "amountOf") === "matching_lines" ? "matching_lines" : "order",
     }));
   });

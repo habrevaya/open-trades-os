@@ -93,8 +93,15 @@ old system said, marked `imported`.
 
 ### Find somebody
 
-`GET /v1/customers` takes `q` and searches name, phone and email together.
-`/customers` is the same list with the same search.
+`GET /v1/customers` takes `q` and searches name, phone and email together,
+and the customer's notes: a word in any of a customer's notes counts as a match,
+so "gate code" finds the account whose note says it. Every word typed has to be
+somewhere, in the contact details or in a note, so "vera swordfish" finds the
+customer named Vera with a note about a swordfish. A note is read only as the
+caller may read it: a technician or crew lead's search reads only the notes
+marked for the field, on the customers they were sent to, the same as the notes
+list and the search box's notes. `/customers` is the same list with the same
+search.
 
 ### See everything about one account
 
@@ -199,6 +206,23 @@ their details (not who they belong to, and not whether they are primary),
 `POST /v1/contacts/{id}/primary` makes one the first told, and
 `POST /v1/contacts/{id}/remove` takes one off. A technician reads the people at
 the customers they have been sent to and no others.
+
+**People at an address, with or without a customer.** The address's own page
+(`/properties/{id}`) has "People at this address": everybody tied to the address,
+ordered as the "on the way" text picks (primary first, then texts), the
+first one marked "Gets the text", each saying whether they are also on a customer's
+account ("Also on Vera Vance") or "This address only". The office adds somebody
+there (a phone or an email, a channel they can be reached on, "Tell them first"
+to make them primary), changes them, makes one primary and removes one (kept, so
+old messages still name them). This is the way to reach a tenant at a rental or a
+site manager at a job nobody has made a customer for, who are on no customer's
+page. `GET /v1/properties/{id}/contacts` (`customer:read`) lists them and
+`POST /v1/properties/{id}/contacts` (`customer:write`, takes an idempotency key)
+adds one with no customer; changing, removing and making primary use the contact
+routes above, which never needed a customer. The address is looked up under the
+caller's scope first, so a technician reads the people at addresses they have
+been sent to and is told another does not exist. Writing needs `customer:write`
+(a technician has it not), and each change is audited as the customer-side ones are.
 
 ### Keep notes on a customer
 
@@ -320,6 +344,8 @@ attached afterwards, which would have sent it to everybody.
 | `GET /v1/customers/{id}/contacts` | `customer:read` |
 | `POST /v1/customers/{id}/contacts` | `customer:write` |
 | `PATCH /v1/contacts/{id}` | `customer:write` |
+| `GET /v1/properties/{id}/contacts` | `customer:read` |
+| `POST /v1/properties/{id}/contacts` | `customer:write` |
 | `POST /v1/contacts/{id}/primary` | `customer:write` |
 | `POST /v1/contacts/{id}/remove` | `customer:write` |
 | `GET /v1/customers/{id}/notes` | `customer:read` |
@@ -435,6 +461,19 @@ duplicate a customer with its own page again. Anything written to the
 survivor since the merge (a note, a new person, a job at its own address)
 stays with the survivor, which is who it was written to.
 
+**Undoing a merge can say they are two people.** The undo form has a box, off
+unless ticked: "They are different people: do not suggest them as a match
+again". Ticked (`markNotSame` on the route), the pair is also marked as
+different people in the same transaction, the very mark "Not the same person"
+makes on the duplicates screen (stored once, the pair ordered, with the undo's
+reason as its reason or "Merged by mistake, then taken back" when none was given,
+and audited as `customer.not_duplicate`), so the matcher stops offering the two
+on the screen and on either customer's page. A pair already marked is left as it
+was and the answer still says `markedNotSame: true`. Left unticked, an undo says
+nothing about whether they are the same person (it may be undone because of what
+moved, not who they are), and they can come up again; "Put back in the list"
+takes a mark off.
+
 **When it is refused.** Every reason is said at once, in words, on the page
 before anybody clicks and again at the click:
 
@@ -484,9 +523,7 @@ expands an abbreviation, which would be reading the words by a pattern. The
 screen offers the town's streets to pick from instead. The phone does not
 record a street; addresses are the office's.
 
-A contact attached to an address and no customer is reached through neither the
-customer's page nor the customer's contact routes, which are about a customer's
-people. A customer's custom
+A customer's custom
 fields filter `/customers` and `GET /v1/customers` several at once, every one of
 them or any one of them (M29 says how), and reach the report builder on every dataset
 that hangs off a customer; "any" is one choice for every field applied, not a mix of
@@ -494,9 +531,11 @@ that hangs off a customer; "any" is one choice for every field applied, not a mi
 
 A customer note is never deleted and, after its writer's 15 minutes, never
 changed: a wrong note stays, with its correction beside it. The customer
-list's own search does not read notes; the search box at the top of the menu
-does (M29), through the customer's scope, a technician only the notes marked
-for the field. The phone app shows the notes marked
+list's search and the search box at the top of the menu both read notes (M29),
+through the customer's scope, a technician only the notes marked for the field;
+a note that matches shows nowhere on the list that it was the note that matched,
+so a customer found by a word the list row does not show reads as unexplained
+until the note is opened. The phone app shows the notes marked
 for the field and cannot add, pin or fix one; that is the office's. A
 note is on a customer, not on an address or a job.
 
@@ -513,8 +552,9 @@ id under another name, and the accounting system's link to its own customer,
 which stays with the duplicate so the accountant joins the two there. What
 stays because the survivor already has one (a statement for the month, a card
 that pays automatically) is not joined to the survivor's: the office or the
-customer does that. Undoing does not mark the two as different people, so they can show as
-a possible duplicate again until somebody says so on the duplicates screen. A
+customer does that. Undoing marks the two as different people only when asked (the box on the undo),
+so otherwise they can show as a possible duplicate again until somebody says so
+on the duplicates screen. A
 merge done before merges were recorded has no record and cannot be undone. The tag table is written only by the
 database, so a restore that loads `customer_tag` rows from an export as well as
 customers is loading them twice: the customers' own lists are what to restore.

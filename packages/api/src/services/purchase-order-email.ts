@@ -122,10 +122,12 @@ async function printable(tx: Database, orderId: string): Promise<PrintableOrder>
       lineTotal: m.toString(totalOf([line])),
       packs: line.packPrice && inv.quantity(line.packQuantity) !== inv.quantity("1")
         ? {
-          count: inv.quantityLabel(inv.quantity(line.quantityOrdered) / inv.quantity(line.packQuantity) * inv.quantity("1")),
+          count: inv.quantityLabel((inv.quantity(line.quantityOrdered) - inv.quantity(line.looseQuantity)) / inv.quantity(line.packQuantity) * inv.quantity("1")),
           size: inv.quantityLabel(inv.quantity(line.packQuantity)),
           unit: line.purchaseUnit,
           price: m.toString(m.round(m.money(line.packPrice), 2)),
+          loose: inv.quantity(line.looseQuantity) === inv.ZERO_QUANTITY ? null : inv.quantityLabel(inv.quantity(line.looseQuantity)),
+          loosePrice: inv.quantity(line.looseQuantity) === inv.ZERO_QUANTITY ? null : m.toString(m.round(m.money(line.unitPrice), 2)),
         }
         : null,
       /**

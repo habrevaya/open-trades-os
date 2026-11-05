@@ -1044,6 +1044,8 @@ export const handlers = {
   // A customer's people (M03), under the rules the customer's page holds them to
   listCustomerContacts: contacts.handlers.listCustomerContacts,
   addCustomerContact: contacts.handlers.addCustomerContact,
+  listPropertyContacts: contacts.handlers.listPropertyContacts,
+  addPropertyContact: contacts.handlers.addPropertyContact,
   updateContact: contacts.handlers.updateContact,
   removeContact: contacts.handlers.removeContact,
   makeContactPrimary: contacts.handlers.makeContactPrimary,

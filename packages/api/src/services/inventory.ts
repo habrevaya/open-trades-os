@@ -551,6 +551,7 @@ function toCore(
       unitPrice: m.money(line.unitPrice, "USD"),
       packQuantity: inv.quantity(line.packQuantity),
       ...(line.packPrice ? { packPrice: m.money(line.packPrice, "USD") } : {}),
+      looseQuantity: inv.quantity(line.looseQuantity),
     })),
   };
 }
@@ -969,6 +970,14 @@ export async function receive(
       await refuseUnitsOnUntracked(tx, input.itemId, input.units);
     }
     const written = await writeMovements(tx, ctx, planned);
+    /** One delivery for the movements of this receiving, so a freight bill that comes later has something to belong to. */
+    const [delivery] = await tx.insert(schema.stockReceipt).values({
+      organizationId: ctx.actor.organizationId, itemId: input.itemId, locationId: input.locationId,
+      receivedAt: occurredAt, receivedByUserId: ctx.actor.userId,
+    }).returning({ id: schema.stockReceipt.id });
+    await tx.insert(schema.stockReceiptMovement).values(written.filter((w) => w.kind === "receipt").map((w) => ({
+      organizationId: ctx.actor.organizationId, stockReceiptId: delivery!.id, movementId: w.id,
+    })));
     await audit(tx, ctx, "inventory.received", "price_book_item", input.itemId, null, {
       locationId: input.locationId, quantity: input.quantity,
       ...(mode ? { units: (input.units ?? []).map((u) => u.number) } : {}),
@@ -1403,6 +1412,12 @@ export interface OrderLineInput {
    * the cheaper per one of ours that this many is whole packs of.
    */
   packQuantity?: string | undefined;
+  /**
+   * A MIXED LINE: how many of `quantity` to buy by the each, the rest being
+   * whole packs. "2 boxes of 25 and 3 each" is quantity 53, looseQuantity 3.
+   * Needs a vendor that sells the part both ways.
+   */
+  looseQuantity?: string | undefined;
 }
 
 interface ResolvedLine {
@@ -1414,6 +1429,7 @@ interface ResolvedLine {
   packQuantity: string;
   purchaseUnit: string | null;
   packPrice: string | null;
+  looseQuantity: string;
 }
 
 /**
@@ -1448,6 +1464,16 @@ async function resolveLines(
     });
     const quantity = inv.quantityToString(inv.quantity(line.quantity));
     const named = part.partNumber ?? line.partNumber ?? "that part";
+    /**
+     * A MIXED LINE: some of it whole packs, the rest by the each ("2 boxes of
+     * 25 and 3 each"). Needs a vendor that sells the part both ways, and
+     * refuses in words anything it cannot price, rather than guess.
+     */
+    const looseText = line.looseQuantity?.trim();
+    if (looseText && inv.quantity(looseText) !== inv.ZERO_QUANTITY) {
+      resolved.push(resolveMixed(part, line, { quantity, loose: inv.quantityToString(inv.quantity(looseText)), named }, defaultLocationId));
+      continue;
+    }
     /**
      * TWO WAYS TO BUY IT. A vendor selling the part by the each and by the
      * box is sent whichever the line names, or the cheaper per one of ours
@@ -1523,9 +1549,75 @@ async function resolveLines(
       packQuantity: pack,
       purchaseUnit: byPack ? chosen.unit : null,
       packPrice,
+      looseQuantity: "0",
     });
   }
   return resolved;
+}
+
+/**
+ * ONE LINE OF BOXES AND SOME OVER. `quantity` is every piece of ours, and
+ * `loose` the ones bought by the each: the packed part (the rest) has to be
+ * whole packs. The packs are priced at the pack price at the break their count
+ * reaches and the loose ones at the each price at the break theirs reaches,
+ * or at the price typed, which is for one of ours and makes the pack price its
+ * multiple. The line's unit price is the each price; receiving prices its
+ * pieces packs first (`inventory.lineCost`).
+ */
+function resolveMixed(
+  part: Awaited<ReturnType<typeof resolvePart>>,
+  line: OrderLineInput,
+  given: { quantity: string; loose: string; named: string },
+  defaultLocationId: string,
+): ResolvedLine {
+  const { named } = given;
+  const total = inv.quantity(given.quantity);
+  const loose = inv.quantity(given.loose);
+  if (loose < inv.ZERO_QUANTITY) throw new ConflictError("The number bought by the each cannot be below zero.");
+  if (loose >= total) {
+    throw new ConflictError(`All ${inv.quantityLabel(total)} of ${named} would be bought by the each. Leave the loose number out, or order more than that.`);
+  }
+  const eachWay = part.packs.find((p) => m.compare(m.money(p.quantity), m.money("1")) === 0);
+  const packWays = part.packs.filter((p) => m.compare(m.money(p.quantity), m.money("1")) !== 0);
+  if (!eachWay || packWays.length === 0) {
+    throw new ConflictError(`This vendor does not sell ${named} both by the each and by the pack, so one line cannot mix them.`);
+  }
+  const wanted = line.packQuantity?.trim() || part.namedPack;
+  const packWay = wanted ? packWays.find((p) => m.compare(m.money(p.quantity), m.money(wanted)) === 0) : packWays[0];
+  if (!packWay) throw new ConflictError(`They do not sell ${named} in packs of ${Number(wanted)}.`);
+  const packedQty = inv.quantityToString(total - loose);
+  const whole = catalogue.packsIn(packedQty, packWay.quantity);
+  const unit = packWay.unit ?? "pack";
+  if (!whole.ok) {
+    throw new ConflictError(
+      `The part of ${named} bought by the ${unit} has to be a whole number of packs of ${inv.quantityLabel(inv.quantity(packWay.quantity))}. `
+      + `With ${inv.quantityLabel(loose)} by the each, that is ${inv.quantityLabel(total - loose)}, which is not.`,
+    );
+  }
+  const typed = line.unitPrice?.trim();
+  let unitPrice: string;
+  let packPrice: string;
+  if (typed) {
+    unitPrice = typed;
+    packPrice = m.toString(m.multiply(m.money(typed), packWay.quantity));
+  } else {
+    if (!eachWay.cost || !packWay.cost) {
+      throw new ConflictError(`There is no price on record from this vendor for ${named} both ways. Give the price they quoted for one.`);
+    }
+    packPrice = catalogue.packPriceFor(packWay.cost, [...packWay.breaks], whole.packs).cost;
+    unitPrice = catalogue.packPriceFor(eachWay.cost, [...eachWay.breaks], inv.quantityToString(loose)).cost;
+  }
+  return {
+    itemId: part.itemId,
+    vendorPartNumber: packWay.partNumber ?? part.partNumber,
+    locationId: line.locationId ?? defaultLocationId,
+    quantityOrdered: given.quantity,
+    unitPrice,
+    packQuantity: packWay.quantity,
+    purchaseUnit: packWay.unit,
+    packPrice,
+    looseQuantity: given.loose,
+  };
 }
 
 async function insertLines(tx: Database, ctx: ServiceContext, orderId: string, lines: readonly ResolvedLine[]) {
@@ -1541,6 +1633,7 @@ async function insertLines(tx: Database, ctx: ServiceContext, orderId: string, l
     packQuantity: line.packQuantity,
     purchaseUnit: line.purchaseUnit,
     packPrice: line.packPrice,
+    looseQuantity: line.looseQuantity,
     sortOrder: index,
   })));
 }
@@ -1775,10 +1868,12 @@ export async function purchaseOrder(ctx: ServiceContext, input: { id: string }) 
         /** Sold by the pack: how many packs of how many, called what, at what each. Null when by our unit. */
         packs: l.line.packPrice && inv.quantity(l.line.packQuantity) !== inv.quantity("1")
           ? {
-            count: inv.quantityLabel(inv.quantity(l.line.quantityOrdered) / inv.quantity(l.line.packQuantity) * inv.quantity("1")),
+            count: inv.quantityLabel((inv.quantity(l.line.quantityOrdered) - inv.quantity(l.line.looseQuantity)) / inv.quantity(l.line.packQuantity) * inv.quantity("1")),
             size: inv.quantityLabel(inv.quantity(l.line.packQuantity)),
             unit: l.line.purchaseUnit,
             price: cents(l.line.packPrice),
+            loose: inv.quantity(l.line.looseQuantity) === inv.ZERO_QUANTITY ? null : inv.quantityLabel(inv.quantity(l.line.looseQuantity)),
+            loosePrice: inv.quantity(l.line.looseQuantity) === inv.ZERO_QUANTITY ? null : cents(l.line.unitPrice),
           }
           : null,
         tracking: modeOf.get(l.line.itemId) ?? null,

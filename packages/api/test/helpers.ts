@@ -197,8 +197,10 @@ const ORDER = [
   // the order; truck minimums point at the item and the truck.
   // A late freight bill and a return to a vendor are named by the movements
   // they made, and point at the delivery, the order and the vendor.
-  "stock_movement", "stock_lot", "stock_tracking", "truck_stock_minimum",
-  "landed_cost_bill_charge", "landed_cost_bill", "vendor_return",
+  // A stock receipt (stock that came without an order) groups movements and
+  // is named by the late bills put on it.
+  "stock_receipt_movement", "stock_movement", "stock_lot", "stock_tracking", "truck_stock_minimum",
+  "landed_cost_bill_charge", "landed_cost_bill", "stock_receipt", "vendor_return",
   "purchase_order_receipt_charge", "purchase_order_receipt",
   "purchase_order_approval_notice",
   "purchase_order_approval", "purchase_order_send", "purchase_order_acknowledgement",

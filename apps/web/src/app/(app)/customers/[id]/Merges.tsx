@@ -60,6 +60,10 @@ export async function Merges({ ctx, customerId, timezone }: { ctx: ServiceContex
                   own again. Anything written to this record since stays here. Possible until {day(merge.undoableUntil)}.
                 </p>
                 <TextField label="Why, if you want to say" name="reason" maxLength={500} className="w-72" />
+                <label className="flex items-center gap-2 text-ink-700">
+                  <input type="checkbox" name="markNotSame" value="yes" />
+                  They are different people: do not suggest them as a match again
+                </label>
               </ActionForm>
             ) : (
               <ul className="mt-1 list-disc space-y-1 pl-5 text-ink-700" aria-label="Why it cannot be undone">

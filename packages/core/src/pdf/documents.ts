@@ -691,7 +691,7 @@ export interface PurchaseOrderPdfInput {
     vendorPartNumber: string | null; itemCode: string; itemName: string;
     quantityOrdered: string; unitPrice: string; lineTotal: string; deliverTo: string;
     /** When the vendor sells by the pack: how many packs, of how many, called what, at what each. */
-    packs?: { count: string; size: string; unit: string | null; price: string } | null | undefined;
+    packs?: { count: string; size: string; unit: string | null; price: string; loose?: string | null | undefined; loosePrice?: string | null | undefined } | null | undefined;
   }>;
   generatedAt: Date;
 }
@@ -727,13 +727,13 @@ export function purchaseOrderPdf(input: PurchaseOrderPdfInput, options: RenderOp
     input.lines.map((line) => {
       const packs = line.packs;
       const qty = packs
-        ? `${quantity(packs.count)} ${packs.unit ?? "pack"} of ${quantity(packs.size)}\n(${quantity(line.quantityOrdered)})`
+        ? `${quantity(packs.count)} ${packs.unit ?? "pack"} of ${quantity(packs.size)}${packs.loose ? `\nand ${quantity(packs.loose)} each` : ""}\n(${quantity(line.quantityOrdered)})`
         : quantity(line.quantityOrdered);
       return [
         line.vendorPartNumber ?? line.itemCode,
         `${line.itemName}\nDeliver to ${line.deliverTo}`,
         qty,
-        usd(packs ? packs.price : line.unitPrice),
+        packs ? `${usd(packs.price)}${packs.loose && packs.loosePrice ? `\nand ${usd(packs.loosePrice)}` : ""}` : usd(line.unitPrice),
         usd(line.lineTotal),
       ];
     }),

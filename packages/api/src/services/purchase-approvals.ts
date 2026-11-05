@@ -42,6 +42,8 @@ export interface ApprovalRuleView {
    * category and location pick out ("over $500 of refrigerant").
    */
   amountOf: "order" | "matching_lines";
+  /** A line of this many or more brings the step in. Null is no quantity test. */
+  lineQuantityAtLeast: string | null;
   /** The scope in words: "orders from Ferguson, with a line from Refrigerant". Empty for every order. */
   scopeLabel: string;
 }
@@ -71,9 +73,14 @@ async function rulesWithin(tx: Database): Promise<ApprovalRuleView[]> {
     categoryId: rule.categoryId,
     locationId: rule.locationId,
     amountOf: rule.amountOf,
+    lineQuantityAtLeast: rule.lineQuantityAtLeast === null ? null : inv.quantityLabel(inv.quantity(rule.lineQuantityAtLeast)),
     scopeLabel: scopeLabel(
-      { vendorName, categoryName, locationName },
-      inv.countsPartOfOrder({ amountOf: rule.amountOf, categoryId: rule.categoryId, locationId: rule.locationId }),
+      { vendorName, categoryName, locationName,
+        atLeast: rule.lineQuantityAtLeast === null ? null : inv.quantityLabel(inv.quantity(rule.lineQuantityAtLeast)) },
+      inv.countsPartOfOrder({
+        amountOf: rule.amountOf, categoryId: rule.categoryId, locationId: rule.locationId, vendorId: rule.vendorId,
+        lineQuantityAtLeast: rule.lineQuantityAtLeast === null ? null : inv.quantity(rule.lineQuantityAtLeast),
+      }),
     ),
   }));
 }
@@ -85,17 +92,19 @@ async function rulesWithin(tx: Database): Promise<ApprovalRuleView[]> {
  * Ferguson", which is the phrase "come to $540" follows in a sentence.
  */
 function scopeLabel(
-  scope: { vendorName: string | null; categoryName: string | null; locationName: string | null },
+  scope: { vendorName: string | null; categoryName: string | null; locationName: string | null; atLeast?: string | null },
   partOfOrder = false,
 ): string {
   if (partOfOrder) {
     return `the ${scope.categoryName ? `${scope.categoryName} lines` : "lines"}`
+      + `${scope.atLeast ? ` of ${scope.atLeast} or more` : ""}`
       + `${scope.locationName ? ` for ${scope.locationName}` : ""}`
       + `${scope.vendorName ? ` on orders from ${scope.vendorName}` : ""}`;
   }
   const parts = [
     scope.vendorName ? `from ${scope.vendorName}` : null,
     scope.categoryName ? `with a line from ${scope.categoryName}` : null,
+    scope.atLeast ? `with a line of ${scope.atLeast} or more` : null,
     scope.locationName ? `for ${scope.locationName}` : null,
   ].filter((p): p is string => p !== null);
   return parts.length === 0 ? "" : `orders ${parts.join(", ")}`;
@@ -122,6 +131,7 @@ export function addRule(ctx: ServiceContext, input: {
   categoryId?: string | null | undefined;
   locationId?: string | null | undefined;
   amountOf?: "order" | "matching_lines" | undefined;
+  lineQuantityAtLeast?: string | null | undefined;
 }) {
   return guardedWrite(ctx, "settings:write", async (tx) => {
     const seen = await once.replayed<ApprovalRuleView>(tx, ctx, "purchase_approval_rule");
@@ -159,12 +169,22 @@ export function addRule(ctx: ServiceContext, input: {
         .where(eq(schema.location.id, locationId)).limit(1);
       if (!found) throw new NotFoundError("Location");
     }
-    const scoped = vendorId !== null || categoryId !== null || locationId !== null;
+    const atLeastText = input.lineQuantityAtLeast?.trim() || null;
+    let atLeast: inv.Quantity | null = null;
+    if (atLeastText !== null) {
+      try { atLeast = inv.quantity(atLeastText); } catch { throw new ConflictError(`"${atLeastText}" is not a quantity.`); }
+      if (atLeast <= inv.ZERO_QUANTITY) throw new ConflictError("A step on a line's quantity needs a quantity above zero.");
+    }
+    const scoped = vendorId !== null || categoryId !== null || locationId !== null || atLeast !== null;
     const amountOf = input.amountOf ?? "order";
-    if (amountOf === "matching_lines" && categoryId === null && locationId === null) {
+    /**
+     * A vendor alone is allowed: the step then counts every line of that
+     * vendor's orders. It is the same as the whole order's total, shown as
+     * lines, and it is what a quantity test beside a vendor narrows.
+     */
+    if (amountOf === "matching_lines" && !scoped) {
       throw new ConflictError(
-        "To count only some lines, say which: a category, a location, or both. "
-        + "A vendor is for the whole order, so there is no part of it to count.",
+        "To count only some lines, say which: a category, a location, a vendor, or a quantity.",
       );
     }
 
@@ -180,7 +200,7 @@ export function addRule(ctx: ServiceContext, input: {
      * comes before or after an unscoped step at a different amount says
      * nothing contradictory, and it is not held to the order.
      */
-    const unscoped = scoped ? [] : existing.filter((r) => !r.vendorId && !r.categoryId && !r.locationId);
+    const unscoped = scoped ? [] : existing.filter((r) => !r.vendorId && !r.categoryId && !r.locationId && r.lineQuantityAtLeast === null);
     const before = unscoped.filter((r) => r.step < step).at(-1);
     const after = unscoped.find((r) => r.step > step);
     if (before && m.compare(minimum, m.money(before.minimumTotal)) < 0) {
@@ -205,6 +225,7 @@ export function addRule(ctx: ServiceContext, input: {
       categoryId,
       locationId,
       amountOf,
+      lineQuantityAtLeast: atLeast === null ? null : inv.quantityToString(atLeast),
       createdByUserId: ctx.actor.userId,
     }).returning();
     await audit(tx, ctx, "purchase_approval_rule.added", "purchase_approval_rule", row!.id, null, row!);
@@ -236,11 +257,14 @@ export function removeRule(ctx: ServiceContext, input: { id: string }) {
  */
 export function totalOf(lines: readonly {
   unitPrice: string; quantityOrdered: string; packQuantity?: string | null; packPrice?: string | null;
+  looseQuantity?: string | null;
 }[]): m.Money {
   return m.round(m.sum(lines.map((l) => inv.lineCost({
     unitPrice: m.money(l.unitPrice),
     ...(l.packQuantity ? { packQuantity: inv.quantity(l.packQuantity) } : {}),
     ...(l.packPrice ? { packPrice: m.money(l.packPrice) } : {}),
+    quantityOrdered: inv.quantity(l.quantityOrdered),
+    ...(l.looseQuantity ? { looseQuantity: inv.quantity(l.looseQuantity) } : {}),
   }, inv.quantity(l.quantityOrdered)))), 2);
 }
 
@@ -271,7 +295,7 @@ export async function planWithin(tx: Database, orderId: string): Promise<{ plan:
     unitPrice: schema.purchaseOrderLine.unitPrice, quantityOrdered: schema.purchaseOrderLine.quantityOrdered,
     packQuantity: schema.purchaseOrderLine.packQuantity, packPrice: schema.purchaseOrderLine.packPrice,
     locationId: schema.purchaseOrderLine.locationId, categoryId: schema.priceBookItem.categoryId,
-    id: schema.purchaseOrderLine.id, itemId: schema.purchaseOrderLine.itemId, itemCode: schema.priceBookItem.code,
+    id: schema.purchaseOrderLine.id, looseQuantity: schema.purchaseOrderLine.looseQuantity, itemId: schema.purchaseOrderLine.itemId, itemCode: schema.priceBookItem.code,
   }).from(schema.purchaseOrderLine)
     .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.purchaseOrderLine.itemId))
     .where(eq(schema.purchaseOrderLine.purchaseOrderId, orderId))
@@ -297,6 +321,7 @@ export async function planWithin(tx: Database, orderId: string): Promise<{ plan:
       role: r.approverRole, roleId: r.approverRoleId,
       vendorId: r.vendorId, categoryId: r.categoryId, locationId: r.locationId, scopeLabel: r.scopeLabel,
       amountOf: r.amountOf,
+      lineQuantityAtLeast: r.lineQuantityAtLeast === null ? null : inv.quantity(r.lineQuantityAtLeast),
     })),
     order: {
       vendorId: order?.vendorId ?? "",
@@ -304,7 +329,7 @@ export async function planWithin(tx: Database, orderId: string): Promise<{ plan:
       locationIds: [...new Set(lines.map((l) => l.locationId))],
       lines: lines.map((l) => ({
         id: l.id, label: nameOf.get(l.itemId) ?? l.itemCode, categoryId: l.categoryId,
-        locationId: l.locationId, amount: totalOf([l]),
+        locationId: l.locationId, amount: totalOf([l]), quantity: inv.quantity(l.quantityOrdered),
       })),
     },
     total,
@@ -608,7 +633,7 @@ export const handlers = {
     step?: number | undefined; minimumTotal: string;
     approverRole?: string | null | undefined; approverRoleId?: string | null | undefined;
     vendorId?: string | null | undefined; categoryId?: string | null | undefined; locationId?: string | null | undefined;
-    amountOf?: "order" | "matching_lines" | undefined;
+    amountOf?: "order" | "matching_lines" | undefined; lineQuantityAtLeast?: string | null | undefined;
   }): Promise<ApprovalRuleView> => addRule(ctx, input),
   removePurchaseApprovalRule: (ctx: ServiceContext, input: { id: string }): Promise<{ id: string; removed: true }> =>
     removeRule(ctx, input),

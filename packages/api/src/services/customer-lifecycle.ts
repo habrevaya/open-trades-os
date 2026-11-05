@@ -791,6 +791,8 @@ export interface UndoAnswer {
   /** Fields the merge filled that somebody has changed since, left as they are. */
   filledKept: string[];
   tagsRemoved: string[];
+  /** The two were also marked as different people, so the matcher stops offering the pair. */
+  markedNotSame: boolean;
 }
 
 /**
@@ -808,11 +810,11 @@ export interface UndoAnswer {
  * it was written to.
  */
 export async function undoMerge(
-  ctx: ServiceContext, input: { id: string; reason?: string | undefined },
+  ctx: ServiceContext, input: { id: string; reason?: string | undefined; markNotSame?: boolean | undefined },
 ): Promise<UndoAnswer> {
   return guardedWrite(ctx, "customer:merge", async (tx) => {
     const seen = await replayed<UndoAnswer>(tx, ctx, "customer_merge_undo");
-    if (seen) return seen;
+    if (seen) return { ...seen, markedNotSame: seen.markedNotSame ?? false };
     const merge = await loadMerge(tx, ctx, input.id);
     /** Taken in a fixed order, so two undos of merges into one customer queue rather than deadlock. */
     await tx.execute(sql`select id from public.customer where id in (${merge.keptCustomerId}, ${merge.mergedCustomerId}) order by id for update`);
@@ -892,7 +894,27 @@ export async function undoMerge(
       undoneAt: now, undoneByUserId: ctx.actor.userId, undoReason: input.reason?.trim() || null, updatedAt: now,
     }).where(eq(schema.customerMerge.id, merge.id));
 
+    /**
+     * THE PAIR, SAID TO BE TWO PEOPLE, when the person undoing asked. A merge
+     * taken back because the two were different people would otherwise be
+     * offered again by the matcher the next time it runs. Never done unless
+     * asked: an undo for another reason (a mistake in what moved) says nothing
+     * about whether they are the same person. Stored as the duplicates screen
+     * stores it, once, the pair ordered, so asking twice is nothing.
+     */
+    let markedNotSame = false;
+    if (input.markNotSame) {
+      const [a, b] = tagRules.orderedPair(merge.keptCustomerId, merge.mergedCustomerId);
+      const reason = input.reason?.trim() || "Merged by mistake, then taken back";
+      const inserted = await tx.insert(schema.customerNotDuplicate).values({
+        organizationId: ctx.actor.organizationId, customerAId: a, customerBId: b, reason, decidedByUserId: ctx.actor.userId,
+      }).onConflictDoNothing().returning({ id: schema.customerNotDuplicate.id });
+      if (inserted[0]) await audit(tx, ctx, "customer.not_duplicate", "customer", a, null, { otherId: b, reason });
+      markedNotSame = true;
+    }
+
     const answer: UndoAnswer = {
+      markedNotSame,
       mergeRecordId: merge.id,
       keptId: merge.keptCustomerId,
       restoredId: merge.mergedCustomerId,
@@ -1078,7 +1100,7 @@ export const handlers = {
 
   getCustomerMerges: (ctx: ServiceContext, input: { id: string }) => merges(ctx, input),
 
-  undoCustomerMerge: (ctx: ServiceContext, input: { id: string; reason?: string | undefined }) =>
+  undoCustomerMerge: (ctx: ServiceContext, input: { id: string; reason?: string | undefined; markNotSame?: boolean | undefined }) =>
     undoMerge(ctx, input),
 
   /**

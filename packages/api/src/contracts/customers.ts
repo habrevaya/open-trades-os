@@ -328,12 +328,19 @@ export const undoCustomerMerge = defineRoute({
   path: "/v1/customer-merges/{id}/undo",
   summary: "Take a merge back",
   description:
-    "Moves exactly the rows the merge moved back to the duplicate, puts back the address links it took out as doubles, clears the blank fields it filled where nobody has changed them since, takes off the tags it added, and makes the duplicate a customer of its own again. Anything else written to the record kept since the merge stays with it. Refused with a 409 naming every reason at once when it cannot be done (see `GET /v1/customers/{id}/merges`). Written to the audit log as `customer.merge_undone`. A retry with the same idempotency key returns the first answer.",
+    "Moves exactly the rows the merge moved back to the duplicate, puts back the address links it took out as doubles, clears the blank fields it filled where nobody has changed them since, takes off the tags it added, and makes the duplicate a customer of its own again. Anything else written to the record kept since the merge stays with it. Refused with a 409 naming every reason at once when it cannot be done (see `GET /v1/customers/{id}/merges`). Written to the audit log as `customer.merge_undone`. With `markNotSame` the two are also marked as different people (the same mark the duplicates screen makes, kept with the undo's reason, audited as `customer.not_duplicate`), so the matcher stops offering the pair; left out, the undo says nothing about whether they are the same person. A retry with the same idempotency key returns the first answer.",
   module: "M03",
   permissions: ["customer:merge"],
   idempotent: true,
-  input: z.object({ id: Uuid, reason: z.string().max(500).optional() }),
+  input: z.object({
+    id: Uuid,
+    reason: z.string().max(500).optional(),
+    /** Also say the two are different people, so the duplicates screen stops offering the pair. Off when left out. */
+    markNotSame: z.boolean().optional(),
+  }),
   output: z.object({
+    /** True when the pair was marked as different people. */
+    markedNotSame: z.boolean(),
     mergeRecordId: Uuid,
     keptId: Uuid,
     restoredId: Uuid,

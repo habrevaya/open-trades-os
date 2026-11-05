@@ -130,6 +130,8 @@ export default async function InventoryPage() {
             Serials, the trucks and what each should carry are under{" "}
             <a href="/inventory/serials" className="underline underline-offset-4">Serials and lots</a> and{" "}
             <a href="/inventory/trucks" className="underline underline-offset-4">Truck stock</a>.
+            A freight bill for stock that came with no order goes on{" "}
+            <a href="/inventory/receipts" className="underline underline-offset-4">Stock received without an order</a>.
           </p>
           <div className="mt-4 grid gap-6 lg:grid-cols-3">
             <div className="rounded-md border border-steel-200 bg-canvas p-4">

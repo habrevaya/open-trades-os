@@ -1856,6 +1856,37 @@ export interface PurchaseOrderLine {
    */
   readonly packQuantity?: Quantity | undefined;
   readonly packPrice?: Money | undefined;
+  /**
+   * A MIXED LINE: how many of the quantity ordered are bought by the each
+   * rather than by the pack ("2 boxes of 25 and 3 each" is 53 ordered, 3
+   * loose). The rest is whole packs at the pack price and these are at
+   * `unitPrice`, which on a mixed line is the vendor's each price. Absent or
+   * zero is a line bought one way, which is every line before this.
+   */
+  readonly looseQuantity?: Quantity | undefined;
+}
+
+/**
+ * What a mixed line costs for its first `n` pieces: packs first, then the
+ * ones bought by the each. A piece part way through a pack is charged the
+ * pack's price over the pack, so taking one more piece never lowers the
+ * cost, and the whole packs come to the pack price exactly.
+ */
+function mixedPrefixCost(
+  line: Pick<PurchaseOrderLine, "unitPrice" | "packQuantity" | "packPrice" | "quantityOrdered" | "looseQuantity">,
+  n: Quantity,
+): Money {
+  const pack = line.packQuantity ?? QUANTITY_FACTOR;
+  const packedTotal = line.quantityOrdered - (line.looseQuantity ?? ZERO_QUANTITY);
+  const inPacks = qtyMin(n, packedTotal);
+  const loose = n - inPacks;
+  const wholePacks = pack > ZERO_QUANTITY ? inPacks / pack : ZERO_QUANTITY;
+  const rest = inPacks - wholePacks * pack;
+  const packPrice = line.packPrice ?? multiply(line.unitPrice, quantityToString(pack));
+  let cost = multiply(packPrice, wholePacks.toString());
+  if (rest > ZERO_QUANTITY) cost = add(cost, multiply(divide(packPrice, quantityToString(pack)), quantityToString(rest)));
+  if (loose > ZERO_QUANTITY) cost = add(cost, multiply(line.unitPrice, quantityToString(loose)));
+  return cost;
 }
 
 /**
@@ -1864,7 +1895,20 @@ export interface PurchaseOrderLine {
  * 100.00 either way; a box of 3 at 10.00 is 3.3333 each, and only the pack
  * price makes ten boxes come to 100.00 rather than 99.999.
  */
-export function lineCost(line: Pick<PurchaseOrderLine, "unitPrice" | "packQuantity" | "packPrice">, amount: Quantity): Money {
+export function lineCost(
+  line: Pick<PurchaseOrderLine, "unitPrice" | "packQuantity" | "packPrice"> & Partial<Pick<PurchaseOrderLine, "quantityOrdered" | "looseQuantity">>,
+  amount: Quantity,
+  /**
+   * How many of the line came before this slice. Only a mixed line reads it:
+   * its slices are priced as the difference of two running totals, so the
+   * slices of one line always add back to the line's cost exactly.
+   */
+  already: Quantity = ZERO_QUANTITY,
+): Money {
+  if (line.looseQuantity && line.looseQuantity > ZERO_QUANTITY && line.quantityOrdered !== undefined) {
+    const mixed = line as Pick<PurchaseOrderLine, "unitPrice" | "packQuantity" | "packPrice" | "quantityOrdered" | "looseQuantity">;
+    return subtract(mixedPrefixCost(mixed, already + amount), mixedPrefixCost(mixed, already));
+  }
   const pack = line.packQuantity;
   if (line.packPrice && pack && pack > ZERO_QUANTITY && amount % pack === ZERO_QUANTITY) {
     return multiply(line.packPrice, (amount / pack).toString());
@@ -2092,7 +2136,7 @@ export function receivePurchaseOrder(input: {
        * receipt rather than two, so the lot priced delivery and the unit
        * priced one go down the same path.
        */
-      totalCost: lineCost(line, receipt.quantity),
+      totalCost: lineCost(line, receipt.quantity, already),
       purchaseOrderId: po.id,
       purchaseOrderLineId: line.id,
     });
@@ -2127,7 +2171,7 @@ export function outstandingValue(purchaseOrder: PurchaseOrder, currency: Currenc
   return purchaseOrder.lines.reduce((total, line) => {
     const outstanding = outstandingOf(line);
     if (outstanding === ZERO_QUANTITY) return total;
-    return add(total, lineCost(line, outstanding));
+    return add(total, lineCost(line, outstanding, line.quantityReceived));
   }, zero(currency));
 }
 

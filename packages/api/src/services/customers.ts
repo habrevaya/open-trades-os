@@ -9,7 +9,8 @@ import {
 import { enforceWithin, listFilter } from "./custom-fields";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
 import { customerScopeFilter, customerBranchFilter } from "./scope";
-import { closeMatching, textFilter } from "./text-search";
+import { closeMatching, textFilter, type Searched } from "./text-search";
+import { FIELD_SCOPES } from "./customer-notes";
 import { emit } from "./events";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
@@ -83,6 +84,21 @@ function tagFilter(input: ListInput) {
  * also be close to one that is written (`text-search.ts`). Not on the API.
  */
 type Looking = { close?: boolean | undefined };
+
+/**
+ * A word in one of the customer's notes counts as a match, so "gate code" finds
+ * the account whose note says it. A note is read only as the caller may read
+ * it: at a field scope (a technician) only the notes marked for the field, the
+ * same rule the note list and the search box's notes use. Always an `exists`
+ * correlated to the customer being listed, so it widens what a customer
+ * matches and never which customers are listed.
+ */
+const inNotes = (ctx: ServiceContext): Searched => (match) => sql`exists (
+  select 1 from public.customer_note cn
+  where cn.customer_id = ${schema.customer.id}
+    ${FIELD_SCOPES.has(scopeOf(ctx, "customer")) ? sql`and cn.for_field` : sql``}
+    and ${match(sql`cn.body`)}
+)`;
 export async function list(ctx: ServiceContext, input: ListInput & Looking) {
   return guardedRead(ctx, "customer:read", async (tx) => {
     if (input.close) await closeMatching(tx);
@@ -110,7 +126,7 @@ export async function list(ctx: ServiceContext, input: ListInput & Looking) {
       // Trigram search across the three things a CSR actually types while
       // somebody is on the phone, every word somewhere in one of them, so
       // "smith john" finds John Smith and a typed `%` is a percent sign.
-      textFilter(input.q, [schema.customer.name, schema.customer.email, schema.customer.phone], undefined, { close: input.close }),
+      textFilter(input.q, [schema.customer.name, schema.customer.email, schema.customer.phone, inNotes(ctx)], undefined, { close: input.close }),
       tagFilter(input),
       byField,
       // A branch somebody picked: customers that branch has done work for.

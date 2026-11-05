@@ -1,9 +1,10 @@
-import { and, asc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import {
   audit, guardedRead, guardedWrite, scopeOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
-import { customerScopeFilter } from "./scope";
+import { customerScopeFilter, propertyVisibility } from "./scope";
+import { sql } from "drizzle-orm";
 import { remember, replayed } from "./once";
 
 /**
@@ -359,6 +360,63 @@ export async function listForCustomer(ctx: ServiceContext, input: { id: string }
 
 type ContactView = ReturnType<typeof shape>;
 
+/* ------------------------------------------ the routes, one address's people */
+
+/**
+ * The people at an ADDRESS, whether or not the address has a customer. A
+ * contact tied to a property alone (the tenant at a rental the landlord's
+ * account owns, the site manager at a job nobody has made a customer for yet)
+ * belongs to no customer's page, so these are the way to reach them.
+ *
+ * The address is looked up under the caller's scope first, the way the
+ * customer is, so a technician reads the people at addresses they have been
+ * sent to and is told another does not exist.
+ */
+async function visibleProperty(tx: Database, ctx: ServiceContext, propertyId: string): Promise<void> {
+  const [row] = await tx.select({ id: schema.property.id }).from(schema.property)
+    .where(and(
+      eq(schema.property.id, propertyId),
+      isNull(schema.property.deletedAt),
+      propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.property.id}`),
+    )).limit(1);
+  if (!row) throw new NotFoundError("Property");
+}
+
+export async function listForProperty(ctx: ServiceContext, input: { id: string }) {
+  await guardedRead(ctx, "customer:read", (tx) => visibleProperty(tx, ctx, input.id));
+  const rows = await list(ctx, { propertyId: input.id });
+  /** Which customers' accounts a person is also on, so the screen can say whose they are. */
+  const names = await guardedRead(ctx, "customer:read", async (tx) => {
+    const ids = [...new Set(rows.map((r) => r.customerId).filter((id): id is string => id !== null))];
+    if (ids.length === 0) return new Map<string, string>();
+    const found = await tx.select({ id: schema.customer.id, name: schema.customer.name }).from(schema.customer)
+      .where(and(
+        inArray(schema.customer.id, ids),
+        customerScopeFilter(scopeOf(ctx, "customer"), ctx.actor),
+      ));
+    return new Map(found.map((c) => [c.id, c.name] as const));
+  });
+  return { contacts: rows.map((row) => ({ ...row, customerName: row.customerId ? names.get(row.customerId) ?? null : null })) };
+}
+
+/**
+ * Add somebody to the address in the path, with no customer. A retry with the
+ * same idempotency key returns the first answer rather than a second person.
+ */
+export async function addForProperty(
+  ctx: ServiceContext, input: Omit<ContactInput, "customerId" | "propertyId"> & { id: string },
+): Promise<ContactView> {
+  const { id: propertyId, ...rest } = input;
+  return guardedWrite(ctx, "customer:write", async (tx) => {
+    const seen = await replayed<ContactView>(tx, ctx, "contact_add");
+    if (seen) return seen;
+    await visibleProperty(tx, ctx, propertyId);
+    const created = await create({ ...ctx, db: tx }, { ...rest, propertyId, customerId: null });
+    await remember(tx, ctx, "contact_add", created.id, created);
+    return created;
+  });
+}
+
 /**
  * Add somebody to the customer in the path. A retry with the same
  * idempotency key returns the first answer rather than a second person.
@@ -412,6 +470,9 @@ export async function makePrimary(ctx: ServiceContext, input: { id: string }): P
 
 export const handlers = {
   listCustomerContacts: (ctx: ServiceContext, input: { id: string }) => listForCustomer(ctx, input),
+  listPropertyContacts: (ctx: ServiceContext, input: { id: string }) => listForProperty(ctx, input),
+  addPropertyContact: (ctx: ServiceContext, input: Omit<ContactInput, "customerId" | "propertyId"> & { id: string }) =>
+    addForProperty(ctx, input),
   addCustomerContact: (ctx: ServiceContext, input: Omit<ContactInput, "customerId"> & { id: string }) =>
     addForCustomer(ctx, input),
   updateContact: (ctx: ServiceContext, input: Omit<ContactPatch, "customerId" | "isPrimary">) => edit(ctx, input),

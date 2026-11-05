@@ -3,7 +3,7 @@ import { RecordsPanel } from "@/components/RecordsPanel";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { properties, equipment as equipmentService, customFields, taxRates, NotFoundError } from "@opentradesos/api/services";
+import { properties, equipment as equipmentService, customFields, taxRates, contacts, NotFoundError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip } from "@opentradesos/ui";
 import { Facts, Fact, Crumb } from "@/components/Detail";
@@ -13,6 +13,7 @@ import { PinEditor } from "@/components/PinEditor";
 import { tileSource } from "@/lib/map-tiles";
 import { placePropertyPin, clearPropertyPin, setPropertyTaxRate, setPropertyStreet, clearPropertyStreet } from "./actions";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
+import { addAddressPerson, editAddressPerson, makeAddressPersonPrimary, removeAddressPerson } from "./people-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,14 @@ export default async function PropertyPage({
     ? await properties.streetsIn(ctx, { city: property.address.city, state: property.address.state })
     : [];
 
+  const readsPeople = can(user.actor, "customer:read");
+  const writesPeople = can(user.actor, "customer:write");
+  const people = readsPeople
+    ? (await contacts.listForProperty(ctx, { id }).catch((error: unknown) => {
+      if (error instanceof NotFoundError) return { contacts: [] };
+      throw error;
+    })).contacts
+    : [];
   const readsEquipment = can(user.actor, "equipment:read");
   const register = readsEquipment
     ? await equipmentService.atProperty(ctx, { propertyId: id })
@@ -99,6 +108,80 @@ export default async function PropertyPage({
         {property.gateCode && <Fact label="Gate">{property.gateCode}</Fact>}
         <Fact label="Units">{property.equipmentCount}</Fact>
       </Facts>
+
+
+      {/*
+        The people at this address, with or without a customer. Somebody tied
+        to the address alone (the tenant at a rental, the site manager at a
+        job nobody has made a customer for) is on no customer's page, so this
+        is where they are kept. The first one listed is who gets the "on the
+        way" text.
+      */}
+      {readsPeople ? (
+        <section id="people" aria-label="People at this address" className="mt-8">
+          <h2 className="text-base font-semibold">People at this address</h2>
+          {people.length === 0 ? (
+            <p className="mt-1 max-w-prose text-sm text-ink-700">
+              Nobody is kept for this address on its own. The &ldquo;on the way&rdquo; text goes to the customer.
+            </p>
+          ) : (
+            <ul className="mt-3 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
+              {people.map((person, index) => (
+                <li key={person.id} className="flex flex-wrap items-baseline gap-2 bg-canvas p-3">
+                  <span className="font-medium text-ink-900">{person.name}</span>
+                  {person.title ? <span className="text-sm text-ink-500">{person.title}</span> : null}
+                  {person.customerName ? <Chip tone="neutral">Also on {person.customerName}</Chip> : <Chip tone="info">This address only</Chip>}
+                  {person.isPrimary ? <Chip tone="neutral">Primary</Chip> : null}
+                  {index === 0 ? <Chip tone="success">Gets the text</Chip> : null}
+                  {person.phone ? <span className="text-sm text-ink-700">{person.phone}</span> : null}
+                  {person.email ? <span className="text-sm text-ink-700">{person.email}</span> : null}
+                  <span className="text-xs text-ink-500">prefers {person.preferredChannel}</span>
+                  {writesPeople ? (
+                    <span className="ml-auto flex flex-wrap gap-2">
+                      {!person.isPrimary ? (
+                        <ActionForm action={makeAddressPersonPrimary} submit="Make primary" tone="quiet" className=""
+                                    hidden={{ propertyId: id, id: person.id }} />
+                      ) : null}
+                      <ActionForm action={removeAddressPerson} submit="Remove" tone="quiet" className=""
+                                  hidden={{ propertyId: id, id: person.id }} />
+                    </span>
+                  ) : null}
+                  {writesPeople ? (
+                    <details className="w-full">
+                      <summary className="cursor-pointer text-sm text-ink-700">{`Change ${person.name}`}</summary>
+                      <ActionForm action={editAddressPerson} submit="Save details" tone="quiet"
+                                  hidden={{ propertyId: id, id: person.id }} className="mt-2 flex flex-wrap items-end gap-3">
+                        <TextField label="Name" name="name" defaultValue={person.name} required className="w-48" />
+                        <TextField label="Role, if any" name="title" defaultValue={person.title ?? ""} className="w-40" />
+                        <TextField label="Phone" name="phone" defaultValue={person.phone ?? ""} className="w-40" />
+                        <TextField label="Email" name="email" defaultValue={person.email ?? ""} className="w-56" />
+                        <Select label="Prefers" name="preferredChannel" defaultValue={person.preferredChannel} className="w-32" options={[
+                          { value: "sms", label: "Text" }, { value: "email", label: "Email" }, { value: "voice", label: "A call" },
+                        ]} />
+                      </ActionForm>
+                    </details>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          {writesPeople ? (
+            <ActionForm action={addAddressPerson} submit="Add somebody here" tone="quiet" hidden={{ propertyId: id }}
+                        className="mt-3 flex flex-wrap items-end gap-3">
+              <TextField label="Name" name="name" required className="w-48" />
+              <TextField label="Role, if any" name="title" placeholder="Tenant, site manager" className="w-40" />
+              <TextField label="Phone" name="phone" className="w-40" />
+              <TextField label="Email" name="email" className="w-56" />
+              <Select label="Prefers" name="preferredChannel" className="w-32" options={[
+                { value: "sms", label: "Text" }, { value: "email", label: "Email" }, { value: "voice", label: "A call" },
+              ]} />
+              <label className="flex items-center gap-2 text-sm text-ink-700">
+                <input type="checkbox" name="isPrimary" value="yes" /> Tell them first
+              </label>
+            </ActionForm>
+          ) : null}
+        </section>
+      ) : null}
 
       {/*
         Where it is. A pin the geocoder could not place, or placed in the

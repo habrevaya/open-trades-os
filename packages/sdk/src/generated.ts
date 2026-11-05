@@ -596,6 +596,28 @@ export interface AddProjectPhaseOutput {
   status: "not_started" | "in_progress" | "blocked" | "complete";
 }
 
+export interface AddPropertyContactInput {
+  name: string;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  preferredChannel?: "sms" | "email" | "voice";
+  isPrimary?: boolean;
+}
+
+export interface AddPropertyContactOutput {
+  id: string;
+  customerId: string | null;
+  propertyId: string | null;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  preferredChannel: string;
+  isPrimary: boolean;
+  portalAccess: boolean;
+}
+
 export interface AddPurchaseApprovalRuleInput {
   step?: number;
   minimumTotal: string;
@@ -605,6 +627,7 @@ export interface AddPurchaseApprovalRuleInput {
   categoryId?: string | null;
   locationId?: string | null;
   amountOf?: "order" | "matching_lines";
+  lineQuantityAtLeast?: string | null;
 }
 
 export interface AddPurchaseApprovalRuleOutput {
@@ -618,6 +641,7 @@ export interface AddPurchaseApprovalRuleOutput {
   categoryId: string | null;
   locationId: string | null;
   amountOf: "order" | "matching_lines";
+  lineQuantityAtLeast: string | null;
   scopeLabel: string;
 }
 
@@ -4796,6 +4820,7 @@ export interface CreatePurchaseOrderInput {
     quantity: string;
     unitPrice?: string;
     packQuantity?: string;
+    looseQuantity?: string;
   }>;
 }
 
@@ -6749,6 +6774,7 @@ export interface EditPurchaseOrderInput {
     quantity: string;
     unitPrice?: string;
     packQuantity?: string;
+    looseQuantity?: string;
   }>;
 }
 
@@ -12553,6 +12579,8 @@ export interface GetPurchaseOrderOutput {
       size: string;
       unit: string | null;
       price: string;
+      loose: string | null;
+      loosePrice: string | null;
     } | null;
     tracking: "serial" | "lot" | null;
     landedCost: string;
@@ -18059,6 +18087,23 @@ export interface ListPropertiesOutput {
   hasMore: boolean;
 }
 
+export interface ListPropertyContactsOutput {
+  contacts: Array<{
+    id: string;
+    customerId: string | null;
+    propertyId: string | null;
+    name: string;
+    title: string | null;
+    email: string | null;
+    phone: string | null;
+    preferredChannel: string;
+    isPrimary: boolean;
+    portalAccess: boolean;
+    noticeRank: number;
+    customerName: string | null;
+  }>;
+}
+
 export interface ListProposalTemplatesOutput {
   templates: Array<{
     id: string;
@@ -18096,6 +18141,7 @@ export interface ListPurchaseApprovalRulesOutput {
     categoryId: string | null;
     locationId: string | null;
     amountOf: "order" | "matching_lines";
+    lineQuantityAtLeast: string | null;
     scopeLabel: string;
   }>;
 }
@@ -18944,6 +18990,30 @@ export interface ListStockLocationsOutput {
     id: string;
     name: string;
     isWarehouse: boolean;
+  }>;
+}
+
+export interface ListStockReceiptsOutput {
+  receipts: Array<{
+    id: string;
+    receivedAt: string;
+    itemId: string;
+    itemCode: string;
+    itemName: string;
+    locationId: string;
+    locationName: string;
+    quantity: string;
+    cost: string;
+    lateTotal: string;
+    lateBills: Array<{
+      id: string;
+      total: string;
+      reference: string | null;
+      onShelf: string;
+      onJobs: string;
+      onGone: string;
+      recordedAt: string;
+    }>;
   }>;
 }
 
@@ -22702,6 +22772,29 @@ export interface RecordSpendOutput {
   spentOn: string;
   amount: string;
   origin: string;
+}
+
+export interface RecordStockLateLandedCostInput {
+  charges: Array<{
+    description: string;
+    amount: string;
+  }>;
+  basis?: "value" | "quantity";
+  reference?: string | null;
+}
+
+export interface RecordStockLateLandedCostOutput {
+  id: string;
+  stockReceiptId: string;
+  total: string;
+  onShelf: string;
+  onJobs: string;
+  onGone: string;
+  jobs: Array<{
+    jobId: string;
+    jobNumber: number | null;
+    amount: string;
+  }>;
 }
 
 export interface RecordTechnicianSkillInput {
@@ -29164,9 +29257,11 @@ export interface TurnPluginOnOutput {
 
 export interface UndoCustomerMergeInput {
   reason?: string;
+  markNotSame?: boolean;
 }
 
 export interface UndoCustomerMergeOutput {
+  markedNotSame: boolean;
   mergeRecordId: string;
   keptId: string;
   restoredId: string;
@@ -32546,6 +32641,10 @@ export interface AddProjectPhaseParams {
   projectId: string;
 }
 
+export interface AddPropertyContactParams {
+  id: string;
+}
+
 export interface AddSafetyMeetingAttendeesParams {
   id: string;
 }
@@ -34665,6 +34764,10 @@ export interface ListPropertiesInput {
   fieldMatch?: "all" | "any";
 }
 
+export interface ListPropertyContactsInput {
+  id: string;
+}
+
 export type ListProposalTemplatesInput = Record<string, never>;
 
 export type ListPurchaseApprovalRulesInput = Record<string, never>;
@@ -34810,6 +34913,8 @@ export interface ListStatementDeliveriesInput {
 export type ListStockLevelsInput = Record<string, never>;
 
 export type ListStockLocationsInput = Record<string, never>;
+
+export type ListStockReceiptsInput = Record<string, never>;
 
 export interface ListStockUnitsInput {
   itemId?: string;
@@ -35291,6 +35396,10 @@ export interface RecordRentalTipParams {
 }
 
 export interface RecordServiceRouteStopServicedParams {
+  id: string;
+}
+
+export interface RecordStockLateLandedCostParams {
   id: string;
 }
 
@@ -36485,6 +36594,7 @@ export interface OperationTypes {
   addPerDiemPlaceRate: { input: AddPerDiemPlaceRateParams & AddPerDiemPlaceRateInput; output: AddPerDiemPlaceRateOutput };
   addPortalFile: { input: AddPortalFileInput; output: AddPortalFileOutput };
   addProjectPhase: { input: AddProjectPhaseParams & AddProjectPhaseInput; output: AddProjectPhaseOutput };
+  addPropertyContact: { input: AddPropertyContactParams & AddPropertyContactInput; output: AddPropertyContactOutput };
   addPurchaseApprovalRule: { input: AddPurchaseApprovalRuleInput; output: AddPurchaseApprovalRuleOutput };
   addRentableAsset: { input: AddRentableAssetInput; output: AddRentableAssetOutput };
   addSafetyMeetingAttendees: { input: AddSafetyMeetingAttendeesParams & AddSafetyMeetingAttendeesInput; output: AddSafetyMeetingAttendeesOutput };
@@ -37114,6 +37224,7 @@ export interface OperationTypes {
   listProjectLienRecords: { input: ListProjectLienRecordsInput; output: ListProjectLienRecordsOutput };
   listProjects: { input: ListProjectsInput; output: ListProjectsOutput };
   listProperties: { input: ListPropertiesInput; output: ListPropertiesOutput };
+  listPropertyContacts: { input: ListPropertyContactsInput; output: ListPropertyContactsOutput };
   listProposalTemplates: { input: ListProposalTemplatesInput; output: ListProposalTemplatesOutput };
   listPurchaseApprovalRules: { input: ListPurchaseApprovalRulesInput; output: ListPurchaseApprovalRulesOutput };
   listPurchaseOrderSends: { input: ListPurchaseOrderSendsInput; output: ListPurchaseOrderSendsOutput };
@@ -37160,6 +37271,7 @@ export interface OperationTypes {
   listStatementDeliveries: { input: ListStatementDeliveriesInput; output: ListStatementDeliveriesOutput };
   listStockLevels: { input: ListStockLevelsInput; output: ListStockLevelsOutput };
   listStockLocations: { input: ListStockLocationsInput; output: ListStockLocationsOutput };
+  listStockReceipts: { input: ListStockReceiptsInput; output: ListStockReceiptsOutput };
   listStockUnits: { input: ListStockUnitsInput; output: ListStockUnitsOutput };
   listSubmissions: { input: ListSubmissionsInput; output: ListSubmissionsOutput };
   listTaskEscalationRules: { input: ListTaskEscalationRulesInput; output: ListTaskEscalationRulesOutput };
@@ -37321,6 +37433,7 @@ export interface OperationTypes {
   recordReview: { input: RecordReviewInput; output: RecordReviewOutput };
   recordServiceRouteStopServiced: { input: RecordServiceRouteStopServicedParams & RecordServiceRouteStopServicedInput; output: RecordServiceRouteStopServicedOutput };
   recordSpend: { input: RecordSpendInput; output: RecordSpendOutput };
+  recordStockLateLandedCost: { input: RecordStockLateLandedCostParams & RecordStockLateLandedCostInput; output: RecordStockLateLandedCostOutput };
   recordTechnicianSkill: { input: RecordTechnicianSkillParams & RecordTechnicianSkillInput; output: RecordTechnicianSkillOutput };
   recordTruckWater: { input: RecordTruckWaterParams & RecordTruckWaterInput; output: RecordTruckWaterOutput };
   recordUnitOutcome: { input: RecordUnitOutcomeParams & RecordUnitOutcomeInput; output: RecordUnitOutcomeOutput };
@@ -37761,6 +37874,7 @@ export const OPERATIONS = {
   addPerDiemPlaceRate: { method: "POST", path: "/v1/payroll/per-diem-places/{id}/rates", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   addPortalFile: { method: "POST", path: "/v1/portal/files", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   addProjectPhase: { method: "POST", path: "/v1/projects/{projectId}/phases", pathParams: ["projectId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  addPropertyContact: { method: "POST", path: "/v1/properties/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   addPurchaseApprovalRule: { method: "POST", path: "/v1/purchase-approval-rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   addRentableAsset: { method: "POST", path: "/v1/rentable-assets", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   addSafetyMeetingAttendees: { method: "POST", path: "/v1/safety/meetings/{id}/attendees", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
@@ -38390,6 +38504,7 @@ export const OPERATIONS = {
   listProjectLienRecords: { method: "GET", path: "/v1/projects/{projectId}/lien-records", pathParams: ["projectId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listProjects: { method: "GET", path: "/v1/projects", pathParams: [], queryParams: ["status"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   listProperties: { method: "GET", path: "/v1/properties", pathParams: [], queryParams: ["cursor","limit","q","customerId","territoryId","externalSource","externalId","fieldKey","fieldValue","fields","fieldMatch"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["property:read"] },
+  listPropertyContacts: { method: "GET", path: "/v1/properties/{id}/contacts", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   listProposalTemplates: { method: "GET", path: "/v1/proposal-templates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listPurchaseApprovalRules: { method: "GET", path: "/v1/purchase-approval-rules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   listPurchaseOrderSends: { method: "GET", path: "/v1/purchase-orders/{id}/sends", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
@@ -38436,6 +38551,7 @@ export const OPERATIONS = {
   listStatementDeliveries: { method: "GET", path: "/v1/statement-deliveries", pathParams: [], queryParams: ["customerId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
   listStockLevels: { method: "GET", path: "/v1/stock/levels", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listStockLocations: { method: "GET", path: "/v1/stock/locations", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
+  listStockReceipts: { method: "GET", path: "/v1/stock-receipts", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["po:read"] },
   listStockUnits: { method: "GET", path: "/v1/stock/units", pathParams: [], queryParams: ["itemId","locationId","number","inStockOnly","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listSubmissions: { method: "GET", path: "/v1/marketing/submissions", pathParams: [], queryParams: ["formId","state","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTaskEscalationRules: { method: "GET", path: "/v1/task-escalation-rules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["task:read"] },
@@ -38597,6 +38713,7 @@ export const OPERATIONS = {
   recordReview: { method: "POST", path: "/v1/reviews", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   recordServiceRouteStopServiced: { method: "POST", path: "/v1/service-routes/stops/{id}/serviced", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   recordSpend: { method: "POST", path: "/v1/marketing/spend", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
+  recordStockLateLandedCost: { method: "POST", path: "/v1/stock-receipts/{id}/late-charges", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   recordTechnicianSkill: { method: "POST", path: "/v1/technicians/{technicianId}/skills", pathParams: ["technicianId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   recordTruckWater: { method: "PUT", path: "/v1/assets/{assetId}/water/{day}", pathParams: ["assetId","day"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   recordUnitOutcome: { method: "POST", path: "/v1/visits/{visitId}/units/{equipmentId}/outcome", pathParams: ["visitId","equipmentId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:write"] },
@@ -39260,6 +39377,15 @@ export abstract class GeneratedOperations {
    */
   addProjectPhase(input: AddProjectPhaseParams & AddProjectPhaseInput, options?: CallOptions): Promise<AddProjectPhaseOutput> {
     return this.call("addProjectPhase", input, options);
+  }
+
+  /**
+   * Add a person to an address.
+   *
+   * POST /v1/properties/{id}/contacts. Needs customer:write.
+   */
+  addPropertyContact(input: AddPropertyContactParams & AddPropertyContactInput, options?: CallOptions): Promise<AddPropertyContactOutput> {
+    return this.call("addPropertyContact", input, options);
   }
 
   /**
@@ -44924,6 +45050,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The people at an address.
+   *
+   * GET /v1/properties/{id}/contacts. Needs customer:read.
+   */
+  listPropertyContacts(input: ListPropertyContactsInput, options?: CallOptions): Promise<ListPropertyContactsOutput> {
+    return this.call("listPropertyContacts", input, options);
+  }
+
+  /**
    * The company's saved proposal layouts.
    *
    * GET /v1/proposal-templates. Needs estimate:read.
@@ -45335,6 +45470,15 @@ export abstract class GeneratedOperations {
    */
   listStockLocations(input: ListStockLocationsInput = {} as ListStockLocationsInput, options?: CallOptions): Promise<ListStockLocationsOutput> {
     return this.call("listStockLocations", input, options);
+  }
+
+  /**
+   * Stock received without an order, as deliveries.
+   *
+   * GET /v1/stock-receipts. Needs po:read.
+   */
+  listStockReceipts(input: ListStockReceiptsInput = {} as ListStockReceiptsInput, options?: CallOptions): Promise<ListStockReceiptsOutput> {
+    return this.call("listStockReceipts", input, options);
   }
 
   /**
@@ -46784,6 +46928,15 @@ export abstract class GeneratedOperations {
    */
   recordSpend(input: RecordSpendInput, options?: CallOptions): Promise<RecordSpendOutput> {
     return this.call("recordSpend", input, options);
+  }
+
+  /**
+   * Spread a freight or duty bill onto stock received without an order.
+   *
+   * POST /v1/stock-receipts/{id}/late-charges. Needs po:write.
+   */
+  recordStockLateLandedCost(input: RecordStockLateLandedCostParams & RecordStockLateLandedCostInput, options?: CallOptions): Promise<RecordStockLateLandedCostOutput> {
+    return this.call("recordStockLateLandedCost", input, options);
   }
 
   /**

@@ -152,11 +152,28 @@ When the vendor sells the part two ways (by the each and by the box), the line
 takes the one it names (`packQuantity`, how many of ours in one of theirs), or,
 named nowhere, the cheaper per one of ours at the break the order reaches among
 the ways this many is whole packs of: fifty wire nuts are two boxes when the box
-is cheaper per nut, thirty are thirty each. A line is one way: thirty as a box
-and five each is two lines. The rule is core's `catalogue.choosePack` and
+is cheaper per nut, thirty are thirty each. A line is one way
+unless it is written as a mixed line, below. The rule is core's `catalogue.choosePack` and
 `catalogue.cheaperFirst`, with unit tests. "Order by part number" shows a "Buy it"
 choice for such a part, cheaper per unit first, starting on "The cheaper way that
 fits".
+
+**A mixed line.** Two boxes of 25 and three each is one line: `quantity` 53 and
+`looseQuantity` 3 (on the screen, "Of those, bought by the each", beside the
+quantity, shown only for a part the vendor sells both ways). The rest, 50, has
+to be whole boxes, or the order is refused in words with the numbers; the vendor
+has to sell the part both by the each and by the pack, and have a price for
+both (or one is typed, which is for one of ours and makes the box its multiple);
+all of it loose is refused ("leave the loose number out"). The boxes are priced
+at the box price at the break their count reaches and the loose ones at the each
+price at the break theirs reaches, so the line's unit price is the each price
+and its pack price the box's. The order's page, email and PDF say both ("2 box of
+25 and 3 each", with both prices), and the line total is `2 x 10.00 + 3 x 0.55`.
+Receiving prices the pieces boxes first, then the loose ones, as the difference
+of two running totals, so however the line arrives in deliveries (10, then 15,
+then 28) the slices add back to the line's cost exactly, and a piece part way
+through a box costs the box's price over the box. The arithmetic is core's
+`inventory.lineCost` with unit tests.
 
 ### Know what each vendor calls a part
 
@@ -427,6 +444,20 @@ that does not exist, and a history that cannot account for every part that
 arrived are refused. The order's page lists each late bill under its delivery
 with where it went.
 
+**Stock that came without an order.** Stock received outside an order
+(`POST /v1/stock/receipts`, "Receive" on `/inventory`) is now a delivery of its
+own: the movements of one receiving are grouped as a stock receipt, and a freight
+or duty bill that comes later is put on it with
+`POST /v1/stock-receipts/{id}/late-charges` (`po:write`), or on
+`/inventory/receipts`, "Stock received without an order", which lists the
+deliveries newest first with what they cost and what has been billed since
+(`GET /v1/stock-receipts`, `po:read`, the last two hundred). The bill is spread
+over the pieces that arrived by value unless it says by quantity (there was never
+a delivery basis to follow), and follows the parts exactly as a bill on an order's
+delivery does: the same planner, revaluation movements and one balanced posting.
+Stock received before deliveries were kept has none, and so cannot be billed this
+way; nothing was backfilled into the history.
+
 ### Who approves an order
 
 `POST /v1/purchase-approval-rules` declares a step: an order at or over an
@@ -434,9 +465,19 @@ amount needs somebody holding a named role to approve it. Steps are taken in
 order, so "over a thousand, the office manager; over five thousand, the owner
 as well" is two rows, and a six thousand dollar order needs both, the office
 manager first. A step can be for some orders only: to one vendor, with any line
-from one price book category, or delivering to one location, all that are given
-holding. By default the amount is the whole order's total, not the share in the
+from one price book category, with any line of so many or more, or delivering to
+one location, all that are given holding. By default the amount is the whole order's total, not the share in the
 category, because asking for more approval is the safe mistake.
+
+**A step on a line's quantity.** A step saved with `lineQuantityAtLeast` is for
+orders with a line of that many or more, "any line of 20 or more compressors",
+counted in the order's own units (the quantity ordered, as the order shows it: 53
+for 2 boxes of 25 and 3 each). A whole-order step with it asks for the order's
+total when the order has such a line; a step that counts part of an order adds up
+just the lines of that size, with its category and location tests holding on the
+same line. It is the step form's "Only with a line of this many or more", and in
+words "with a line of 20 or more" or "the lines of 20 or more". Like any scoped
+step it is not held to the rule that later whole-order steps ask for more.
 
 **A step can count only the lines it is for.** A step saved with `amountOf`
 `matching_lines` compares its amount with the lines the category and the
@@ -444,8 +485,11 @@ location pick out, not with the whole order: "over $500 of refrigerant" is a
 step for the refrigerant category counting only its lines, and "over $2,000 for
 the Houston warehouse" one for that location counting only what is going
 there. Given both, a line has to be from the category and going to the
-location. It needs a category or a location, because a vendor is a fact about
-the whole order and picks no lines, and the step is refused otherwise. A step
+location. It needs something to pick lines by: a category, a location, a
+quantity, or a vendor (a vendor picks no lines of its own, so a step for a vendor
+alone counts every line of that vendor's orders, which is the order's total shown
+as lines, and a quantity or category beside it narrows them). A step with none
+of these is refused. A step
 that counts part of an order applies only when at least one line is its own,
 even at a zero amount. Such a step sits beside whole-order steps in the same sequence, each compared with its
 own amount, and like any scoped step it is not held to the rule that later
@@ -596,6 +640,8 @@ permission rather than an inventory one, because a delivery is a billable event.
 | `POST /v1/vendor-returns` | `po:write`, `inventory:adjust` |
 | `POST /v1/vendor-returns/{id}/credit` | `po:write` |
 | `POST /v1/purchase-order-receipts/{id}/late-charges` | `po:write` |
+| `GET /v1/stock-receipts` | `po:read` |
+| `POST /v1/stock-receipts/{id}/late-charges` | `po:write` |
 | `POST /v1/purchase-orders/{id}/acknowledgement` | `po:write` |
 | `GET /v1/purchasing/settings` | `po:read` |
 | `POST /v1/purchasing/settings` | `po:write` |
@@ -632,11 +678,16 @@ each with a number of its own if it has one; a third (a case beside the box and
 the each) is not kept. A catalogue file pairs a box with its each by repeating
 the part's number on the box's row, or by the box's number once the link holds
 it: a file that lists the box under its own number and never says which part it
-belongs to is read as a different part. An order line is one way to buy it; a quantity that is boxes and some
-over is two lines, written by the person.
+belongs to is read as a different part. A mixed line is the box and the each of a
+part the vendor sells both ways, with the boxes first: it cannot mix a third way,
+it sends the box's part number alone (the each's is not on the line), and a
+catalogue import and the reorder suggestions do not write mixed lines.
 
-Stock received outside an order carries whatever total cost was typed, and a
-late freight bill can only be spread onto a delivery received against an order.
+Stock received outside an order carries whatever total cost was typed. A late
+freight bill can be spread onto stock received since deliveries were kept, not
+onto stock received before that, which has no delivery to belong to. A late bill
+on such stock is spread by value or by quantity, never by a basis the delivery
+chose, because it had none.
 Costing stays first in, first out by location rather than the cost of the
 particular serial. Receiving and using stock post nothing to the ledger, so the
 inventory account holds only late freight on parts still on a shelf (see Key
@@ -652,8 +703,11 @@ equipment record a returned unit became is left on their register for the
 office to retire.
 
 An approval step counts the whole order's total unless it was saved as counting
-only the lines it is for; a step counting part of an order cannot count by
-vendor, and there is no step on a line's quantity, only its cost. Approvers are told by email when the company's email
+only the lines it is for. A step on a line's quantity reads the quantity ordered
+in the order's own units, so it does not know a box from an each: 3 boxes of 25
+are 75, and a step at 20 trips on them. A step for a vendor alone counts every
+line of that vendor's orders, which is the whole order, and does not total a
+vendor's spend across orders or over a month. Approvers are told by email when the company's email
 is connected, and by a notice (M34) on the bell, the phone app or a text as each
 of them chose, whether or not it is; somebody holding the role who cannot read
 orders (`po:read`) gets the email and no notice. A notice is not repeated while
