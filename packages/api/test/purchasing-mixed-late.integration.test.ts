@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { inflateSync } from "node:zlib";
 import postgres from "postgres";
-import type { Actor } from "@opentradesos/core";
+import { pdf, type Actor } from "@opentradesos/core";
+import * as orderEmail from "../src/services/purchase-order-email";
 import * as inventory from "../src/services/inventory";
 import * as landedCost from "../src/services/landed-cost";
 import * as approvals from "../src/services/purchase-approvals";
@@ -107,6 +109,29 @@ run("one line of boxes and some over", () => {
       packs: { count: "2", size: "25", unit: "box", price: "10.0000", loose: "3", loosePrice: "0.5500" },
     });
     expect(view.total).toBe("21.6500");
+  });
+
+  it("says both on the emailed order and its PDF, so the vendor reads boxes and each", async () => {
+    await raw`insert into public.integration_connection (organization_id, capability, provider, status, settings)
+      values (${ORG}, 'email', 'fake', 'connected', ${raw.json({ fromAddress: "office@mixedlate.test" })})
+      on conflict do nothing`;
+    const order = await inventory.createPurchaseOrder(owner(), {
+      vendorId: ferguson, defaultLocationId: shop, lines: [{ itemId: wireNut, quantity: "53", looseQuantity: "3" }],
+    });
+    const sent = await orderEmail.emailOrder(owner(), { id: order.id });
+    expect(sent.state).toBe("queued");
+    const [file] = await raw<{ content: Buffer }[]>`
+      select a.content from public.message_attachment a join public.message msg on msg.id = a.message_id
+      where a.organization_id = ${ORG} and msg.to_address = 'orders@ferguson.test' order by msg.created_at desc limit 1`;
+    const read = pdf.inspectPdf(new Uint8Array(file!.content), (bytes) => new Uint8Array(inflateSync(bytes)));
+    expect(read.problems).toEqual([]);
+    expect(read.text).toContain("2 box of 25");
+    expect(read.text).toContain("and 3 each");
+    expect(read.text).toContain("$21.65");
+    const [body] = await raw<{ body: string }[]>`
+      select body from public.message where organization_id = ${ORG} and to_address = 'orders@ferguson.test' order by created_at desc limit 1`;
+    expect(body!.body).toContain("2 box of 25 and 3 each x NUT-EA");
+    expect(body!.body).toContain("at $10.00 a box and $0.55 each  = $21.65  (53 in all)");
   });
 
   it("refuses what it cannot price: a vendor that sells one way, a part that is not whole boxes, all of it loose", async () => {

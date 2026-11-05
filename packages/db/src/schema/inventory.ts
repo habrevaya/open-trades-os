@@ -806,8 +806,9 @@ export const truckFillLine = pgTable("truck_fill_line", {
 export const stockReceipt = pgTable("stock_receipt", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
-  itemId: uuid("item_id").notNull().references(() => priceBookItem.id, { onDelete: "restrict" }),
-  locationId: uuid("location_id").notNull().references(() => location.id, { onDelete: "restrict" }),
+  /** Cascading: a delivery is only a grouping of movements, and the movements themselves hold the item and the place. */
+  itemId: uuid("item_id").notNull().references(() => priceBookItem.id, { onDelete: "cascade" }),
+  locationId: uuid("location_id").notNull().references(() => location.id, { onDelete: "cascade" }),
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
   receivedByUserId: uuid("received_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
@@ -819,7 +820,8 @@ export const stockReceiptMovement = pgTable("stock_receipt_movement", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
   stockReceiptId: uuid("stock_receipt_id").notNull().references(() => stockReceipt.id, { onDelete: "cascade" }),
-  movementId: uuid("movement_id").notNull().references(() => stockMovement.id, { onDelete: "restrict" }),
+  /** Cascading, because this row only says which delivery a movement came on and means nothing without it. */
+  movementId: uuid("movement_id").notNull().references(() => stockMovement.id, { onDelete: "cascade" }),
   ...timestamps,
 }, (t) => ({
   receiptIdx: index("stock_receipt_movement_receipt_idx").on(t.stockReceiptId),

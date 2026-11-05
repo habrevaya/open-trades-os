@@ -1303,6 +1303,13 @@
       "when": 1793918326624,
       "tag": "0185_parched_falcon",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1793920533197,
+      "tag": "0186_dapper_strong_guy",
+      "breakpoints": true
     }
   ]
 }

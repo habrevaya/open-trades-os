@@ -720,14 +720,15 @@ export function purchaseOrderPdf(input: PurchaseOrderPdfInput, options: RenderOp
     [
       { label: "Part", width: 90 },
       { label: "Description" },
-      { label: "Qty", width: 92, align: "right" },
-      { label: "Each", width: 76, align: "right" },
+      { label: "Qty", width: 114, align: "right" },
+      { label: "Each", width: 84, align: "right" },
       { label: "Amount", width: 80, align: "right" },
     ],
     input.lines.map((line) => {
       const packs = line.packs;
       const qty = packs
-        ? `${quantity(packs.count)} ${packs.unit ?? "pack"} of ${quantity(packs.size)}${packs.loose ? `\nand ${quantity(packs.loose)} each` : ""}\n(${quantity(line.quantityOrdered)})`
+        /** Two lines at most fit a cell: the packs, then the loose ones and our count beside them. */
+        ? `${quantity(packs.count)} ${packs.unit ?? "pack"} of ${quantity(packs.size)}\n${packs.loose ? `and ${quantity(packs.loose)} each ` : ""}(${quantity(line.quantityOrdered)})`
         : quantity(line.quantityOrdered);
       return [
         line.vendorPartNumber ?? line.itemCode,
