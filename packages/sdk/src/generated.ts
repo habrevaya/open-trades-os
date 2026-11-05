@@ -5080,6 +5080,11 @@ export interface CreateSandboxOutput {
     reports: number;
     proposalTemplates: number;
     jobWorkflows: number;
+    messageTemplates: number;
+    priceBookItems: number;
+    priceBookCategories: number;
+    roles: number;
+    branches: number;
   };
   sampleJobs: number;
 }
@@ -35715,7 +35720,7 @@ export interface SearchAvailableNumbersInput {
 
 export interface SearchEverythingInput {
   q: string;
-  in?: "customers" | "jobs" | "invoices" | "estimates" | "addresses" | "units" | "notes" | "pricebook" | "people";
+  in?: "customers" | "jobs" | "invoices" | "estimates" | "visits" | "messages" | "addresses" | "units" | "notes" | "pricebook" | "people";
 }
 
 export interface SendArrivalNoticeParams {
@@ -48038,7 +48043,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Find customers, jobs, invoices, estimates, addresses, units, customer notes, price book items, people and the company's own records.
+   * Find customers, jobs, invoices, estimates, visits, messages, addresses, units, customer notes, price book items, people and the company's own records.
    *
    * GET /v1/search.
    */

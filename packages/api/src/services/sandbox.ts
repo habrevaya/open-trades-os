@@ -33,8 +33,11 @@ import { remember, replayed } from "./once";
  * WHAT IS COPIED: job types, custom fields, the company's kinds of record,
  * automations (every one switched off, so nothing runs until somebody turns
  * it on there), saved reports, proposal layouts with their cover
- * photographs, and the job workflows connected applications registered,
- * each standing on its own in the sandbox, which has no applications. WHAT IS NOT: customers, jobs, invoices, money, people other
+ * photographs, the job workflows connected applications registered,
+ * each standing on its own in the sandbox, which has no applications, and
+ * the company's message templates, price book (the shelves, and each item at
+ * the price it has today, without its picture or its price history), custom
+ * roles (the definitions, held by nobody there) and branches. WHAT IS NOT: customers, jobs, invoices, money, people other
  * than whoever made it, and every integration, so a sandbox has no texting
  * number, no email sender and no card processor and cannot send anything to
  * anybody but the people in it. Its name says "(sandbox)" wherever the
@@ -131,6 +134,12 @@ export interface Created {
     jobTypes: number; customFields: number; kinds: number; workflows: number; reports: number; proposalTemplates: number;
     /** Job workflows connected applications registered, copied to stand on their own. */
     jobWorkflows: number;
+    messageTemplates: number;
+    /** Items on the price book's shelves, each at the price it has now. */
+    priceBookItems: number;
+    priceBookCategories: number;
+    roles: number;
+    branches: number;
   };
   sampleJobs: number;
 }
@@ -181,6 +190,18 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
         eq(schema.connectedApp.status, "active"),
       ))).map((r) => r.plugin);
     const templates = await tx.select().from(schema.proposalTemplate).where(isNull(schema.proposalTemplate.deletedAt));
+    const messageTemplates = await tx.select().from(schema.messageTemplate).where(isNull(schema.messageTemplate.deletedAt));
+    const shelves = await tx.select().from(schema.priceBookCategory).where(isNull(schema.priceBookCategory.deletedAt));
+    const bookItems = await tx.select().from(schema.priceBookItem).where(isNull(schema.priceBookItem.deletedAt));
+    /** The version in force today for each item: the open one, and the newest if there are somehow two. */
+    const openVersions = bookItems.length === 0 ? [] : await tx.select().from(schema.priceBookItemVersion)
+      .where(and(
+        isNull(schema.priceBookItemVersion.effectiveTo),
+        inArray(schema.priceBookItemVersion.itemId, bookItems.map((i) => i.id)),
+      ))
+      .orderBy(desc(schema.priceBookItemVersion.version));
+    const customRoles = await tx.select().from(schema.role).where(isNull(schema.role.deletedAt));
+    const branches = await tx.select().from(schema.businessUnit).where(isNull(schema.businessUnit.deletedAt));
     const coverKeys = templates.map((t) => t.cover?.photoKey).filter((k): k is string => Boolean(k));
     const held = coverKeys.length === 0 ? [] : await tx.select({ key: schema.storedFile.storageKey, ...HELD })
       .from(schema.storedFile).where(and(inArray(schema.storedFile.storageKey, coverKeys), isNull(schema.storedFile.deletedAt)));
@@ -213,13 +234,96 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
       updatedAt: new Date(),
     }).where(eq(schema.organization.id, sandboxId));
 
+    /** Branches first, so a job type keeps the branch it belongs to. */
+    const branchIds = new Map<string, string>();
+    for (const branch of branches) {
+      const id = randomUUID();
+      branchIds.set(branch.id, id);
+      await tx.insert(schema.businessUnit).values({
+        ...branch, id, organizationId: sandboxId, createdAt: new Date(), updatedAt: new Date(),
+      });
+    }
+
     /* Job types, with new ids, so templates and sample jobs can point at them. */
     const typeIds = new Map<string, string>();
     for (const type of jobTypes) {
       const id = randomUUID();
       typeIds.set(type.id, id);
       await tx.insert(schema.jobType).values({
-        ...type, id, organizationId: sandboxId, businessUnitId: null, requiredAssetIds: [],
+        ...type, id, organizationId: sandboxId,
+        businessUnitId: type.businessUnitId ? branchIds.get(type.businessUnitId) ?? null : null,
+        requiredAssetIds: [],
+        createdAt: new Date(), updatedAt: new Date(),
+      });
+    }
+
+    /**
+     * Message templates. A new company starts with the renewal notices' words
+     * already (`seedNoticeTemplates`), so a code the sandbox already holds takes
+     * the real company's wording over what it started with, and every other
+     * code is added. Codes are unique in a company.
+     */
+    const startedWith = new Map((await tx.select({ id: schema.messageTemplate.id, code: schema.messageTemplate.code })
+      .from(schema.messageTemplate).where(eq(schema.messageTemplate.organizationId, sandboxId)))
+      .map((t) => [t.code, t.id] as const));
+    for (const template of messageTemplates) {
+      const existing = startedWith.get(template.code);
+      if (existing) {
+        await tx.update(schema.messageTemplate).set({
+          name: template.name, channel: template.channel, purpose: template.purpose, subject: template.subject,
+          body: template.body, variables: template.variables, active: template.active, updatedAt: new Date(),
+        }).where(eq(schema.messageTemplate.id, existing));
+        continue;
+      }
+      await tx.insert(schema.messageTemplate).values({
+        ...template, id: randomUUID(), organizationId: sandboxId, createdAt: new Date(), updatedAt: new Date(),
+      });
+    }
+
+    /**
+     * The price book: the shelves with their parents pointed at the copies, then
+     * each live item with the version in force today as its first and only
+     * version, a kit's parts pointed at the copies (a part that was removed from
+     * the book is dropped), no picture (the files are the real company's), and
+     * no link back to the system it was imported from.
+     */
+    const shelfIds = new Map(shelves.map((shelf) => [shelf.id, randomUUID()] as const));
+    for (const shelf of shelves) {
+      await tx.insert(schema.priceBookCategory).values({
+        ...shelf, id: shelfIds.get(shelf.id)!, organizationId: sandboxId,
+        parentId: shelf.parentId ? shelfIds.get(shelf.parentId) ?? null : null,
+        createdAt: new Date(), updatedAt: new Date(),
+      });
+    }
+    const itemIds = new Map(bookItems.map((item) => [item.id, randomUUID()] as const));
+    let copiedItems = 0;
+    for (const item of bookItems) {
+      const version = openVersions.find((v) => v.itemId === item.id);
+      if (!version) continue;
+      const id = itemIds.get(item.id)!;
+      await tx.insert(schema.priceBookItem).values({
+        ...item, id, organizationId: sandboxId,
+        categoryId: item.categoryId ? shelfIds.get(item.categoryId) ?? null : null,
+        sourceSystem: null, sourceId: null, sourcePayload: null,
+        createdAt: new Date(), updatedAt: new Date(),
+      });
+      await tx.insert(schema.priceBookItemVersion).values({
+        ...version, id: randomUUID(), organizationId: sandboxId, itemId: id, version: 1,
+        pictureKey: null,
+        components: version.components.flatMap((part) => {
+          const copy = itemIds.get(part.itemId);
+          return copy ? [{ ...part, itemId: copy }] : [];
+        }),
+        effectiveFrom: new Date(), effectiveTo: null,
+        createdAt: new Date(), updatedAt: new Date(),
+      });
+      copiedItems += 1;
+    }
+
+    /** Roles the company defined, as definitions: nobody in the sandbox holds one until its owner gives it. */
+    for (const custom of customRoles) {
+      await tx.insert(schema.role).values({
+        ...custom, id: randomUUID(), organizationId: sandboxId, createdByUserId: ctx.actor.userId,
         createdAt: new Date(), updatedAt: new Date(),
       });
     }
@@ -338,6 +442,11 @@ export async function create(ctx: ServiceContext, input: CreateInput = {}): Prom
         jobTypes: jobTypes.length, customFields: fields.length, kinds: kinds.length,
         workflows: flows.length, reports: reports.length, proposalTemplates: templates.length,
         jobWorkflows: jobWorkflows.filter((flow) => flow.jobTypeId && typeIds.has(flow.jobTypeId)).length,
+        messageTemplates: messageTemplates.length,
+        priceBookItems: copiedItems,
+        priceBookCategories: shelves.length,
+        roles: customRoles.length,
+        branches: branches.length,
       },
       sampleJobs: number,
     };

@@ -286,6 +286,14 @@ create index if not exists price_book_item_version_text_trgm_idx
 create index if not exists price_book_item_code_trgm_idx
   on public.price_book_item using gin (code gin_trgm_ops);
 
+-- The search box's visits and messages (api/services/visits.ts `find`,
+-- comms.ts `find`): a message by its body and its subject, which are the only
+-- places a word is looked for in the inbox. A visit's notes are indexed above.
+create index if not exists message_body_trgm_idx
+  on public.message using gin (body gin_trgm_ops);
+create index if not exists message_subject_trgm_idx
+  on public.message using gin (subject gin_trgm_ops);
+
 -- A TYPO, COUNTED IN LETTERS. The search box's second look (core `search`,
 -- api/services/text-search.ts) finds a row when a word written in it is one
 -- letter off what was typed, or two for a long word. The trigram index hands

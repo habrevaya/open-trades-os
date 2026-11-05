@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema } from "@opentradesos/db";
-import { can, reporting, work } from "@opentradesos/core";
-import { guardedRead, NotFoundError, scopeOf, type ServiceContext } from "./context";
+import { can, reporting, time, work } from "@opentradesos/core";
+import { guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
 import { jobVisibility } from "./scope";
+import { closeMatching, textFilter } from "./text-search";
 import { shopNames } from "./visit-shop";
 
 /**
@@ -201,3 +202,69 @@ export async function get(ctx: ServiceContext, input: { id: string }) {
 }
 
 export type VisitPage = Awaited<ReturnType<typeof get>>;
+
+export interface FoundVisit {
+  id: string;
+  sequence: number;
+  status: string;
+  windowStart: Date | null;
+  /** The day of the window in the company's own calendar, `YYYY-MM-DD`; null for a visit not yet placed. */
+  day: string | null;
+  jobId: string;
+  jobNumber: number;
+  jobSummary: string;
+  customerName: string | null;
+}
+
+/**
+ * THE VISITS A WORD FINDS, for the search box.
+ *
+ * A visit is found by the words on it and on its job: both notes on the visit
+ * (the technician's, and what the office chose to show the customer), the
+ * job's summary and its number, and the customer's name. Read under the same
+ * rule as one visit on its own (`get`): `visit:read`, through the visit's job
+ * and the reader's own visit scope, so a technician finds the visits they could
+ * open and no others, and a job out of scope is a visit that is not there.
+ * Newest window first, the words matched as every list matches them
+ * (`text-search.ts`).
+ */
+export async function find(
+  ctx: ServiceContext, input: { q: string; limit: number; close?: boolean | undefined },
+): Promise<{ data: FoundVisit[]; hasMore: boolean }> {
+  return guardedRead(ctx, "visit:read", async (tx) => {
+    if (input.close) await closeMatching(tx);
+    const rows = await tx.select({
+      id: schema.visit.id,
+      sequence: schema.visit.sequence,
+      status: schema.visit.status,
+      windowStart: schema.visit.windowStart,
+      jobId: schema.job.id,
+      jobNumber: schema.job.number,
+      jobSummary: schema.job.summary,
+      customerName: schema.customer.name,
+    }).from(schema.visit)
+      .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
+      .leftJoin(schema.customer, eq(schema.customer.id, schema.job.customerId))
+      .where(and(
+        eq(schema.visit.organizationId, ctx.actor.organizationId),
+        eq(schema.job.organizationId, ctx.actor.organizationId),
+        isNull(schema.job.deletedAt),
+        jobVisibility(scopeOf(ctx, "visit"), ctx.actor, sql`${schema.job.id}`),
+        textFilter(
+          input.q,
+          [schema.visit.technicianNotes, schema.visit.customerNotes, schema.job.summary, schema.customer.name],
+          schema.job.number,
+          { close: input.close },
+        ) ?? sql`false`,
+      ))
+      .orderBy(sql`${schema.visit.windowStart} desc nulls last`, desc(schema.visit.id))
+      .limit(input.limit + 1);
+    const zone = await timezoneOf(tx, ctx.actor.organizationId);
+    return {
+      data: rows.slice(0, input.limit).map((row) => ({
+        ...row, day: row.windowStart ? time.dateIn(row.windowStart, zone) : null,
+      })),
+      hasMore: rows.length > input.limit,
+    };
+  });
+}

@@ -450,7 +450,7 @@ its visits' notes (the technician's and what the office chose to show the
 customer) or the customer's name; invoices by their number, the customer's name,
 the memo, or what any line says (its name or its description); estimates by
 their number, their title, the customer's name, or what any option or any line
-says; addresses by their street; units by the serial on their sticker or their
+says; visits by their notes, their job or their customer; messages by what they say; addresses by their street; units by the serial on their sticker or their
 make and model; a customer's notes by what they say; price book items by their
 name, code or description; the company's people by their name, their email or
 the name they go by on the board; and the company's own records by their name
@@ -505,13 +505,34 @@ group for `user:read`, narrowed the way the people list is (a branch manager
 finds their branch's people), and somebody who has left is listed after
 everybody who is here, saying so.
 
+**Visits and messages.** A visit is a group for `visit:read`, found through its
+job under the reader's own visit scope exactly as the visit's page is opened: by
+what is written in either of its notes (the technician's and what the office chose
+to show the customer), the job's summary and number, or the customer's name. A hit
+reads "Visit 2 on job 1042: Furnace check", the customer and the day of the visit
+in the company's own calendar ("not scheduled" for a visit with no window yet), and
+opens the visit's own page (`/visits/{id}`). A technician finds the visits they could
+open and no others. A message is a group for `message:read`, found through its
+conversation under the reader's conversation scope exactly as the inbox lists it:
+a technician finds words only in threads attached to a job they can see or to a
+customer they were sent to, never in a lead attached to nothing. A message is found
+by its body and its subject; the hit is the customer (or the number or address, for
+a thread with no customer), with the part of the message around the word, and opens
+the thread (`/inbox/{id}`). A message or a thread that was deleted finds nothing.
+Somebody who may read visits and not messages (the accountant) sees the one group
+and not the other. Neither has a list screen the words could be handed to, so theirs
+is the search page showing that group alone (`in=visits`, `in=messages`), at up to
+fifty. Both are read close, after the exact ones, like every group. The message
+body and subject have trigram indexes beside the others
+(`message_body_trgm_idx`, `message_subject_trgm_idx`).
+
 Five of each, and a group with more says "See all", which opens its own list
 filtered by the same words: `/customers?q=`, `/jobs?q=`, `/invoices?q=`,
 `/estimates?q=`, `/pricebook?q=` and `/records/{type}?q=`, each with a search box of its own that
 reads words the same way (`q` on `GET /v1/customers`, `GET /v1/jobs`,
 `GET /v1/invoices`, `GET /v1/estimates` and `GET /v1/custom-records`). A kind
 of record's list matches each word in the record's name or in one of its
-values, not in the keys the values are stored under. Addresses, units, customer
+values, not in the keys the values are stored under. Visits, messages, addresses, units, customer
 notes and people have no list screen searched by words, so theirs is the search
 page showing that group alone, at up to fifty (`/search?q=...&in=addresses`,
 `in` on the API). "See all" and `more` are about the exact matches: the lists
@@ -539,7 +560,22 @@ the company's data export like every other table.
 ### Try things in a sandbox
 
 `/settings/sandbox` makes a practice copy of the company's settings, with up to
-twenty five sample jobs if asked for, opens it, and throws it away. Inside it a band
+twenty five sample jobs if asked for, opens it, and throws it away. The copy has
+the company's job types, custom fields, kinds of record, saved reports, proposal
+layouts, automations (all switched off) and the job workflows connected
+applications registered, and also its **message templates**, its **price book**,
+the **roles** it made and its **branches**. The price book arrives as it stands
+today: the shelves with their parents, every live item at the version in force now
+as its first and only version (the price history is not copied), a kit's parts
+pointing at the copies, and no pictures (the files are the real company's) and no
+link back to a system an item was imported from. Roles arrive as definitions that
+nobody in the sandbox holds, so the owner decides who gets one; branches arrive
+with their job types still in them. A message template whose code the sandbox
+started with (the renewal notices every new company has) takes the real company's
+wording. Changing any of these in the sandbox changes nothing at home. The make
+answer (`copied` on `POST /v1/sandbox`) counts each: `messageTemplates`,
+`priceBookItems`, `priceBookCategories`, `roles` and `branches`. Copying back is as
+it was. Inside it a band
 on every screen says it is a sandbox and of which company, and the same page lists
 its settings (kinds of record, custom fields, proposal layouts, automations) with
 what copying each back would do, checks the copy without making it, and copies the
@@ -714,7 +750,7 @@ second is a much smaller list of people.
 | `PATCH /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own; a new link also needs the permission that reads what it points at (`job:read`, `customer:read`, `property:read`, `equipment:read`, `invoice:read`, `user:read` for anybody but yourself) |
 | `DELETE /v1/custom-records/{id}` | `record:read`, `record:write` and the kind's own |
 | `GET /v1/custom-objects/{key}/export` | `record:read` and the kind's own |
-| `GET /v1/search` | Signed in; each part needs its own list's permission (`customer:read` for customers and their notes, `job:read`, `invoice:read`, `estimate:read`, `property:read`, `equipment:read`, `pricebook:read`, `user:read` for people, `record:read` and the kind's own) |
+| `GET /v1/search` | Signed in; each part needs its own list's permission (`customer:read` for customers and their notes, `job:read`, `invoice:read`, `estimate:read`, `visit:read` for visits, `message:read` for messages, `property:read`, `equipment:read`, `pricebook:read`, `user:read` for people, `record:read` and the kind's own) |
 | `POST /v1/custom-objects/{key}/import` | `record:read`, `record:write` and the kind's own |
 | `GET /v1/workflows` | `workflow:read` |
 | `GET /v1/workflows/{id}/runs` | `workflow:read` |
@@ -815,8 +851,12 @@ all", and `q` on the list routes, match words exactly, so a group of only close
 matches has no "See all" to more of them. A number, a word of three letters
 and a word with a digit in it are matched only as typed. Close matches are
 listed after the exact ones in each list's own order, not ranked by how close
-they are. The box looks in a visit's notes only to find the visit's job, and
-does not list visits or messages, nor read the text of an attached file.
+they are. The box lists visits and messages
+(found by their notes, and by what they say) and also looks in a visit's notes to
+find the visit's job; it does not read the text of an attached file, a call's
+recording, or an email's attachments, and a message is found by its body and subject
+only, not by who it was from. A visit is searched by its two notes, its job's summary and
+number and the customer's name, not by its crew or its technician.
 Addresses and units are narrowed by scope in the search box only: the address
 list (`GET /v1/properties`) and a unit's page read the whole company for anybody
 holding `property:read` or `equipment:read`, as they did before, and narrowing
@@ -830,11 +870,15 @@ record's name is decided with the kind, not per record: a kind shown to customer
 shows every record's name.
 
 The sandbox copies job types, custom fields, kinds of record, saved reports, proposal
-layouts, automations and the job workflows connected applications registered (M28),
-which stand on their own there because a sandbox has no applications; it does not
-copy an application's pricing rules or report types, the price book, roles, message templates,
-branches, booking rules or the trade pack's checklists, and copying back offers kinds
-of record, custom fields, proposal layouts and automations only. Its only member is
+layouts, automations, message templates, the price book (at today's prices, without
+pictures or history), roles and branches, and the job workflows connected applications
+registered (M28), which stand on their own there because a sandbox has no applications;
+it does not copy an application's pricing rules or report types, booking rules, the trade
+pack's checklists, locations, tax rates, or the people on a branch or a role (nobody in
+the sandbox holds a role or sits in a branch but the person who made it), and copying
+back offers kinds of record, custom fields, proposal layouts and automations only: a
+message template, a price, a role or a branch changed in the sandbox is changed again
+at home by hand. Its only member is
 the person who made it. One sandbox per company at a time; throwing it away signs its
 people out and leaves its rows in the database, unread. A copied back automation that
 emails a saved report needs a report with the same name in the real company, and a

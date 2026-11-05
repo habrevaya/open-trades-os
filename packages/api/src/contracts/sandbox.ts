@@ -47,7 +47,7 @@ export const createSandbox = defineRoute({
   path: "/v1/sandbox",
   summary: "Make a sandbox copy of this company's settings",
   description:
-    "Copies the configuration and none of the customers. With `sampleData`, adds up to twenty five sample jobs drawn from the most recent real ones with every name, street, email and phone number invented: only the town is real. The person making it is its owner and its only member. Refused when the company already has one.",
+    "Copies the configuration (job types, fields, kinds of record, reports, proposal layouts, automations, message templates, the price book at today's prices, the company's own roles and its branches) and none of the customers. With `sampleData`, adds up to twenty five sample jobs drawn from the most recent real ones with every name, street, email and phone number invented: only the town is real. The person making it is its owner and its only member. Refused when the company already has one.",
   module: "M28",
   permissions: ["sandbox:manage"],
   idempotent: true,
@@ -60,6 +60,13 @@ export const createSandbox = defineRoute({
       workflows: z.number().int(), reports: z.number().int(), proposalTemplates: z.number().int(),
       /** Job workflows connected applications registered (M28), copied to stand on their own. */
       jobWorkflows: z.number().int(),
+      messageTemplates: z.number().int(),
+      /** Items on the price book's shelves, each copied at the price it has today. */
+      priceBookItems: z.number().int(),
+      priceBookCategories: z.number().int(),
+      /** Roles the company defined, copied as definitions that nobody there holds. */
+      roles: z.number().int(),
+      branches: z.number().int(),
     }),
     sampleJobs: z.number().int(),
   }),
