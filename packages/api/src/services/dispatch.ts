@@ -32,6 +32,7 @@ import * as files from "./files";
 import * as partRequests from "./part-requests";
 import * as customerNotes from "./customer-notes";
 import * as plugins from "./plugins";
+import * as inspections from "./inspections";
 import { hoursOnDay } from "./business-hours";
 
 
@@ -1174,6 +1175,8 @@ async function programsForField(tx: Database, ctx: ServiceContext) {
     .where(and(
       eq(schema.inspectionProgram.organizationId, ctx.actor.organizationId),
       eq(schema.inspectionProgram.active, true),
+      /** A draft is never offered; it is not active either, and this says so twice on purpose. */
+      eq(schema.inspectionProgram.draft, false),
     ))
     .orderBy(asc(schema.inspectionProgram.name));
   return rows.map((row) => ({
@@ -1181,14 +1184,28 @@ async function programsForField(tx: Database, ctx: ServiceContext) {
     name: row.name,
     standard: row.standard,
     version: row.version,
-    checkpoints: row.checkpoints.map((c) => ({
-      key: c.key,
-      label: c.label,
-      requiresReading: c.requiresReading === true,
-      unit: c.unit ?? null,
-      min: c.range?.min ?? null,
-      max: c.range?.max ?? null,
-    })),
+    checkpoints: row.checkpoints.map((c) => {
+      const kind = inspections.kindOf(c);
+      return {
+        key: c.key,
+        label: c.label,
+        /** Kept for a phone app older than answer kinds, which reads only this. */
+        requiresReading: kind === "reading",
+        unit: c.unit ?? null,
+        min: c.range?.min ?? null,
+        max: c.range?.max ?? null,
+        /**
+         * Each of these only when it says something, as the stored checkpoint
+         * does: a pass or fail or a reading is told by `requiresReading`, and a
+         * programme written before kinds existed reaches the phone unchanged.
+         */
+        ...(kind === "photo" || kind === "note" || kind === "count" ? { kind } : {}),
+        ...(kind === "count" && c.expectedAtLeast !== undefined ? { expectedAtLeast: c.expectedAtLeast } : {}),
+        ...(c.optional ? { optional: true } : {}),
+        ...(c.section?.trim() ? { section: c.section.trim() } : {}),
+        ...(c.codeReference?.trim() ? { codeReference: c.codeReference.trim() } : {}),
+      };
+    }),
   }));
 }
 

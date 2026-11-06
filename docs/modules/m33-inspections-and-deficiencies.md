@@ -107,6 +107,44 @@ apart.
 reading carries a range, because a number with nothing to judge it against goes
 into a report and nothing decides whether it is a finding.
 
+**Five kinds of answer, and two of them are never a finding.** A checkpoint is
+answered with pass or fail, a reading, a count, a photo or a note. A count says
+the fewest there should be, and fewer is a finding at the severity the checkpoint
+names, the same way a reading outside its range is. A photo and a note are what was
+seen: they are printed on the report and never become a deficiency, so they are not
+asked how serious a fail is. The stored checkpoint says a photo, a note or a count
+in `answerKind`; a pass or fail and a reading are stored as they always were
+(`requiresReading`), so every version published before kinds existed reads exactly
+as it did, and a revision that only spells a reading out as a reading publishes
+nothing.
+
+**An optional checkpoint can be left blank, and the report says it was.** Core lets
+an optional item be skipped without leaving the inspection not finished. The report
+prints it as "Optional, not checked", and core's opening sentence says how many
+optional checkpoints were not checked rather than "Every item was checked".
+
+**Sections are the checkpoints' own headings.** Each checkpoint can name the section
+it sits under; checkpoints next to each other with one heading are one section, in
+the order they were written, and a list with no headings is one section as before. A
+heading used in two places that are not next to each other is refused at the save
+("The section ... is in two places"), because the technician who finishes the first
+half believes the section is done.
+
+**A code reference is the company's words.** Each checkpoint can carry the clause it
+comes from ("NFPA 25 5.4.1.4"), typed by the company and never read as a rule: no code
+book is built in. It is shown to the technician beside the question, printed beside
+the checkpoint on the report, kept on the finding a fail produces, and written into
+the quote made from that finding, which is how it reaches the customer in the portal.
+
+**A draft is saved work nobody can use.** A company programme can be saved as a
+draft: kept as typed, not checked for whether it could be filed, never offered to
+technicians, with no version kept and nothing filed against it. The usual reason is a
+copy of a trade pack's programme whose ranges the company has still to find out.
+Publishing it makes version 1 and offers it, under exactly the checks a programme
+saved whole goes through, so a draft is never a way round them. A draft takes the
+place of another programme only when it is published, and is thrown away rather than
+kept, because nothing points at it.
+
 **The backlog's ageing is measured against a supplied instant.** A backlog report
 has to be reproducible, and one measured against whenever it happened to run says
 something different every time it is run for the same month end.
@@ -194,15 +232,27 @@ saved. Each checkpoint has:
 - what it is about, the kind of equipment such as `backflow-assembly`, or nothing
   for the whole property (a suggestion list from the company's trades, its
   programmes and, for somebody who may see equipment, its register)
-- pass or fail, or a reading with its unit, the lowest and highest that pass, and
-  how close to either is said to be close
-- how serious a fail is: safety (fix today), failed (30 days), wearing out (180
-  days) or worth knowing (no deadline)
+- the answer: pass or fail, a reading with its unit, the lowest and highest that
+  pass, and how close to either is said to be close, a count with the fewest there
+  should be, a photo, or a note
+- the section it sits under, picked from the ones already typed or a new one
+- a code reference, as the company's code book words it
+- whether it is optional
+- how serious a fail is (or too few, for a count): safety (fix today), failed (30
+  days), wearing out (180 days) or worth knowing (no deadline); not asked for a
+  photo or a note
 - the repairs to quote when it fails, by price book code, with how many and why
 
 Checkpoints are moved up and down and taken off. Saving makes version 1, offered to
 technicians at once, and is refused in words when it could not be filed against, or
-when technicians are already offered a programme of that name. A copy of a pack's
+when technicians are already offered a programme of that name.
+
+"Save as a draft" keeps it as it is, problems and all, under "Drafts" on the list and
+offered to nobody. Its page opens it in the editor again with "Save the draft",
+"Publish it" and "Throw the draft away". "Publish it" saves what is on the screen
+first, so a refusal ("It was not published: ...") never loses the edits; a draft with
+the name of a programme technicians are offered says "Use this instead of" that one,
+ticked. A copy of a pack's
 programme the company has in use offers "Use this instead of" the pack's own, ticked:
 the pack's own stops being offered as the copy is saved, so the copy can keep the
 pack's name and there is never a moment with both, or neither, on the phone. A copy
@@ -252,10 +302,20 @@ the customer said yes to it.
 ### Run one in the field
 
 On a visit, on the phone app or on `/my-day`, "Run an inspection" offers the
-programmes. Pass or fail, a reading with its range beside it (a reading outside
-it is said before it is saved), not applicable with a reason, a photo and a note
-per checkpoint, the inspector's name and licence, and a signature. Checkpoints
-left unanswered are named first, and filing anyway files it as not finished.
+programmes (never a draft). The checkpoints come under their section headings, each
+with its code reference beside the question and "Optional" when it is. Pass or fail,
+a reading with its range beside it (a reading outside it is said before it is
+saved), a count with the fewest there should be beside it (a count short of it, or
+not a whole number, is said before it is saved), a photo to take ("Take a photo to
+answer this" until one is taken), a note to write, not applicable with a reason, a
+photo and a note per checkpoint, the inspector's name and licence, and a signature.
+Checkpoints left unanswered are named first, and filing anyway files it as not
+finished; an optional one left blank is not named and does not hold it up. Photos,
+notes and counts go in the same `inspection.record` operation as readings, through
+the same queue, so they are filed offline the same way. A phone app older than
+answer kinds shows a photo, note or count checkpoint as pass or fail, and the server
+refuses that filing in words ("The wrong kind of answer was recorded for ...") rather
+than guessing; the app needs updating to run such a programme.
 
 The signature is drawn on both. On `/my-day` the inspector draws it in a box
 with a finger, a stylus or a mouse (Clear takes it off and they draw again) and
@@ -271,7 +331,11 @@ signed and is not. The name is always asked for.
 ### Print the report
 
 `GET /v1/inspections/{id}/report` is the report's data, and
-`/inspections/{id}/report` prints it. `GET /v1/inspections` lists those filed.
+`/inspections/{id}/report` prints it. `GET /v1/inspections` lists those filed. Each
+checkpoint prints under its section heading with its code reference; a photo or a
+note prints as "Recorded", never as a pass; a count prints the fewest there should be
+as what was acceptable; an optional checkpoint left blank prints as "Optional, not
+checked".
 
 ### Sell the remedy
 
@@ -295,7 +359,8 @@ One pair of permissions, `compliance:read` and `compliance:write`, shared with M
 and M24, because an inspection record is a compliance record. A company running
 inspection work grants them to the people who do it. Programmes follow the same
 pair: anybody who may read inspections reads the programmes and every version of
-them, and writing, revising, copying and offering one is `compliance:write`. The
+them, drafts included, and writing, revising, copying, offering one, and saving,
+publishing or throwing away a draft, is `compliance:write`. The
 repair codes offered in the editor come from the price book only for somebody who
 may read it; anybody else types the code.
 
@@ -310,6 +375,9 @@ may read it; anybody else types the code.
 | `POST /v1/inspection-programs` | `compliance:write` |
 | `POST /v1/inspection-programs/{id}/versions` | `compliance:write` |
 | `PUT /v1/inspection-programs/{id}/offered` | `compliance:write` |
+| `PUT /v1/inspection-programs/{id}/draft` | `compliance:write` |
+| `POST /v1/inspection-programs/{id}/publish` | `compliance:write` |
+| `DELETE /v1/inspection-programs/{id}/draft` | `compliance:write` |
 | `POST /v1/inspections` | `compliance:write` |
 | `GET /v1/inspection-deficiencies` | `compliance:read` |
 | `POST /v1/inspection-deficiencies/{id}/status` | `compliance:write` |
@@ -323,7 +391,16 @@ or one of the company's (`program`), and `replaces` naming one that stops being
 offered in the same step. `POST /v1/inspection-programs/{id}/versions` takes the
 whole programme as it should now read and `baseVersion`, the version it was changed
 from. Both take an idempotency key and answer a retry with what the first one
-wrote. `GET /v1/trade-packs/inspection-programs` lists every pack's programmes whole,
+wrote. A checkpoint takes `answerKind` (photo, note or count; a reading is still
+`requiresReading`), `expectedAtLeast` for a count, `optional`, `section` and
+`codeReference`. `draft: true` on `POST /v1/inspection-programs` saves a draft (with
+`replaces` refused: that goes with publishing); `PUT /v1/inspection-programs/{id}/draft`
+writes the whole draft again; `POST /v1/inspection-programs/{id}/publish` makes it
+version 1 and offers it, with `replaces` and a `note`; `DELETE
+/v1/inspection-programs/{id}/draft` throws it away. Each is refused for a programme that
+is not a draft, and filing, offering, revising or copying a draft is refused in words.
+Every one writes an audit entry (`inspection_program.drafted`, `.draft_saved`,
+`.published`, `.draft_discarded`). `GET /v1/trade-packs/inspection-programs` lists every pack's programmes whole,
 with what has to be fixed before each could be filed and the company's own row of it
 when the pack set one up. `POST /v1/inspections` takes `programVersion`, the version
 the answers were given against.
@@ -372,14 +449,22 @@ page, the unit's page or the API; the phone does not decline one, and a "they sa
 no" on the phone is the estimate's, which names no unit. A decline written before
 codes were kept, or with words only, has no code.
 
-A programme has one flat list of checkpoints: no sections, no optional checkpoints,
-no answer kinds beyond pass or fail and a reading (core has notes, counts and photos
-as answers), and no code reference per checkpoint, because the stored checkpoint has
-nowhere for them yet. "Not a finding" on a checkpoint is not offered on the screen:
-core refuses any checkpoint that can fail without saying what a fail means. What a
-checkpoint is about is a kind of equipment as words; the phone does not narrow a
-checkpoint to the units of that kind at the address. A retention rule a trade pack
-writes for its programme by the pack's code does not reach inspections done under a
-company's copy of it: those are kept unless a rule for all inspections says
-otherwise, which is the conservative reading of a rule written for somebody else's
-programme. There is no draft: a programme is saved and offered, or not saved.
+"Not a finding" on a checkpoint is not offered on the screen: core refuses any
+checkpoint that can fail without saying what a fail means. What a checkpoint is about
+is a kind of equipment as words; the phone does not narrow a checkpoint to the units of
+that kind at the address. A retention rule a trade pack writes for its programme by the
+pack's code does not reach inspections done under a company's copy of it: those are
+kept unless a rule for all inspections says otherwise, which is the conservative reading
+of a rule written for somebody else's programme.
+
+Trade packs still ship pass or fail and readings only, and their readings still have no
+range: filling those in is the product owner's decision, so a company writes the range
+on its own copy (now as a draft while it finds out). A code reference is free text and
+nothing checks it against a code book. A draft is a new programme only: a published
+programme is not drafted, it is changed by publishing a version, so there is no draft
+of version 2 sitting beside version 1. The customer portal does not show the inspection
+report itself, because what a customer is told about an inspection (and whether a report
+meant for an authority is theirs to see) is the product owner's decision; the code
+reference reaches the customer on the quote made from a finding. A phone app older than
+answer kinds cannot run a programme with a photo, note or count checkpoint: it shows
+them as pass or fail and the filing is refused in words until the app is updated.

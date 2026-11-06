@@ -335,6 +335,19 @@ export interface FieldInspectionProgram {
     unit: string | null;
     min: number | null;
     max: number | null;
+    /**
+     * A photo, a note or a count. Absent for a pass or fail and a reading,
+     * which `requiresReading` tells, and from older servers.
+     */
+    kind?: "pass_fail" | "reading" | "photo" | "note" | "count" | undefined;
+    /** A count only: fewer than this many is a finding. Absent from older servers. */
+    expectedAtLeast?: number | null | undefined;
+    /** May be left unanswered without leaving the inspection not finished. Absent from older servers. */
+    optional?: boolean | undefined;
+    /** The heading it sits under. Absent from older servers. */
+    section?: string | null | undefined;
+    /** The code clause the company wrote on it. Absent from older servers. */
+    codeReference?: string | null | undefined;
   }>;
 }
 

@@ -78,6 +78,16 @@ export const inspectionProgram = pgTable("inspection_program", {
    * somebody reading a programme in two years can see what it was based on.
    */
   copiedFrom: jsonb("copied_from").$type<InspectionProgramCopiedFrom | null>(),
+  /**
+   * A DRAFT: saved, and not yet published. A company writing its own
+   * programme often has to find out a range or a code before it can be
+   * filed, and a programme that could only be saved once it was finished
+   * was lost the moment somebody closed the page. A draft is never offered
+   * to technicians, has no version kept, and nothing can be filed against
+   * it. Publishing it makes version 1 and offers it, under the same checks
+   * a programme saved whole goes through.
+   */
+  draft: boolean("draft").notNull().default(false),
   ...timestamps,
 }, (t) => ({ orgIdx: index("inspection_program_org_idx").on(t.organizationId) }));
 
@@ -164,6 +174,21 @@ export type InspectionCheckpoint = {
   }> | undefined;
   failIsDeficiency?: boolean | undefined;
   severityOnFail?: "critical" | "major" | "minor" | "advisory" | undefined;
+  /**
+   * THE KIND OF ANSWER, beyond pass or fail and a reading: a photo, a note
+   * or a count. Absent for those two, which `requiresReading` already says,
+   * so a checkpoint written before this field existed reads exactly as it
+   * did and every stored version keeps meaning what it meant.
+   */
+  answerKind?: "photo" | "note" | "count" | undefined;
+  /** A count only: fewer than this many is a finding. */
+  expectedAtLeast?: number | undefined;
+  /** May be left unanswered without leaving the inspection not finished. */
+  optional?: boolean | undefined;
+  /** The heading it sits under. Checkpoints next to each other with one heading are one section. */
+  section?: string | undefined;
+  /** The clause of a code that applies, as the company types it. Never read as a rule. */
+  codeReference?: string | undefined;
 };
 
 export const inspection = pgTable("inspection", {

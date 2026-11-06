@@ -496,13 +496,23 @@ shows a time the office corrected. What the times are for is M22 and M21
 
 A technician the company lets file inspections (`compliance:write`, which the
 technician preset does not hold) is sent the inspection programmes with the day,
-and runs one against a visit: pass or fail, readings with the range beside them,
-not applicable with a reason, a photo per checkpoint and a signature. The whole
+and runs one against a visit: the checkpoints under their section headings, each
+with the code reference the company wrote on it, pass or fail, readings with the
+range beside them, counts with the fewest there should be beside them (short, or
+not a whole number, is said before saving), a photo to take or a note to write as
+the answer, optional checkpoints that may be left blank, not applicable with a
+reason, a photo per checkpoint and a signature. The answers are built by
+`buildInspection` in the field client, the same code `/my-day` uses. The whole
 inspection is one `inspection.record` operation, an append that always applies,
-with an id the phone made so a retry files it once. The server files it through
-the same service the office uses, against the visit's own customer and address,
-and draws the verdict itself; the phone never sends one. `/my-day` runs the same
-inspection with a typed signature.
+with an id the phone made so a retry files it once; photos, notes and counts go in
+it exactly as readings do, so they sync the same way offline. The server files it
+through the same service the office uses, against the visit's own customer and
+address, and draws the verdict itself; the phone never sends one. `/my-day` runs
+the same inspection with a drawn or typed signature. A draft programme is never
+sent. The snapshot carries `kind`, `expectedAtLeast`, `optional`, `section` and
+`codeReference` on a checkpoint only when they say something, so a phone older than
+them reads a pass or fail and a reading as before; such a phone cannot run a photo,
+note or count checkpoint, and the server refuses that filing in words.
 
 ### Notices about the day
 

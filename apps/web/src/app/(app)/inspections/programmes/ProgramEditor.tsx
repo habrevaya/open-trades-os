@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useKeptAction } from "@/lib/use-kept-action";
-import { publishVersion, writeProgramme } from "./actions";
+import { publishVersion, saveOrPublishDraft, writeProgramme } from "./actions";
+import { KINDS, canFail, kindOf, type Kind } from "./kinds";
 
 const FIELD = "mt-1 block h-9 w-full rounded border border-steel-300 bg-canvas px-2 text-sm";
 const SMALL = "inline-flex h-8 items-center rounded border border-steel-300 px-2 text-sm hover:bg-steel-100 disabled:opacity-50";
@@ -19,6 +20,11 @@ export interface Checkpoint {
   remedies?: Remedy[] | undefined;
   failIsDeficiency?: boolean | undefined;
   severityOnFail?: "critical" | "major" | "minor" | "advisory" | undefined;
+  answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count" | undefined;
+  expectedAtLeast?: number | undefined;
+  optional?: boolean | undefined;
+  section?: string | undefined;
+  codeReference?: string | undefined;
 }
 
 export interface EditorProgramme {
@@ -47,11 +53,15 @@ interface Row {
   key: string;
   label: string;
   assetCategory: string;
-  reading: boolean;
+  kind: Kind;
   unit: string;
   min: string;
   max: string;
   close: string;
+  expected: string;
+  optional: boolean;
+  section: string;
+  code: string;
   severity: string;
   remedies: { code: string; label: string; quantity: string; rationale: string }[];
 }
@@ -65,11 +75,15 @@ function toRow(c: Checkpoint): Row {
     key: c.key,
     label: c.label,
     assetCategory: c.assetCategory ?? "",
-    reading: c.requiresReading === true,
+    kind: kindOf(c),
     unit: c.unit ?? "",
     min: c.range?.min === null || c.range?.min === undefined ? "" : String(c.range.min),
     max: c.range?.max === null || c.range?.max === undefined ? "" : String(c.range.max),
     close: c.range?.borderlineWithin === undefined ? "" : String(c.range.borderlineWithin),
+    expected: c.expectedAtLeast === undefined ? "" : String(c.expectedAtLeast),
+    optional: c.optional === true,
+    section: c.section ?? "",
+    code: c.codeReference ?? "",
     severity: c.severityOnFail ?? "",
     remedies: (c.remedies ?? []).map((r) => ({
       code: r.priceBookItemKey, label: r.label, quantity: String(r.quantity), rationale: r.rationale,
@@ -99,7 +113,16 @@ function serialise(rows: Row[]): Checkpoint[] {
   return rows.map((row) => {
     const checkpoint: Checkpoint = { key: row.key || keyFor(row.label, taken), label: row.label.trim() };
     if (row.assetCategory.trim() !== "") checkpoint.assetCategory = row.assetCategory.trim();
-    if (row.reading) {
+    /** A pass or fail and a reading are sent as they always were; only the other kinds say a kind. */
+    if (row.kind === "photo" || row.kind === "note" || row.kind === "count") checkpoint.answerKind = row.kind;
+    if (row.kind === "count") {
+      const expected = number(row.expected);
+      if (expected !== null) checkpoint.expectedAtLeast = expected;
+    }
+    if (row.optional) checkpoint.optional = true;
+    if (row.section.trim() !== "") checkpoint.section = row.section.trim();
+    if (row.code.trim() !== "") checkpoint.codeReference = row.code.trim();
+    if (row.kind === "reading") {
       checkpoint.requiresReading = true;
       if (row.unit.trim() !== "") checkpoint.unit = row.unit.trim();
       const close = number(row.close);
@@ -110,7 +133,7 @@ function serialise(rows: Row[]): Checkpoint[] {
         checkpoint.range = { min, max, ...(close !== null && close > 0 ? { borderlineWithin: close } : {}) };
       }
     }
-    if (row.severity !== "") checkpoint.severityOnFail = row.severity as Checkpoint["severityOnFail"];
+    if (row.severity !== "" && canFail(row.kind)) checkpoint.severityOnFail = row.severity as Checkpoint["severityOnFail"];
     const remedies = row.remedies
       .filter((r) => r.code.trim() !== "" || r.label.trim() !== "" || r.rationale.trim() !== "")
       .map((r) => ({
@@ -125,19 +148,23 @@ function serialise(rows: Row[]): Checkpoint[] {
  * THE PROGRAMME, CHECKPOINT BY CHECKPOINT
  *
  * A list somebody edits and reorders, posted whole as JSON. Each checkpoint
- * is a question the technician answers with pass or fail or with a reading,
- * what it is about, how serious a fail is (which sets the deadline on the
- * finding), and the repairs from the price book a fail suggests quoting.
+ * is a question the technician answers with pass or fail, a reading, a
+ * count, a photo or a note, the heading it sits under, the code clause it
+ * comes from, whether it may be skipped, what it is about, how serious a
+ * fail is (which sets the deadline on the finding), and the repairs from the
+ * price book a fail suggests quoting.
  *
  * Saving a new programme makes version 1. Saving changes to one publishes the
  * next version: inspections already done keep the version they were done
- * under. Whether it can be filed is decided by the service, which says what
- * is wrong in words under the button.
+ * under. A new programme can be saved as a draft instead, which nobody can use
+ * until it is published; a draft opens here again to be saved or published.
+ * Whether it can be filed is decided by the service, which says what is wrong
+ * in words under the button.
  */
 export function ProgramEditor({
   mode, programme, programId, baseVersion, copiedFrom, replaceable, appliesTo, priceBook, problems,
 }: {
-  mode: "new" | "revise";
+  mode: "new" | "revise" | "draft";
   programme: EditorProgramme;
   programId?: string | undefined;
   baseVersion?: number | undefined;
@@ -152,7 +179,10 @@ export function ProgramEditor({
 }) {
   const [rows, setRows] = useState<Row[]>(() => programme.checkpoints.map(toRow));
   const [audience, setAudience] = useState(programme.reportAudience);
-  const [state, form, pending] = useKeptAction(mode === "new" ? writeProgramme : publishVersion, null);
+  const [state, form, pending] = useKeptAction(
+    mode === "new" ? writeProgramme : mode === "draft" ? saveOrPublishDraft : publishVersion, null,
+  );
+  const sections = [...new Set(rows.map((r) => r.section.trim()).filter((t) => t !== ""))];
   const names = new Map(priceBook.map((item) => [item.code, item.name]));
 
   const set = (i: number, patch: Partial<Row>) => setRows((all) => all.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -174,7 +204,11 @@ export function ProgramEditor({
 
       {problems.length > 0 && (
         <div role="note" className="rounded-md border border-amber-700/30 bg-amber-tint p-3 text-sm text-ink-900">
-          <p className="font-medium">An inspection cannot be filed against this as it stands. Fix these before you save:</p>
+          <p className="font-medium">
+            {mode === "revise"
+              ? "An inspection cannot be filed against this as it stands. Fix these before you save:"
+              : "An inspection cannot be filed against this as it stands. Fix these before you publish it, or save it as a draft as it is:"}
+          </p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {problems.map((p) => <li key={p}>{p}</li>)}
           </ul>
@@ -210,6 +244,9 @@ export function ProgramEditor({
       <datalist id="applies-to">
         {appliesTo.map((kind) => <option key={kind} value={kind} />)}
       </datalist>
+      <datalist id="section-names">
+        {sections.map((title) => <option key={title} value={title} />)}
+      </datalist>
       <datalist id="price-book-codes">
         {priceBook.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
       </datalist>
@@ -218,7 +255,9 @@ export function ProgramEditor({
         <h2 className="text-base font-semibold">Checkpoints</h2>
         <p className="text-sm text-ink-700">
           Each one is a question the technician answers on the visit, in this order. A reading needs a unit and the
-          range that passes, so the reading can be judged.
+          range that passes, and a count needs how many there should be, so either can be judged. A photo or a note is
+          what was seen and is never a finding. Give checkpoints a section to put them under a heading, and keep a
+          section&apos;s checkpoints next to each other.
         </p>
         {rows.map((row, i) => (
           <fieldset key={row.uid} className="space-y-3 rounded-md border border-steel-200 p-3">
@@ -233,13 +272,29 @@ export function ProgramEditor({
                        list="applies-to" placeholder="The whole property" className={FIELD} />
               </label>
               <label className="text-sm">Answer
-                <select value={row.reading ? "reading" : "pass_fail"} onChange={(e) => set(i, { reading: e.target.value === "reading" })}
-                        className={FIELD}>
-                  <option value="pass_fail">Pass or fail</option>
-                  <option value="reading">A reading</option>
+                <select value={row.kind} onChange={(e) => set(i, { kind: e.target.value as Kind })} className={FIELD}>
+                  {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
                 </select>
               </label>
-              {row.reading && (
+              <label className="text-sm">Section
+                <input value={row.section} onChange={(e) => set(i, { section: e.target.value })} maxLength={120}
+                       list="section-names" placeholder="No heading" className={FIELD} />
+              </label>
+              <label className="text-sm">Code reference
+                <input value={row.code} onChange={(e) => set(i, { code: e.target.value })} maxLength={200}
+                       placeholder="Optional, as your code book words it" className={FIELD} />
+              </label>
+              <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                <input type="checkbox" checked={row.optional} onChange={(e) => set(i, { optional: e.target.checked })} className="h-4 w-4" />
+                Optional: it can be left blank and the inspection still counts as finished
+              </label>
+              {row.kind === "count" && (
+                <label className="text-sm">Fewest there should be
+                  <input value={row.expected} onChange={(e) => set(i, { expected: e.target.value })} inputMode="numeric"
+                         placeholder="6" className={FIELD} />
+                </label>
+              )}
+              {row.kind === "reading" && (
                 <>
                   <label className="text-sm">Unit
                     <input value={row.unit} onChange={(e) => set(i, { unit: e.target.value })} maxLength={20} placeholder="psid" className={FIELD} />
@@ -257,12 +312,16 @@ export function ProgramEditor({
                   </div>
                 </>
               )}
-              <label className="text-sm sm:col-span-2">How serious a fail is
-                <select value={row.severity} onChange={(e) => set(i, { severity: e.target.value })} className={FIELD}>
-                  <option value="">Choose one</option>
-                  {SEVERITIES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
-              </label>
+              {canFail(row.kind) ? (
+                <label className="text-sm sm:col-span-2">{row.kind === "count" ? "How serious too few is" : "How serious a fail is"}
+                  <select value={row.severity} onChange={(e) => set(i, { severity: e.target.value })} className={FIELD}>
+                    <option value="">Choose one</option>
+                    {SEVERITIES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <p className="text-xs text-ink-500 sm:col-span-2">What was seen. It is printed on the report and is never a finding.</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -319,28 +378,38 @@ export function ProgramEditor({
         </button>
       </section>
 
-      {mode === "new" && replaceable ? (
+      {mode !== "revise" && replaceable ? (
         <label className="flex items-start gap-2 text-sm">
           <input type="hidden" name="replaces" value={replaceable.id} />
           <input type="checkbox" name="replace" defaultChecked={replaceable.ticked} className="mt-0.5 h-4 w-4" />
           <span>
-            Use this instead of {replaceable.name}. Technicians stop being offered that one as this one is saved.
+            Use this instead of {replaceable.name}. Technicians stop being offered that one as this one is
+            {mode === "draft" ? " published" : " saved"}.
             It is kept, with the inspections done under it.
           </span>
         </label>
       ) : null}
 
-      <label className="block text-sm">{mode === "new" ? "A note to keep with it" : "What changed"}
+      <label className="block text-sm">{mode === "revise" ? "What changed" : "A note to keep with it"}
         <textarea name="note" rows={2} maxLength={1000}
-                  placeholder={mode === "new" ? "Optional" : "Optional, kept with this version"}
+                  placeholder={mode === "revise" ? "Optional, kept with this version" : "Optional, kept with version 1"}
                   className="mt-1 w-full rounded border border-steel-300 bg-canvas px-2 py-1.5 text-sm" />
       </label>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" disabled={pending}
+        <button type="submit" name="intent" value="publish" disabled={pending}
                 className="inline-flex h-9 items-center rounded bg-ink-900 px-3.5 text-sm font-medium text-white hover:bg-ink-700 disabled:opacity-60">
-          {pending ? "Saving" : mode === "new" ? "Save the programme" : `Publish version ${(baseVersion ?? 0) + 1}`}
+          {pending ? "Saving" : mode === "new" ? "Save the programme" : mode === "draft" ? "Publish it" : `Publish version ${(baseVersion ?? 0) + 1}`}
         </button>
+        {mode !== "revise" && (
+          <button type="submit" name="intent" value="draft" disabled={pending}
+                  className="inline-flex h-9 items-center rounded border border-steel-300 px-3.5 text-sm font-medium hover:bg-steel-100 disabled:opacity-60">
+            {mode === "new" ? "Save as a draft" : "Save the draft"}
+          </button>
+        )}
+        {mode !== "revise" && (
+          <span className="text-xs text-ink-500">A draft is kept and nobody can use it until it is published.</span>
+        )}
         {mode === "revise" && (
           <span className="text-xs text-ink-500">Inspections already done keep the version they were done under.</span>
         )}

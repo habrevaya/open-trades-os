@@ -8,7 +8,8 @@ import { Chip } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
 import { ActionForm } from "@/components/ActionForm";
 import { ProgramEditor, type Checkpoint } from "../ProgramEditor";
-import { setOffered } from "../actions";
+import { kindOf } from "../kinds";
+import { discardDraft, setOffered } from "../actions";
 import { AUDIENCE, PART, SEVERITY, packName, sourceLine } from "../words";
 
 export const dynamic = "force-dynamic";
@@ -21,16 +22,20 @@ export const dynamic = "force-dynamic";
  * as it stands. `?version=2` shows version 2 as it was published, which is
  * what an inspection done under it was asked.
  *
- * `GET /v1/inspection-programs/{id}` and `POST /v1/inspection-programs/{id}/versions`.
+ * A DRAFT opens in the editor to be saved again or published, with a button
+ * to throw it away; it has no versions and is offered to nobody.
+ *
+ * `GET /v1/inspection-programs/{id}` and `POST /v1/inspection-programs/{id}/versions`;
+ * for a draft, `PUT .../draft`, `POST .../publish` and `DELETE .../draft`.
  */
 export default async function ProgrammePage({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ version?: string; published?: string }>;
+  searchParams: Promise<{ version?: string; published?: string; draft?: string }>;
 }) {
   const { id } = await params;
-  const { version, published } = await searchParams;
+  const { version, published, draft: draftSaved } = await searchParams;
   const user = await requireSetupUser();
   if (!can(user.actor, "compliance:read")) {
     return (
@@ -51,9 +56,23 @@ export default async function ProgrammePage({
   const p = detail.program;
   const writes = can(user.actor, "compliance:write");
   const asked = version ? Number(version) : null;
-  const past = asked !== null && Number.isInteger(asked) && asked !== p.version
+  const past = !p.draft && asked !== null && Number.isInteger(asked) && asked !== p.version
     ? await inspections.programVersion(ctx, { id, version: asked }).catch(() => null)
     : null;
+  /**
+   * What a draft would take the place of when it is published: a programme
+   * technicians are offered under the same name, which would otherwise refuse
+   * the publish, ticked; or the one it was copied from, not ticked.
+   */
+  let replaceable: { id: string; name: string; ticked: boolean } | null = null;
+  if (p.draft && writes) {
+    const offered = await inspections.programs(ctx);
+    const same = offered.find((o) => o.name.trim().toLowerCase() === p.name.trim().toLowerCase());
+    const from = p.copiedFrom;
+    const source = from?.kind === "program" ? offered.find((o) => o.id === from.programId) : undefined;
+    if (same) replaceable = { id: same.id, name: same.name, ticked: true };
+    else if (source) replaceable = { id: source.id, name: source.name, ticked: false };
+  }
 
   const [appliesTo, items, missing] = writes && !past
     ? await Promise.all([
@@ -68,15 +87,22 @@ export default async function ProgrammePage({
       <p className="text-sm"><Link href="/inspections/programmes" className="text-ink-500 hover:underline">Inspection programmes</Link></p>
       <PageHeader title={p.name} />
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-        <Chip tone="neutral">Version {p.version}</Chip>
-        {p.active ? <Chip tone="success">Offered to technicians</Chip> : <Chip tone="neutral">Not offered</Chip>}
-        {!p.ready && <Chip tone="warning">Cannot be filed yet</Chip>}
+        {p.draft ? <Chip tone="neutral">Draft</Chip> : <Chip tone="neutral">Version {p.version}</Chip>}
+        {p.draft
+          ? <Chip tone="neutral">Nobody can use it until it is published</Chip>
+          : p.active ? <Chip tone="success">Offered to technicians</Chip> : <Chip tone="neutral">Not offered</Chip>}
+        {!p.ready && <Chip tone="warning">{p.draft ? "Not ready to publish" : "Cannot be filed yet"}</Chip>}
         <span className="text-ink-700">{sourceLine(p)}</span>
       </div>
       <p className="mt-1 text-xs text-ink-500">
         {detail.inspections === 0 ? "No inspections done under it yet." : detail.inspections === 1 ? "One inspection done under it." : `${detail.inspections} inspections done under it.`}
       </p>
 
+      {draftSaved && p.draft && (
+        <p role="status" className="mt-4 rounded-md border border-steel-200 bg-steel-100 p-3 text-sm text-ink-900">
+          Saved as a draft. Technicians are not offered it until you publish it.
+        </p>
+      )}
       {published && (
         <p role="status" className="mt-4 rounded-md border border-steel-200 bg-steel-100 p-3 text-sm text-ink-900">
           {published === "1" && p.version === 1 ? "Saved as version 1." : `Version ${published} published. Inspections already done keep the version they were done under.`}
@@ -104,6 +130,16 @@ export default async function ProgrammePage({
           </p>
           <Reading programme={past} />
         </section>
+      ) : writes && p.draft ? (
+        <ProgramEditor
+          mode="draft"
+          programId={p.id}
+          programme={p}
+          replaceable={replaceable}
+          appliesTo={appliesTo}
+          priceBook={items.map((i) => ({ code: i.code ?? "", name: i.name })).filter((i) => i.code !== "")}
+          problems={p.problems}
+        />
       ) : writes ? (
         <ProgramEditor
           key={p.version}
@@ -119,7 +155,14 @@ export default async function ProgrammePage({
         <Reading programme={p} />
       )}
 
-      {writes && !past && (
+      {writes && p.draft && (
+        <div className="mt-8">
+          <ActionForm action={discardDraft} submit="Throw the draft away" tone="quiet"
+                      hidden={{ programId: p.id }} className="space-y-2" />
+        </div>
+      )}
+
+      {writes && !past && !p.draft && (
         <div className="mt-8 flex flex-wrap items-start gap-4">
           <ActionForm action={setOffered} submit={p.active ? "Stop offering it to technicians" : "Offer it to technicians again"}
                       tone="quiet" hidden={{ programId: p.id, offered: p.active ? "no" : "yes" }} className="space-y-2" />
@@ -132,6 +175,9 @@ export default async function ProgrammePage({
 
       <section aria-label="Versions" className="mt-10">
         <h2 className="text-base font-semibold">Versions</h2>
+        {detail.versions.length === 0 && (
+          <p className="mt-2 text-sm text-ink-700">None yet. Publishing the draft makes version 1.</p>
+        )}
         <ul className="mt-2 divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
           {detail.versions.map((v) => (
             <li key={v.version} className="bg-canvas p-3 text-sm">
@@ -179,23 +225,34 @@ function Reading({ programme }: {
         </div>
       )}
       <ol className="divide-y divide-steel-200 overflow-hidden rounded-md border border-steel-200">
-        {programme.checkpoints.map((c, i) => (
+        {programme.checkpoints.map((c, i) => {
+          const kind = kindOf(c);
+          const heading = c.section?.trim() && c.section.trim() !== (programme.checkpoints[i - 1]?.section?.trim() ?? "")
+            ? c.section.trim() : null;
+          return (
           <li key={c.key} className="bg-canvas p-3 text-sm">
-            <p className="font-medium">{i + 1}. {c.label}</p>
+            {heading && <p className="mb-1 text-xs font-semibold uppercase tracking-[0.06em] text-ink-700">{heading}</p>}
+            <p className="font-medium">{i + 1}. {c.label}{c.optional ? " (optional)" : ""}</p>
             <p className="text-xs text-ink-700">
-              {c.requiresReading
+              {kind === "reading"
                 ? `A reading in ${c.unit ?? "no unit"}, passing ${rangeWords(c.range)}`
-                : "Pass or fail"}
+                : kind === "count"
+                  ? `A count, passing at ${c.expectedAtLeast ?? "no number set"} or more`
+                  : kind === "photo" ? "A photo" : kind === "note" ? "A note" : "Pass or fail"}
               {c.assetCategory ? `. About: ${c.assetCategory}` : ""}
-              {c.severityOnFail ? `. A fail: ${SEVERITY[c.severityOnFail] ?? c.severityOnFail}` : ". A fail does not say how serious it is"}
+              {kind === "photo" || kind === "note"
+                ? ". Never a finding"
+                : c.severityOnFail ? `. A fail: ${SEVERITY[c.severityOnFail] ?? c.severityOnFail}` : ". A fail does not say how serious it is"}
             </p>
+            {c.codeReference && <p className="text-xs text-ink-500">Code: {c.codeReference}</p>}
             {(c.remedies ?? []).length > 0 && (
               <p className="text-xs text-ink-500">
                 Quote: {(c.remedies ?? []).map((r) => `${r.quantity} x ${r.label} (${r.priceBookItemKey})`).join(", ")}
               </p>
             )}
           </li>
-        ))}
+          );
+        })}
       </ol>
     </div>
   );

@@ -440,6 +440,20 @@ export const InspectionProgramForField = z.object({
     unit: z.string().nullable(),
     min: z.number().nullable(),
     max: z.number().nullable(),
+    /**
+     * A photo, a note or a count. Absent for a pass or fail and a reading,
+     * which `requiresReading` tells, so a phone older than this reads them as
+     * it always did.
+     */
+    kind: z.enum(["photo", "note", "count"]).optional(),
+    /** A count only: fewer than this many is a finding. */
+    expectedAtLeast: z.number().int().optional(),
+    /** Present, and true, when it may be left unanswered without leaving the inspection not finished. */
+    optional: z.boolean().optional(),
+    /** The heading it sits under. Absent for none. */
+    section: z.string().optional(),
+    /** The code clause the company wrote on it, shown to the technician as written. */
+    codeReference: z.string().optional(),
   })),
 });
 

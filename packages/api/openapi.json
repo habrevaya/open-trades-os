@@ -64214,7 +64214,7 @@
       "post": {
         "operationId": "defineInspectionProgram",
         "summary": "Write a programme of your own",
-        "description": "From nothing, or from a copy of a trade pack's programme or one of your own, named in `copiedFrom` and kept with it. Refused, in words, when an inspection could not be filed against it: no checkpoints, a reading with no unit or no range, a checkpoint whose fail is a finding that does not say how serious it is. Refused when technicians are already offered a programme of the same name, unless `replaces` names that one, which then stops being offered in the same step. Version 1, offered to technicians at once.\n\nRequires a session holding: compliance:write.",
+        "description": "From nothing, or from a copy of a trade pack's programme or one of your own, named in `copiedFrom` and kept with it. Refused, in words, when an inspection could not be filed against it: no checkpoints, a reading with no unit or no range, a checkpoint whose fail is a finding that does not say how serious it is. Refused when technicians are already offered a programme of the same name, unless `replaces` names that one, which then stops being offered in the same step. Version 1, offered to technicians at once. With `draft`, kept as a draft instead: not checked, not offered, and published later with `POST /v1/inspection-programs/{id}/publish`.\n\nRequires a session holding: compliance:write.",
         "tags": [
           "M33"
         ],
@@ -64546,6 +64546,267 @@
         ]
       }
     },
+    "/v1/inspection-programs/{id}/draft": {
+      "description": "Served at this path: DELETE, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE",
+        "PUT"
+      ],
+      "delete": {
+        "operationId": "discardInspectionProgramDraft",
+        "summary": "Throw a draft programme away",
+        "description": "Only a draft: nothing was ever filed against it, so nothing points at it. A published programme is kept, with every version, and is stopped being offered instead.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscardInspectionProgramDraftInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Throw a draft programme away",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscardInspectionProgramDraftOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      },
+      "put": {
+        "operationId": "saveInspectionProgramDraft",
+        "summary": "Save a draft programme again",
+        "description": "The whole draft as it should now read, written over the last save. Not checked for whether it could be filed, and still not offered. Refused for a programme that is not a draft: a published one changes by publishing a new version.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveInspectionProgramDraftInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save a draft programme again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveInspectionProgramDraftOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
     "/v1/inspection-programs/{id}/offered": {
       "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -64595,6 +64856,144 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SetInspectionProgramOfferedOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "compliance:write"
+        ]
+      }
+    },
+    "/v1/inspection-programs/{id}/publish": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "publishInspectionProgramDraft",
+        "summary": "Publish a draft programme",
+        "description": "Makes version 1 and offers it to technicians at once, under the same checks as a programme saved whole: refused, in words, when an inspection could not be filed against it, or when technicians are already offered a programme of that name unless `replaces` names that one, which then stops being offered in the same step. Refused for a programme that is not a draft.\n\nRequires a session holding: compliance:write.",
+        "tags": [
+          "M33"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishInspectionProgramDraftInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Publish a draft programme",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishInspectionProgramDraftOutput"
                 }
               }
             }
@@ -191092,6 +191491,31 @@
                     "minor",
                     "advisory"
                   ]
+                },
+                "answerKind": {
+                  "type": "string",
+                  "enum": [
+                    "pass_fail",
+                    "reading",
+                    "photo",
+                    "note",
+                    "count"
+                  ]
+                },
+                "expectedAtLeast": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "section": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "codeReference": {
+                  "type": "string",
+                  "maxLength": 200
                 }
               },
               "required": [
@@ -191161,6 +191585,9 @@
           "replaces": {
             "type": "string",
             "format": "uuid"
+          },
+          "draft": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -191278,6 +191705,9 @@
               }
             ]
           },
+          "draft": {
+            "type": "boolean"
+          },
           "ready": {
             "type": "boolean"
           },
@@ -191384,6 +191814,31 @@
                     "minor",
                     "advisory"
                   ]
+                },
+                "answerKind": {
+                  "type": "string",
+                  "enum": [
+                    "pass_fail",
+                    "reading",
+                    "photo",
+                    "note",
+                    "count"
+                  ]
+                },
+                "expectedAtLeast": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "section": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "codeReference": {
+                  "type": "string",
+                  "maxLength": 200
                 }
               },
               "required": [
@@ -191405,6 +191860,7 @@
           "active",
           "tradePackId",
           "copiedFrom",
+          "draft",
           "ready",
           "problems",
           "checkpoints"
@@ -192898,6 +193354,26 @@
           "company",
           "done",
           "message"
+        ]
+      },
+      "DiscardInspectionProgramDraftInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "DiscardInspectionProgramDraftOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "discarded": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "discarded"
         ]
       },
       "DiscardRevisionInput": {
@@ -209372,6 +209848,26 @@
                           "number",
                           "null"
                         ]
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "photo",
+                          "note",
+                          "count"
+                        ]
+                      },
+                      "expectedAtLeast": {
+                        "type": "integer"
+                      },
+                      "optional": {
+                        "type": "boolean"
+                      },
+                      "section": {
+                        "type": "string"
+                      },
+                      "codeReference": {
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -211665,6 +212161,9 @@
                   }
                 ]
               },
+              "draft": {
+                "type": "boolean"
+              },
               "ready": {
                 "type": "boolean"
               },
@@ -211771,6 +212270,31 @@
                         "minor",
                         "advisory"
                       ]
+                    },
+                    "answerKind": {
+                      "type": "string",
+                      "enum": [
+                        "pass_fail",
+                        "reading",
+                        "photo",
+                        "note",
+                        "count"
+                      ]
+                    },
+                    "expectedAtLeast": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "optional": {
+                      "type": "boolean"
+                    },
+                    "section": {
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    "codeReference": {
+                      "type": "string",
+                      "maxLength": 200
                     }
                   },
                   "required": [
@@ -211792,6 +212316,7 @@
               "active",
               "tradePackId",
               "copiedFrom",
+              "draft",
               "ready",
               "problems",
               "checkpoints"
@@ -211992,6 +212517,31 @@
                     "minor",
                     "advisory"
                   ]
+                },
+                "answerKind": {
+                  "type": "string",
+                  "enum": [
+                    "pass_fail",
+                    "reading",
+                    "photo",
+                    "note",
+                    "count"
+                  ]
+                },
+                "expectedAtLeast": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "section": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "codeReference": {
+                  "type": "string",
+                  "maxLength": 200
                 }
               },
               "required": [
@@ -212172,8 +212722,26 @@
                   "type": "string",
                   "enum": [
                     "pass_fail",
-                    "reading"
+                    "reading",
+                    "photo",
+                    "note",
+                    "count"
                   ]
+                },
+                "section": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "codeReference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "optional": {
+                  "type": "boolean"
                 },
                 "unit": {
                   "type": [
@@ -212199,6 +212767,7 @@
                     "pass",
                     "borderline",
                     "finding",
+                    "recorded",
                     "not_applicable",
                     "not_answered"
                   ]
@@ -212259,6 +212828,9 @@
                 "key",
                 "prompt",
                 "kind",
+                "section",
+                "codeReference",
+                "optional",
                 "unit",
                 "range",
                 "answer",
@@ -247872,6 +248444,9 @@
                     }
                   ]
                 },
+                "draft": {
+                  "type": "boolean"
+                },
                 "ready": {
                   "type": "boolean"
                 },
@@ -247894,6 +248469,7 @@
                 "active",
                 "tradePackId",
                 "copiedFrom",
+                "draft",
                 "ready",
                 "problems"
               ]
@@ -262748,6 +263324,31 @@
                           "minor",
                           "advisory"
                         ]
+                      },
+                      "answerKind": {
+                        "type": "string",
+                        "enum": [
+                          "pass_fail",
+                          "reading",
+                          "photo",
+                          "note",
+                          "count"
+                        ]
+                      },
+                      "expectedAtLeast": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "optional": {
+                        "type": "boolean"
+                      },
+                      "section": {
+                        "type": "string",
+                        "maxLength": 120
+                      },
+                      "codeReference": {
+                        "type": "string",
+                        "maxLength": 200
                       }
                     },
                     "required": [
@@ -273906,6 +274507,293 @@
           "answeredAt",
           "answer",
           "createdAt"
+        ]
+      },
+      "PublishInspectionProgramDraftInput": {
+        "type": "object",
+        "properties": {
+          "replaces": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        }
+      },
+      "PublishInspectionProgramDraftOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "standard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reportAudience": {
+            "type": "string"
+          },
+          "authorityName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frequencyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer"
+          },
+          "checkpointCount": {
+            "type": "integer"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "tradePackId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "copiedFrom": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "trade_pack"
+                    ]
+                  },
+                  "packId": {
+                    "type": "string"
+                  },
+                  "packVersion": {
+                    "type": "integer"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "packId",
+                  "packVersion",
+                  "code",
+                  "name"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "program"
+                    ]
+                  },
+                  "programId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "version": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "programId",
+                  "version",
+                  "name"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "assetCategory": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "requiresReading": {
+                  "type": "boolean"
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "range": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "borderlineWithin": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ]
+                },
+                "remedies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "priceBookItemKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "required": [
+                      "priceBookItemKey",
+                      "label",
+                      "quantity",
+                      "rationale"
+                    ]
+                  },
+                  "maxItems": 10
+                },
+                "failIsDeficiency": {
+                  "type": "boolean"
+                },
+                "severityOnFail": {
+                  "type": "string",
+                  "enum": [
+                    "critical",
+                    "major",
+                    "minor",
+                    "advisory"
+                  ]
+                },
+                "answerKind": {
+                  "type": "string",
+                  "enum": [
+                    "pass_fail",
+                    "reading",
+                    "photo",
+                    "note",
+                    "count"
+                  ]
+                },
+                "expectedAtLeast": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "section": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "codeReference": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "standard",
+          "reportAudience",
+          "authorityName",
+          "frequencyMonths",
+          "version",
+          "checkpointCount",
+          "active",
+          "tradePackId",
+          "copiedFrom",
+          "draft",
+          "ready",
+          "problems",
+          "checkpoints"
         ]
       },
       "PublishRegulatoryConstantInput": {
@@ -290346,6 +291234,31 @@
                     "minor",
                     "advisory"
                   ]
+                },
+                "answerKind": {
+                  "type": "string",
+                  "enum": [
+                    "pass_fail",
+                    "reading",
+                    "photo",
+                    "note",
+                    "count"
+                  ]
+                },
+                "expectedAtLeast": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "section": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "codeReference": {
+                  "type": "string",
+                  "maxLength": 200
                 }
               },
               "required": [
@@ -290480,6 +291393,9 @@
               }
             ]
           },
+          "draft": {
+            "type": "boolean"
+          },
           "ready": {
             "type": "boolean"
           },
@@ -290586,6 +291502,31 @@
                     "minor",
                     "advisory"
                   ]
+                },
+                "answerKind": {
+                  "type": "string",
+                  "enum": [
+                    "pass_fail",
+                    "reading",
+                    "photo",
+                    "note",
+                    "count"
+                  ]
+                },
+                "expectedAtLeast": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "section": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "codeReference": {
+                  "type": "string",
+                  "maxLength": 200
                 }
               },
               "required": [
@@ -290607,6 +291548,7 @@
           "active",
           "tradePackId",
           "copiedFrom",
+          "draft",
           "ready",
           "problems",
           "checkpoints"
@@ -292800,6 +293742,460 @@
           "title",
           "source",
           "publicKey"
+        ]
+      },
+      "SaveInspectionProgramDraftInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "standard": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "reportAudience": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "authority",
+              "both"
+            ]
+          },
+          "authorityName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 160
+          },
+          "frequencyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 120
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "assetCategory": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "requiresReading": {
+                  "type": "boolean"
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "range": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "borderlineWithin": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ]
+                },
+                "remedies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "priceBookItemKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "required": [
+                      "priceBookItemKey",
+                      "label",
+                      "quantity",
+                      "rationale"
+                    ]
+                  },
+                  "maxItems": 10
+                },
+                "failIsDeficiency": {
+                  "type": "boolean"
+                },
+                "severityOnFail": {
+                  "type": "string",
+                  "enum": [
+                    "critical",
+                    "major",
+                    "minor",
+                    "advisory"
+                  ]
+                },
+                "answerKind": {
+                  "type": "string",
+                  "enum": [
+                    "pass_fail",
+                    "reading",
+                    "photo",
+                    "note",
+                    "count"
+                  ]
+                },
+                "expectedAtLeast": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "section": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "codeReference": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 200
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "name",
+          "checkpoints"
+        ]
+      },
+      "SaveInspectionProgramDraftOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "standard": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reportAudience": {
+            "type": "string"
+          },
+          "authorityName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frequencyMonths": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer"
+          },
+          "checkpointCount": {
+            "type": "integer"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "tradePackId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "copiedFrom": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "trade_pack"
+                    ]
+                  },
+                  "packId": {
+                    "type": "string"
+                  },
+                  "packVersion": {
+                    "type": "integer"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "packId",
+                  "packVersion",
+                  "code",
+                  "name"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "program"
+                    ]
+                  },
+                  "programId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "version": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "programId",
+                  "version",
+                  "name"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "assetCategory": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "requiresReading": {
+                  "type": "boolean"
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "range": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "borderlineWithin": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "min",
+                    "max"
+                  ]
+                },
+                "remedies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "priceBookItemKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "quantity": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "rationale": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "required": [
+                      "priceBookItemKey",
+                      "label",
+                      "quantity",
+                      "rationale"
+                    ]
+                  },
+                  "maxItems": 10
+                },
+                "failIsDeficiency": {
+                  "type": "boolean"
+                },
+                "severityOnFail": {
+                  "type": "string",
+                  "enum": [
+                    "critical",
+                    "major",
+                    "minor",
+                    "advisory"
+                  ]
+                },
+                "answerKind": {
+                  "type": "string",
+                  "enum": [
+                    "pass_fail",
+                    "reading",
+                    "photo",
+                    "note",
+                    "count"
+                  ]
+                },
+                "expectedAtLeast": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "section": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "codeReference": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "standard",
+          "reportAudience",
+          "authorityName",
+          "frequencyMonths",
+          "version",
+          "checkpointCount",
+          "active",
+          "tradePackId",
+          "copiedFrom",
+          "draft",
+          "ready",
+          "problems",
+          "checkpoints"
         ]
       },
       "SayInChatInput": {

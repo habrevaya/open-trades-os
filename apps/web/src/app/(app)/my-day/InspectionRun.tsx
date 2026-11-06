@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import {
-  buildInspection, checkReading, resultLabel,
+  buildInspection, checkCount, checkReading, checkpointKind, expectationText, resultLabel, sectionsOf,
   type CheckpointEntry, type FieldInspectionProgram,
 } from "@opentradesos/field-client";
 import { SignatureCanvas, type InkHandle } from "./SignaturePad";
@@ -17,9 +17,12 @@ export interface VisitInspection {
 /**
  * RUNNING AN INSPECTION ON MY DAY
  *
- * The programme's checkpoints one under another, each a Pass and a Fail
- * button or a reading box, with not applicable behind a reason and a photo
- * per checkpoint. The phone app and this page build the same answers from
+ * The programme's checkpoints one under another, under their section
+ * headings, each a Pass and a Fail button, a reading box, a count box, a
+ * photo to take or a note to write, with the code clause the company wrote
+ * on it, not applicable behind a reason and a photo per checkpoint. An
+ * optional one says so, and leaving it blank does not leave the inspection
+ * not finished. The phone app and this page build the same answers from
  * the same code in the field client, and neither decides the verdict: the
  * server does, from the programme, so a half finished inspection can never
  * be filed as a pass from here.
@@ -118,30 +121,51 @@ export function InspectionRun({
         <div className="mt-2 space-y-3 rounded border border-steel-300 p-3">
           <p className="font-medium">{program.name}</p>
           {program.standard && <p className="text-xs text-ink-500">Performed under {program.standard}</p>}
+          {sectionsOf(program).map((section, s) => (
+          <section key={`${section.title ?? ""}-${s}`} aria-label={section.title ?? program.name}>
+          {section.title && <h3 className="mt-2 text-sm font-semibold uppercase tracking-[0.06em] text-ink-700">{section.title}</h3>}
           <ol className="space-y-3">
-            {program.checkpoints.map((checkpoint) => {
+            {section.checkpoints.map((checkpoint) => {
               const entry = entries[checkpoint.key] ?? {};
-              const reading = checkpoint.requiresReading ? checkReading(checkpoint, entry.reading ?? "") : null;
+              const kind = checkpointKind(checkpoint);
+              const check = kind === "reading" ? checkReading(checkpoint, entry.reading ?? "")
+                : kind === "count" ? checkCount(checkpoint, entry.count ?? "") : null;
               const na = entry.notApplicable !== undefined;
+              const photos = entry.photoIds?.length ?? 0;
               return (
                 <li key={checkpoint.key} className="border-t border-steel-200 pt-3">
-                  <p className="text-base">{checkpoint.label}</p>
-                  {checkpoint.requiresReading ? (
+                  <p className="text-base">
+                    {checkpoint.label}
+                    {checkpoint.optional && <span className="ml-2 text-xs text-ink-500">Optional</span>}
+                  </p>
+                  {checkpoint.codeReference && <p className="text-xs text-ink-500">Code: {checkpoint.codeReference}</p>}
+                  {kind === "reading" || kind === "count" ? (
                     <label className="mt-2 flex items-center gap-2">
                       <input
-                        inputMode="decimal"
-                        aria-label={`${checkpoint.label} reading`}
-                        value={entry.reading ?? ""}
+                        inputMode={kind === "count" ? "numeric" : "decimal"}
+                        aria-label={`${checkpoint.label} ${kind === "count" ? "count" : "reading"}`}
+                        value={(kind === "count" ? entry.count : entry.reading) ?? ""}
                         disabled={na}
-                        onChange={(e) => set(checkpoint.key, { reading: e.target.value })}
+                        onChange={(e) => set(checkpoint.key, kind === "count" ? { count: e.target.value } : { reading: e.target.value })}
                         className="h-12 w-32 rounded border border-steel-300 px-3 text-base tabular-nums"
                       />
-                      <span className="text-ink-500">{checkpoint.unit}</span>
-                      <span className="text-xs text-ink-500">
-                        {checkpoint.min !== null && checkpoint.max !== null ? `${checkpoint.min} to ${checkpoint.max}`
-                          : checkpoint.min !== null ? `at least ${checkpoint.min}` : checkpoint.max !== null ? `at most ${checkpoint.max}` : ""}
-                      </span>
+                      {kind === "reading" && <span className="text-ink-500">{checkpoint.unit}</span>}
+                      <span className="text-xs text-ink-500">{expectationText(checkpoint)}</span>
                     </label>
+                  ) : kind === "note" ? (
+                    <textarea
+                      aria-label={`${checkpoint.label}: what you saw`}
+                      placeholder="What you saw"
+                      value={entry.text ?? ""}
+                      disabled={na}
+                      rows={3}
+                      onChange={(e) => set(checkpoint.key, { text: e.target.value })}
+                      className="mt-2 w-full rounded border border-steel-300 px-3 py-2 text-base"
+                    />
+                  ) : kind === "photo" ? (
+                    <p className="mt-2 text-sm text-ink-700">
+                      {photos > 0 ? `${photos} ${photos === 1 ? "photo" : "photos"} taken.` : "Take a photo to answer this."}
+                    </p>
                   ) : (
                     <div className="mt-2 grid grid-cols-2 gap-2" role="group" aria-label={checkpoint.label}>
                       {([true, false] as const).map((passed) => (
@@ -160,8 +184,8 @@ export function InspectionRun({
                       ))}
                     </div>
                   )}
-                  {reading && (reading.state === "out_of_range" || reading.state === "not_a_number") && (
-                    <p className="mt-1 text-sm text-red-600">{reading.message}</p>
+                  {check && (check.state === "out_of_range" || check.state === "not_a_number") && (
+                    <p className="mt-1 text-sm text-red-600">{check.message}</p>
                   )}
                   <div className="mt-2 flex flex-wrap gap-3 text-sm">
                     <label className="flex items-center gap-1">
@@ -170,7 +194,7 @@ export function InspectionRun({
                       Not applicable
                     </label>
                     <label className="cursor-pointer underline underline-offset-4">
-                      Photo{entry.photoIds && entry.photoIds.length > 0 ? ` (${entry.photoIds.length})` : ""}
+                      {kind === "photo" ? "Take a photo" : "Photo"}{photos > 0 ? ` (${photos})` : ""}
                       <input type="file" accept="image/*" capture="environment" className="sr-only"
                              aria-label={`Photo for ${checkpoint.label}`}
                              onChange={async (e) => {
@@ -192,17 +216,21 @@ export function InspectionRun({
                       className="mt-2 h-12 w-full rounded border border-steel-300 px-3 text-base"
                     />
                   )}
-                  <input
-                    aria-label={`Note on ${checkpoint.label}`}
-                    placeholder="What you saw (optional)"
-                    value={entry.note ?? ""}
-                    onChange={(e) => set(checkpoint.key, { note: e.target.value })}
-                    className="mt-2 h-10 w-full rounded border border-steel-300 px-3 text-sm"
-                  />
+                  {kind !== "note" && (
+                    <input
+                      aria-label={`Note on ${checkpoint.label}`}
+                      placeholder="What you saw (optional)"
+                      value={entry.note ?? ""}
+                      onChange={(e) => set(checkpoint.key, { note: e.target.value })}
+                      className="mt-2 h-10 w-full rounded border border-steel-300 px-3 text-sm"
+                    />
+                  )}
                 </li>
               );
             })}
           </ol>
+          </section>
+          ))}
 
           <div className="space-y-2 border-t border-steel-200 pt-3">
             <label className="block text-sm">Inspector

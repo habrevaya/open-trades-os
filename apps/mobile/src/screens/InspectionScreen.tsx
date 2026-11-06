@@ -1,7 +1,10 @@
 import { useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
-import { buildInspection, checkReading, type CheckpointEntry } from "@opentradesos/field-client";
+import {
+  buildInspection, checkpointKind, expectationText, sectionsOf, type CheckpointEntry,
+} from "@opentradesos/field-client";
+import { checkTyped, notFinishedLine, photoAnswerLine } from "../lib/inspection";
 import { useField } from "../state/FieldProvider";
 import { SIGNATURE_PAD_HTML } from "../lib/signature-pad";
 import { Button, Card, Field, Notice, Section } from "../components/ui";
@@ -12,9 +15,13 @@ import type { Navigate } from "../shell/App";
 /**
  * RUNNING AN INSPECTION
  *
- * The programme's checkpoints, one card each: Pass and Fail for a check, a
- * box for a reading with its range beside it and a warning the moment the
- * number is outside it, not applicable behind a reason, a photo and a note.
+ * The programme's checkpoints under their section headings, one card each:
+ * Pass and Fail for a check, a box for a reading with its range beside it
+ * and a warning the moment the number is outside it, a box for a count with
+ * how many there should be, a photo to take or a note to write, the code
+ * clause the company wrote on it, not applicable behind a reason, a photo
+ * and a note. An optional one says so and may be left blank. Photos, notes
+ * and counts go in the same inspection, through the same queue, as readings.
  * Then the inspector's name and licence and a signature, and one button.
  *
  * The phone sends what was seen, never a verdict. The server draws pass,
@@ -83,7 +90,7 @@ export function InspectionScreen({ visitId, programId, nav }: { visitId: string;
     if (built.unanswered.length > 0) {
       Alert.alert(
         "File it as not finished?",
-        `Not answered: ${built.unanswered.join(", ")}. It will be filed as not finished, which is not a pass.`,
+        notFinishedLine(built.unanswered),
         [{ text: "Keep going", style: "cancel" }, { text: "File it", onPress: go }],
       );
       return;
@@ -108,28 +115,41 @@ export function InspectionScreen({ visitId, programId, nav }: { visitId: string;
         <Text style={type.soft}>{visit.customer.name}, {visit.property.addressLine1}</Text>
         {program.standard ? <Text style={type.soft}>Performed under {program.standard}</Text> : null}
 
-        {program.checkpoints.map((checkpoint, index) => {
+        {sectionsOf(program).map((section, s) => (
+          <View key={`${section.title ?? ""}-${s}`} style={styles.section}>
+            {section.title ? <Text style={type.label} accessibilityRole="header">{section.title}</Text> : null}
+            {section.checkpoints.map((checkpoint) => {
+          const index = program.checkpoints.indexOf(checkpoint);
           const entry = entries[checkpoint.key] ?? {};
           const na = entry.notApplicable !== undefined;
-          const reading = checkpoint.requiresReading ? checkReading(checkpoint, entry.reading ?? "") : null;
-          const range = checkpoint.min !== null && checkpoint.max !== null ? `${checkpoint.min} to ${checkpoint.max}`
-            : checkpoint.min !== null ? `at least ${checkpoint.min}` : checkpoint.max !== null ? `at most ${checkpoint.max}` : "";
+          const kind = checkpointKind(checkpoint);
+          const check = checkTyped(checkpoint, entry);
+          const photos = entry.photoIds?.length ?? 0;
           return (
             <Card key={checkpoint.key}>
               <Text style={type.heading}>{index + 1}. {checkpoint.label}</Text>
-              {checkpoint.requiresReading ? (
+              {checkpoint.optional ? <Text style={type.soft}>Optional</Text> : null}
+              {checkpoint.codeReference ? <Text style={type.soft}>Code: {checkpoint.codeReference}</Text> : null}
+              {kind === "reading" || kind === "count" ? (
                 <View style={styles.readingRow}>
                   <TextInput
-                    value={entry.reading ?? ""}
-                    onChangeText={(text) => set(checkpoint.key, { reading: text })}
+                    value={(kind === "count" ? entry.count : entry.reading) ?? ""}
+                    onChangeText={(text) => set(checkpoint.key, kind === "count" ? { count: text } : { reading: text })}
                     editable={!na}
-                    keyboardType="decimal-pad"
-                    accessibilityLabel={`${checkpoint.label} reading`}
+                    keyboardType={kind === "count" ? "number-pad" : "decimal-pad"}
+                    accessibilityLabel={`${checkpoint.label} ${kind === "count" ? "count" : "reading"}`}
                     style={styles.reading}
                   />
-                  <Text style={type.body}>{checkpoint.unit ?? ""}</Text>
-                  <Text style={type.soft}>{range}</Text>
+                  {kind === "reading" ? <Text style={type.body}>{checkpoint.unit ?? ""}</Text> : null}
+                  <Text style={type.soft}>{expectationText(checkpoint)}</Text>
                 </View>
+              ) : kind === "note" ? (
+                <Field label="What you saw" value={entry.text ?? ""} multiline
+                       onChangeText={(text) => set(checkpoint.key, { text })} />
+              ) : kind === "photo" ? (
+                <Text style={[type.body, { marginTop: space.sm }]}>
+                  {photoAnswerLine(photos)}
+                </Text>
               ) : (
                 <View style={styles.choices}>
                   {([true, false] as const).map((passed) => {
@@ -152,8 +172,8 @@ export function InspectionScreen({ visitId, programId, nav }: { visitId: string;
                   })}
                 </View>
               )}
-              {reading && (reading.state === "out_of_range" || reading.state === "not_a_number")
-                ? <Notice tone="red">{reading.message}</Notice> : null}
+              {check && (check.state === "out_of_range" || check.state === "not_a_number")
+                ? <Notice tone="red">{check.message}</Notice> : null}
 
               <View style={styles.tools}>
                 <Pressable
@@ -176,18 +196,22 @@ export function InspectionScreen({ visitId, programId, nav }: { visitId: string;
                   }}
                   style={styles.tool}
                 >
-                  <Text style={type.soft}>Photo{entry.photoIds?.length ? ` (${entry.photoIds.length})` : ""}</Text>
+                  <Text style={type.soft}>{kind === "photo" ? "Take a photo" : "Photo"}{photos ? ` (${photos})` : ""}</Text>
                 </Pressable>
               </View>
               {na ? (
                 <Field label="Why it does not apply" value={entry.notApplicable ?? ""}
                        onChangeText={(text) => set(checkpoint.key, { notApplicable: text })} />
               ) : null}
-              <Field label="What you saw (optional)" value={entry.note ?? ""}
-                     onChangeText={(text) => set(checkpoint.key, { note: text })} />
+              {kind !== "note" ? (
+                <Field label="What you saw (optional)" value={entry.note ?? ""}
+                       onChangeText={(text) => set(checkpoint.key, { note: text })} />
+              ) : null}
             </Card>
           );
-        })}
+            })}
+          </View>
+        ))}
 
         <Section title="Sign it off">
           <Field label="Inspector" value={inspector} onChangeText={setInspector} autoCapitalize="words" />
@@ -223,6 +247,7 @@ export function InspectionScreen({ visitId, programId, nav }: { visitId: string;
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.page },
   content: { padding: space.lg, gap: space.md, paddingBottom: 48 },
+  section: { gap: space.md },
   readingRow: { flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.sm },
   reading: {
     width: 120, minHeight: 48, borderWidth: 1, borderColor: color.line, borderRadius: 6,

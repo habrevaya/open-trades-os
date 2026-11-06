@@ -22,7 +22,8 @@ export const dynamic = "force-dynamic";
  * Read with `compliance:read`, as `GET /v1/inspection-programs` is. Writing,
  * copying and offering need `compliance:write`, as the routes do.
  */
-export default async function ProgrammesPage() {
+export default async function ProgrammesPage({ searchParams }: { searchParams: Promise<{ discarded?: string }> }) {
+  const { discarded } = await searchParams;
   const user = await requireSetupUser();
   if (!can(user.actor, "compliance:read")) {
     return (
@@ -41,7 +42,8 @@ export default async function ProgrammesPage() {
   ]);
   const writes = can(user.actor, "compliance:write");
   const offered = programmes.filter((p) => p.active);
-  const kept = programmes.filter((p) => !p.active);
+  const drafts = programmes.filter((p) => p.draft);
+  const kept = programmes.filter((p) => !p.active && !p.draft);
   const yours = fromPacks.filter((p) => p.yourTrade);
   const others = fromPacks.filter((p) => !p.yourTrade);
 
@@ -63,6 +65,12 @@ export default async function ProgrammesPage() {
         inspection keeps the version it was done under.
       </p>
 
+      {discarded && (
+        <p role="status" className="mt-4 rounded-md border border-steel-200 bg-steel-100 p-3 text-sm text-ink-900">
+          The draft was thrown away.
+        </p>
+      )}
+
       {programmes.length === 0 ? (
         <Empty title="No programmes yet">
           Write one, or start from a trade pack&apos;s below and change what you need.
@@ -70,6 +78,7 @@ export default async function ProgrammesPage() {
       ) : (
         <>
           <ProgrammeList title="Offered to technicians" rows={offered} writes={writes} offered />
+          {drafts.length > 0 && <ProgrammeList title="Drafts" rows={drafts} writes={writes} offered={false} />}
           {kept.length > 0 && <ProgrammeList title="Not offered" rows={kept} writes={writes} offered={false} />}
         </>
       )}
@@ -128,11 +137,14 @@ function ProgrammeList({
             <span className="min-w-0 flex-1">
               <Link href={`/inspections/programmes/${p.id}`} className="font-medium underline-offset-4 hover:underline">{p.name}</Link>
               <span className="block text-xs text-ink-500">
-                Version {p.version}, {p.checkpointCount} checks{p.frequencyMonths ? `, every ${p.frequencyMonths} months` : ""}. {sourceLine(p)}
+                {p.draft ? "Draft, not published" : `Version ${p.version}`}, {p.checkpointCount} checks
+                {p.frequencyMonths ? `, every ${p.frequencyMonths} months` : ""}. {sourceLine(p)}
               </span>
             </span>
-            {!p.ready && <Chip tone="warning">Cannot be filed yet</Chip>}
-            {writes && (
+            {p.draft
+              ? <Chip tone="neutral">{p.ready ? "Ready to publish" : "Not ready to publish"}</Chip>
+              : !p.ready && <Chip tone="warning">Cannot be filed yet</Chip>}
+            {writes && !p.draft && (
               <ActionForm action={setOffered} submit={offered ? "Stop offering it" : "Offer it again"} tone="quiet"
                           hidden={{ programId: p.id, offered: offered ? "no" : "yes" }} className="flex flex-wrap items-center gap-2" />
             )}

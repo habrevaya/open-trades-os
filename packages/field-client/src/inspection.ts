@@ -4,7 +4,8 @@ import type { FieldInspectionProgram } from "./wire";
  * RUNNING AN INSPECTION ON THE PHONE
  *
  * The technician walks the programme's checkpoints and says what they saw:
- * a pass or a fail, a reading, or not applicable with a reason. This file
+ * a pass or a fail, a reading, a count, a photo, a note, or not applicable
+ * with a reason. This file
  * turns what they tapped and typed into the answers the server files, and
  * says before anything is saved when a reading is not a number or is
  * outside its range.
@@ -20,11 +21,57 @@ import type { FieldInspectionProgram } from "./wire";
  * day page build exactly the same answers and a test holds them to it.
  */
 
+type FieldCheckpoint = FieldInspectionProgram["checkpoints"][number];
+export type CheckpointKind = "pass_fail" | "reading" | "photo" | "note" | "count";
+
+/**
+ * The kind of answer a checkpoint takes. A server older than answer kinds
+ * sends only `requiresReading`, and then it is a reading or a pass or fail,
+ * which is all a checkpoint could be.
+ */
+export function checkpointKind(checkpoint: FieldCheckpoint): CheckpointKind {
+  return checkpoint.kind ?? (checkpoint.requiresReading ? "reading" : "pass_fail");
+}
+
+/**
+ * The checkpoints under their headings, in the programme's order: the ones
+ * next to each other with one heading are one section, as the server reads
+ * them. A programme with no headings is one section with no title.
+ */
+export function sectionsOf(program: FieldInspectionProgram): { title: string | null; checkpoints: FieldCheckpoint[] }[] {
+  const sections: { title: string | null; checkpoints: FieldCheckpoint[] }[] = [];
+  for (const checkpoint of program.checkpoints) {
+    const title = checkpoint.section?.trim() || null;
+    const last = sections[sections.length - 1];
+    if (last && last.title === title) last.checkpoints.push(checkpoint);
+    else sections.push({ title, checkpoints: [checkpoint] });
+  }
+  return sections;
+}
+
+/** What passes, in words beside the box: "5 to 10", "at least 4". Empty when there is nothing to say. */
+export function expectationText(checkpoint: FieldCheckpoint): string {
+  const kind = checkpointKind(checkpoint);
+  if (kind === "count") {
+    return checkpoint.expectedAtLeast !== null && checkpoint.expectedAtLeast !== undefined
+      ? `at least ${checkpoint.expectedAtLeast}` : "";
+  }
+  if (kind !== "reading") return "";
+  if (checkpoint.min !== null && checkpoint.max !== null) return `${checkpoint.min} to ${checkpoint.max}`;
+  if (checkpoint.min !== null) return `at least ${checkpoint.min}`;
+  if (checkpoint.max !== null) return `at most ${checkpoint.max}`;
+  return "";
+}
+
 export interface CheckpointEntry {
   /** A pass or fail checkpoint: true passed, false failed, null not looked at. */
   passed?: boolean | null | undefined;
   /** A reading, as typed. */
   reading?: string | undefined;
+  /** A count, as typed. */
+  count?: string | undefined;
+  /** The answer to a note checkpoint, which is what was seen. */
+  text?: string | undefined;
   /** Not applicable, with why. A blank reason is no answer at all. */
   notApplicable?: string | undefined;
   note?: string | undefined;
@@ -38,9 +85,23 @@ export type ReadingCheck =
   | { state: "in_range" }
   | { state: "out_of_range"; message: string };
 
+/** What a typed count is against how many there should be, said on the phone. */
+export function checkCount(checkpoint: FieldCheckpoint, typed: string): ReadingCheck {
+  const text = typed.trim().replace(/,/g, "");
+  if (text === "") return { state: "empty" };
+  if (!/^\d+$/.test(text)) {
+    return { state: "not_a_number", message: `"${typed.trim()}" is not a whole number.` };
+  }
+  const expected = checkpoint.expectedAtLeast;
+  if (expected !== null && expected !== undefined && Number(text) < expected) {
+    return { state: "out_of_range", message: `Fewer than the ${expected} there should be. This will be a finding.` };
+  }
+  return { state: "in_range" };
+}
+
 /** What a typed reading is against its checkpoint's range, said on the phone. */
 export function checkReading(
-  checkpoint: FieldInspectionProgram["checkpoints"][number], typed: string,
+  checkpoint: FieldCheckpoint, typed: string,
 ): ReadingCheck {
   const text = typed.trim().replace(/,/g, "");
   if (text === "") return { state: "empty" };
@@ -63,6 +124,9 @@ export interface InspectionAnswer {
   value:
     | { kind: "pass_fail"; passed: boolean }
     | { kind: "reading"; raw: number }
+    | { kind: "count"; count: number }
+    | { kind: "photo"; photoIds: string[] }
+    | { kind: "note"; text: string }
     | { kind: "not_applicable"; why: string };
   at: string;
   by: string;
@@ -74,8 +138,10 @@ export interface BuiltInspection {
   answers: InspectionAnswer[];
   /** Checkpoints with no usable answer. The server will call the inspection partial. */
   unanswered: string[];
-  /** Readings typed that are not numbers, which are not sent. */
+  /** Readings and counts typed that are not numbers, which are not sent. */
   unreadable: string[];
+  /** Optional checkpoints left blank. They do not leave it not finished. */
+  optionalSkipped: string[];
 }
 
 /**
@@ -92,36 +158,57 @@ export function buildInspection(input: {
   const answers: InspectionAnswer[] = [];
   const unanswered: string[] = [];
   const unreadable: string[] = [];
+  const optionalSkipped: string[] = [];
   const at = input.at.toISOString();
 
   for (const checkpoint of input.program.checkpoints) {
     const entry = input.entries[checkpoint.key];
+    const kind = checkpointKind(checkpoint);
+    /** Left blank: named, and for an optional checkpoint named as optional, never guessed at. */
+    const skip = () => {
+      if (checkpoint.optional) optionalSkipped.push(checkpoint.label);
+      else unanswered.push(checkpoint.label);
+    };
     const extras = {
-      ...(entry?.note && entry.note.trim() !== "" ? { note: entry.note.trim().slice(0, 2000) } : {}),
-      ...(entry?.photoIds && entry.photoIds.length > 0 ? { photoIds: [...entry.photoIds] } : {}),
+      ...(entry?.note && entry.note.trim() !== "" && kind !== "note" ? { note: entry.note.trim().slice(0, 2000) } : {}),
+      /** A photo checkpoint's photos are its answer, so they are not sent twice. */
+      ...(entry?.photoIds && entry.photoIds.length > 0 && kind !== "photo" ? { photoIds: [...entry.photoIds] } : {}),
     };
     if (entry?.notApplicable !== undefined && entry.notApplicable.trim() !== "") {
       answers.push({ itemKey: checkpoint.key, value: { kind: "not_applicable", why: entry.notApplicable.trim().slice(0, 500) }, at, by: input.by, ...extras });
       continue;
     }
-    if (checkpoint.requiresReading) {
-      const check = checkReading(checkpoint, entry?.reading ?? "");
-      if (check.state === "empty") { unanswered.push(checkpoint.label); continue; }
-      if (check.state === "not_a_number") { unreadable.push(checkpoint.label); unanswered.push(checkpoint.label); continue; }
+    if (kind === "reading" || kind === "count") {
+      const typed = (kind === "reading" ? entry?.reading : entry?.count) ?? "";
+      const check = kind === "reading" ? checkReading(checkpoint, typed) : checkCount(checkpoint, typed);
+      if (check.state === "empty") { skip(); continue; }
+      if (check.state === "not_a_number") { unreadable.push(checkpoint.label); skip(); continue; }
+      const value = Number(typed.trim().replace(/,/g, ""));
       answers.push({
         itemKey: checkpoint.key,
-        value: { kind: "reading", raw: Number(entry!.reading!.trim().replace(/,/g, "")) },
+        value: kind === "reading" ? { kind: "reading", raw: value } : { kind: "count", count: value },
         at, by: input.by, ...extras,
       });
+      continue;
+    }
+    if (kind === "photo") {
+      if (!entry?.photoIds || entry.photoIds.length === 0) { skip(); continue; }
+      answers.push({ itemKey: checkpoint.key, value: { kind: "photo", photoIds: [...entry.photoIds] }, at, by: input.by, ...extras });
+      continue;
+    }
+    if (kind === "note") {
+      const text = entry?.text?.trim() ?? "";
+      if (text === "") { skip(); continue; }
+      answers.push({ itemKey: checkpoint.key, value: { kind: "note", text: text.slice(0, 2000) }, at, by: input.by, ...extras });
       continue;
     }
     if (entry?.passed === true || entry?.passed === false) {
       answers.push({ itemKey: checkpoint.key, value: { kind: "pass_fail", passed: entry.passed }, at, by: input.by, ...extras });
       continue;
     }
-    unanswered.push(checkpoint.label);
+    skip();
   }
-  return { answers, unanswered, unreadable };
+  return { answers, unanswered, unreadable, optionalSkipped };
 }
 
 /**
