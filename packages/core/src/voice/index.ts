@@ -46,6 +46,11 @@ export type Verb =
        * answers. Without it the gather takes keys only, as it always has.
        */
       speechHints?: string | undefined;
+      /**
+       * The key that ends a typed answer of several digits: pound, for a
+       * caller typing a phone number. Absent, the carrier's own default.
+       */
+      finishOnKey?: string | undefined;
     }
   | {
       verb: "dial";
@@ -110,6 +115,7 @@ function verbXml(v: Verb): string {
     case "gather":
       return `<Gather${attr("action", v.action)}${attr("method", "POST")}${attr("numDigits", v.numDigits)}`
         + `${attr("timeout", v.timeoutSeconds)}`
+        + `${v.finishOnKey !== undefined ? attr("finishOnKey", v.finishOnKey) : ""}`
         + `${v.speechHints !== undefined
           ? `${attr("input", "dtmf speech")}${attr("hints", v.speechHints)}${attr("speechTimeout", "auto")}${attr("language", "en-US")}`
           : ""}><Say>${escapeXml(v.say)}</Say>`

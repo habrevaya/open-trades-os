@@ -23,6 +23,8 @@ export interface WeekRow {
   businessUnitId: string | null;
   /** The phone number whose own week it is. Absent or null for the company's or a branch's. */
   phoneNumberId?: string | null | undefined;
+  /** The phone menu whose own week it is. Absent or null for every other owner's. */
+  phoneMenuId?: string | null | undefined;
   /**
    * The season this row is a day of. Absent or null for a normal week. A
    * season's rows are never read as the normal week (`weekFor`).
@@ -36,7 +38,7 @@ export interface WeekRow {
 }
 
 /** Whose week a reader was given: the one it asked for, or the company's in its place. */
-export type WeekSource = "number" | "branch" | "company" | "none";
+export type WeekSource = "number" | "menu" | "branch" | "company" | "none";
 
 /** A season as `business_hours_season` keeps it: whose it is and when it runs. */
 export interface SeasonDef {
@@ -76,7 +78,9 @@ export interface ChosenWeek<R extends WeekRow = WeekRow> {
 const withSeasons = <R extends WeekRow>(seasons: ChosenSeason<R>[]) => (seasons.length > 0 ? { seasons } : {});
 
 const normalRow = (row: WeekRow) => (row.seasonId ?? null) === null;
-const companyRow = (row: WeekRow) => row.businessUnitId === null && (row.phoneNumberId ?? null) === null && normalRow(row);
+/** A phone number's or a phone menu's own row: never the company's or a branch's week. */
+const phoneRow = (row: WeekRow) => (row.phoneNumberId ?? null) !== null || (row.phoneMenuId ?? null) !== null;
+const companyRow = (row: WeekRow) => row.businessUnitId === null && !phoneRow(row) && normalRow(row);
 
 /** The seasons of one owner with their rows, a season with no rows written left out. */
 function seasonsOf<R extends WeekRow>(rows: readonly R[], seasons: readonly SeasonDef[], branchId: string | null): ChosenSeason<R>[] {
@@ -115,7 +119,7 @@ export function weekFor<R extends WeekRow>(
 ): ChosenWeek<R> {
   const branchSeasons = branchId ? seasonsOf(rows, seasons, branchId) : [];
   if (branchId) {
-    const own = rows.filter((r) => r.businessUnitId === branchId && (r.phoneNumberId ?? null) === null && normalRow(r));
+    const own = rows.filter((r) => r.businessUnitId === branchId && !phoneRow(r) && normalRow(r));
     if (own.length > 0) return { rows: own, week: weekOfRows(own), source: "branch", ...withSeasons(branchSeasons) };
   }
   /** A branch on the company's week reads its own seasons first, then the company's. */
@@ -160,6 +164,35 @@ export function weekForNumber<R extends WeekRow>(
     return { rows: own, week: weekOfRows(own), source: own.length > 0 ? "number" : "none" };
   }
   return weekFor(rows, number.hoursFrom === "branch" ? number.businessUnitId : null, seasons);
+}
+
+/**
+ * Where a phone menu reads its hours from. `number` is the hours of the
+ * number the call came in on, whatever that number goes by: what every menu
+ * did before a menu could keep hours of its own, and still the default. The
+ * other three are a number's three, chosen for the menu itself.
+ */
+export type MenuHoursFrom = "number" | "branch" | "company" | "own";
+export const MENU_HOURS_FROM: readonly MenuHoursFrom[] = ["number", "branch", "company", "own"];
+
+/**
+ * The week a phone menu keeping hours apart from the number's is routed by.
+ * Its own when it keeps its own (no seasons, like a number's own week, and
+ * none at all when nobody wrote it); a branch's (the company's for a branch
+ * with none) with the seasons over it; or the company's with its seasons.
+ * Never asked about a menu set to follow the number: that is the number's
+ * week, read by `weekForNumber`.
+ */
+export function weekForMenu<R extends WeekRow>(
+  rows: readonly R[],
+  menu: { id: string; businessUnitId: string | null; hoursFrom: Exclude<MenuHoursFrom, "number"> },
+  seasons: readonly SeasonDef[] = [],
+): ChosenWeek<R> {
+  if (menu.hoursFrom === "own") {
+    const own = rows.filter((r) => r.phoneMenuId === menu.id && normalRow(r));
+    return { rows: own, week: weekOfRows(own), source: own.length > 0 ? "menu" : "none" };
+  }
+  return weekFor(rows, menu.hoursFrom === "branch" ? menu.businessUnitId : null, seasons);
 }
 
 /** The weekdays a week opens on, or null when nobody has declared a week. */

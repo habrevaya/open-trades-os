@@ -344,6 +344,42 @@ export interface AddIncidentPhotoOutput {
   id: string;
 }
 
+export interface AddMenuHolidayInput {
+  name: string;
+  date?: string;
+  repeatsYearly?: boolean;
+  rule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed?: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  closed: boolean;
+  opensAt?: string | null;
+  closesAt?: string | null;
+}
+
+export interface AddMenuHolidayOutput {
+  id: string;
+  name: string;
+  date: string;
+  repeatsYearly: boolean;
+  rule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+  businessUnitId: string | null;
+  branchName: string | null;
+  when: string;
+  closed: boolean;
+  opensAt: string | null;
+  closesAt: string | null;
+  nextOn: string | null;
+  hours: string;
+}
+
 export interface AddMileageOverrideInput {
   technicianId?: string;
   assetId?: string;
@@ -4525,6 +4561,7 @@ export interface CreatePhoneMenuOutput {
   } | null;
   timeoutSeconds: number;
   speech: boolean;
+  hoursFrom: "number" | "branch" | "company" | "own";
   prompt: string;
   numbers: Array<{
     id: string;
@@ -9758,6 +9795,16 @@ export interface GetFormOutput {
       purpose: "marketing" | "transactional";
     };
     page?: number;
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
+    };
   }>;
   minimumFillSeconds: number | null;
   settings: {
@@ -9772,6 +9819,16 @@ export interface GetFormOutput {
     showWhen?: {
       field: string;
       oneOf: string[];
+    };
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
     };
   }>;
 }
@@ -9833,6 +9890,16 @@ export interface GetHostedFormOutput {
       purpose: "marketing" | "transactional";
     };
     page?: number;
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
+    };
   }>;
   thankYou: string | null;
   pages: Array<{
@@ -9840,6 +9907,16 @@ export interface GetHostedFormOutput {
     showWhen?: {
       field: string;
       oneOf: string[];
+    };
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
     };
   }>;
   uploads: {
@@ -11104,6 +11181,56 @@ export interface GetMemberPricingOutput {
   leavesOut: string[];
 }
 
+export interface GetMenuHoursOutput {
+  id: string;
+  name: string;
+  hoursFrom: "number" | "branch" | "company" | "own";
+  businessUnitId: string | null;
+  branchName: string | null;
+  hasAfterHours: boolean;
+  numbers: Array<{
+    id: string;
+    e164: string;
+    label: string | null;
+  }>;
+  ownWeek: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+  ownHolidays: Array<{
+    id: string;
+    name: string;
+    date: string;
+    repeatsYearly: boolean;
+    rule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+    businessUnitId: string | null;
+    branchName: string | null;
+    when: string;
+    closed: boolean;
+    opensAt: string | null;
+    closesAt: string | null;
+    nextOn: string | null;
+    hours: string;
+  }>;
+  goesBy: {
+    source: "follows_number" | "menu" | "number" | "branch" | "company" | "none";
+    whose: string;
+    days: Array<{
+      dayOfWeek: number;
+      opensAt: string | null;
+      closesAt: string | null;
+      closed: boolean;
+    }>;
+  };
+}
+
 export interface GetMultiDayRebalanceOutput {
   from: string;
   days: number;
@@ -11976,6 +12103,7 @@ export interface GetPhoneMenuOutput {
   } | null;
   timeoutSeconds: number;
   speech: boolean;
+  hoursFrom: "number" | "branch" | "company" | "own";
   prompt: string;
   numbers: Array<{
     id: string;
@@ -13818,6 +13946,15 @@ export interface GetWarrantyWatchOutput {
       name: string;
     } | null;
   }>;
+}
+
+export interface GetWebhookHistoryKeepingOutput {
+  keepDays: number;
+  keepPerEndpoint: number;
+  defaults: {
+    keepDays: number;
+    keepPerEndpoint: number;
+  };
 }
 
 export interface GetWebhookPositionOutput {
@@ -17774,6 +17911,7 @@ export interface ListPhoneMenusOutput {
     } | null;
     timeoutSeconds: number;
     speech: boolean;
+    hoursFrom: "number" | "branch" | "company" | "own";
     prompt: string;
     numbers: Array<{
       id: string;
@@ -23495,6 +23633,12 @@ export interface RemoveKnowledgeNoteOutput {
   removed: boolean;
 }
 
+export type RemoveMenuHolidayInput = Record<string, unknown>;
+
+export interface RemoveMenuHolidayOutput {
+  removed: boolean;
+}
+
 export type RemoveMileageOverrideInput = Record<string, unknown>;
 
 export interface RemoveMileageOverrideOutput {
@@ -25402,6 +25546,16 @@ export interface SaveFormInput {
       purpose: "marketing" | "transactional";
     };
     page?: number;
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
+    };
   }>;
   minimumFillSeconds?: number;
   settings?: {
@@ -25416,6 +25570,16 @@ export interface SaveFormInput {
     showWhen?: {
       field: string;
       oneOf: string[];
+    };
+    rule?: {
+      action: "show" | "hide";
+      match: "all" | "any";
+      conditions: Array<{
+        field: string;
+        op: "equals" | "one_of" | "greater_than" | "less_than" | "contains";
+        value?: string | number;
+        values?: string[];
+      }>;
     };
   }>;
 }
@@ -26849,6 +27013,67 @@ export interface SetMembershipActiveOutput {
   sessionsRevoked: number;
 }
 
+export interface SetMenuHoursInput {
+  hoursFrom: "number" | "branch" | "company" | "own";
+  businessUnitId?: string;
+  days?: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+}
+
+export interface SetMenuHoursOutput {
+  id: string;
+  name: string;
+  hoursFrom: "number" | "branch" | "company" | "own";
+  businessUnitId: string | null;
+  branchName: string | null;
+  hasAfterHours: boolean;
+  numbers: Array<{
+    id: string;
+    e164: string;
+    label: string | null;
+  }>;
+  ownWeek: Array<{
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    closed: boolean;
+  }>;
+  ownHolidays: Array<{
+    id: string;
+    name: string;
+    date: string;
+    repeatsYearly: boolean;
+    rule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    observed: "as_is" | "sunday_to_monday" | "weekend_to_weekday";
+    businessUnitId: string | null;
+    branchName: string | null;
+    when: string;
+    closed: boolean;
+    opensAt: string | null;
+    closesAt: string | null;
+    nextOn: string | null;
+    hours: string;
+  }>;
+  goesBy: {
+    source: "follows_number" | "menu" | "number" | "branch" | "company" | "none";
+    whose: string;
+    days: Array<{
+      dayOfWeek: number;
+      opensAt: string | null;
+      closesAt: string | null;
+      closed: boolean;
+    }>;
+  };
+}
+
 export interface SetMessagingBrandStatusInput {
   status: "not_started" | "submitted" | "pending_review" | "approved" | "rejected" | "suspended";
   reason?: string | null;
@@ -28238,6 +28463,20 @@ export interface SetWageClassificationOutput {
   id: string;
   displayName: string;
   classification: string | null;
+}
+
+export interface SetWebhookHistoryKeepingInput {
+  keepDays: number;
+  keepPerEndpoint: number;
+}
+
+export interface SetWebhookHistoryKeepingOutput {
+  keepDays: number;
+  keepPerEndpoint: number;
+  defaults: {
+    keepDays: number;
+    keepPerEndpoint: number;
+  };
 }
 
 export interface SetWebsiteTrackingInput {
@@ -30610,6 +30849,7 @@ export interface UpdatePhoneMenuOutput {
   } | null;
   timeoutSeconds: number;
   speech: boolean;
+  hoursFrom: "number" | "branch" | "company" | "own";
   prompt: string;
   numbers: Array<{
     id: string;
@@ -32605,6 +32845,10 @@ export interface AddIncidentPhotoParams {
   id: string;
 }
 
+export interface AddMenuHolidayParams {
+  id: string;
+}
+
 export interface AddNumberHolidayParams {
   id: string;
 }
@@ -33608,6 +33852,10 @@ export interface GetMemberPricingInput {
   propertyId?: string;
 }
 
+export interface GetMenuHoursInput {
+  id: string;
+}
+
 export interface GetMultiDayRebalanceInput {
   from: string;
   days?: number;
@@ -33923,6 +34171,8 @@ export interface GetWarrantyWatchInput {
   from?: string;
   to?: string;
 }
+
+export type GetWebhookHistoryKeepingInput = Record<string, never>;
 
 export interface GetWebhookPositionInput {
   id: string;
@@ -35488,6 +35738,11 @@ export interface RemoveKnowledgeNoteParams {
   id: string;
 }
 
+export interface RemoveMenuHolidayParams {
+  id: string;
+  holidayId: string;
+}
+
 export interface RemoveMileageOverrideParams {
   id: string;
 }
@@ -35970,6 +36225,10 @@ export interface SetMemberRoleParams {
 
 export interface SetMembershipActiveParams {
   membershipId: string;
+}
+
+export interface SetMenuHoursParams {
+  id: string;
 }
 
 export interface SetMessagingBrandStatusParams {
@@ -36560,6 +36819,7 @@ export interface OperationTypes {
   addHoursSeason: { input: AddHoursSeasonInput; output: AddHoursSeasonOutput };
   addIncidentFollowUp: { input: AddIncidentFollowUpParams & AddIncidentFollowUpInput; output: AddIncidentFollowUpOutput };
   addIncidentPhoto: { input: AddIncidentPhotoParams & AddIncidentPhotoInput; output: AddIncidentPhotoOutput };
+  addMenuHoliday: { input: AddMenuHolidayParams & AddMenuHolidayInput; output: AddMenuHolidayOutput };
   addMileageOverride: { input: AddMileageOverrideInput; output: AddMileageOverrideOutput };
   addMileageRate: { input: AddMileageRateInput; output: AddMileageRateOutput };
   addMyEmergencyContact: { input: AddMyEmergencyContactInput; output: AddMyEmergencyContactOutput };
@@ -36924,6 +37184,7 @@ export interface OperationTypes {
   getMarketingSettings: { input: GetMarketingSettingsInput; output: GetMarketingSettingsOutput };
   getMemberHold: { input: GetMemberHoldInput; output: GetMemberHoldOutput };
   getMemberPricing: { input: GetMemberPricingInput; output: GetMemberPricingOutput };
+  getMenuHours: { input: GetMenuHoursInput; output: GetMenuHoursOutput };
   getMultiDayRebalance: { input: GetMultiDayRebalanceInput; output: GetMultiDayRebalanceOutput };
   getMyNoticeSettings: { input: GetMyNoticeSettingsInput; output: GetMyNoticeSettingsOutput };
   getMyPayStatements: { input: GetMyPayStatementsInput; output: GetMyPayStatementsOutput };
@@ -37008,6 +37269,7 @@ export interface OperationTypes {
   getVisitUnits: { input: GetVisitUnitsInput; output: GetVisitUnitsOutput };
   getVisitorNumber: { input: GetVisitorNumberInput; output: GetVisitorNumberOutput };
   getWarrantyWatch: { input: GetWarrantyWatchInput; output: GetWarrantyWatchOutput };
+  getWebhookHistoryKeeping: { input: GetWebhookHistoryKeepingInput; output: GetWebhookHistoryKeepingOutput };
   getWebhookPosition: { input: GetWebhookPositionInput; output: GetWebhookPositionOutput };
   getWebsiteTracking: { input: GetWebsiteTrackingInput; output: GetWebsiteTrackingOutput };
   getWorkdaySettings: { input: GetWorkdaySettingsInput; output: GetWorkdaySettingsOutput };
@@ -37446,6 +37708,7 @@ export interface OperationTypes {
   removeHoliday: { input: RemoveHolidayParams & RemoveHolidayInput; output: RemoveHolidayOutput };
   removeHoursSeason: { input: RemoveHoursSeasonParams & RemoveHoursSeasonInput; output: RemoveHoursSeasonOutput };
   removeKnowledgeNote: { input: RemoveKnowledgeNoteParams & RemoveKnowledgeNoteInput; output: RemoveKnowledgeNoteOutput };
+  removeMenuHoliday: { input: RemoveMenuHolidayParams & RemoveMenuHolidayInput; output: RemoveMenuHolidayOutput };
   removeMileageOverride: { input: RemoveMileageOverrideParams & RemoveMileageOverrideInput; output: RemoveMileageOverrideOutput };
   removeMileageRate: { input: RemoveMileageRateParams & RemoveMileageRateInput; output: RemoveMileageRateOutput };
   removeMyEmergencyContact: { input: RemoveMyEmergencyContactParams & RemoveMyEmergencyContactInput; output: RemoveMyEmergencyContactOutput };
@@ -37618,6 +37881,7 @@ export interface OperationTypes {
   setMemberLocation: { input: SetMemberLocationParams & SetMemberLocationInput; output: SetMemberLocationOutput };
   setMemberRole: { input: SetMemberRoleParams & SetMemberRoleInput; output: SetMemberRoleOutput };
   setMembershipActive: { input: SetMembershipActiveParams & SetMembershipActiveInput; output: SetMembershipActiveOutput };
+  setMenuHours: { input: SetMenuHoursParams & SetMenuHoursInput; output: SetMenuHoursOutput };
   setMessagingBrandStatus: { input: SetMessagingBrandStatusParams & SetMessagingBrandStatusInput; output: SetMessagingBrandStatusOutput };
   setMessagingCampaignStatus: { input: SetMessagingCampaignStatusParams & SetMessagingCampaignStatusInput; output: SetMessagingCampaignStatusOutput };
   setMyContact: { input: SetMyContactInput; output: SetMyContactOutput };
@@ -37682,6 +37946,7 @@ export interface OperationTypes {
   setVisitCustomFields: { input: SetVisitCustomFieldsParams & SetVisitCustomFieldsInput; output: SetVisitCustomFieldsOutput };
   setVisitMovable: { input: SetVisitMovableParams & SetVisitMovableInput; output: SetVisitMovableOutput };
   setWageClassification: { input: SetWageClassificationInput; output: SetWageClassificationOutput };
+  setWebhookHistoryKeeping: { input: SetWebhookHistoryKeepingInput; output: SetWebhookHistoryKeepingOutput };
   setWebsiteTracking: { input: SetWebsiteTrackingInput; output: SetWebsiteTrackingOutput };
   setWorkdaySettings: { input: SetWorkdaySettingsInput; output: SetWorkdaySettingsOutput };
   setWorkflowEnabled: { input: SetWorkflowEnabledParams & SetWorkflowEnabledInput; output: SetWorkflowEnabledOutput };
@@ -37841,6 +38106,7 @@ export const OPERATIONS = {
   addHoursSeason: { method: "POST", path: "/v1/booking/seasons", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   addIncidentFollowUp: { method: "POST", path: "/v1/safety/incidents/{id}/follow-ups", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:write"] },
   addIncidentPhoto: { method: "POST", path: "/v1/safety/incidents/{id}/photos", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["safety:report"] },
+  addMenuHoliday: { method: "POST", path: "/v1/phone-menus/{id}/holidays", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   addMileageOverride: { method: "POST", path: "/v1/payroll/mileage-overrides", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   addMileageRate: { method: "POST", path: "/v1/payroll/mileage-rates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   addMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
@@ -38205,6 +38471,7 @@ export const OPERATIONS = {
   getMarketingSettings: { method: "GET", path: "/v1/marketing/settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getMemberHold: { method: "GET", path: "/v1/booking/member-hold", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:read"] },
   getMemberPricing: { method: "GET", path: "/v1/customers/{id}/member-pricing", pathParams: ["id"], queryParams: ["propertyId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
+  getMenuHours: { method: "GET", path: "/v1/phone-menus/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getMultiDayRebalance: { method: "GET", path: "/v1/dispatch/rebalance/days", pathParams: [], queryParams: ["from","days"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getMyNoticeSettings: { method: "GET", path: "/v1/me/notice-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
   getMyPayStatements: { method: "GET", path: "/v1/me/pay-statements", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:own"] },
@@ -38289,6 +38556,7 @@ export const OPERATIONS = {
   getVisitUnits: { method: "GET", path: "/v1/visits/{visitId}/units", pathParams: ["visitId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getVisitorNumber: { method: "GET", path: "/v1/public/dni", pathParams: [], queryParams: ["companyKey","visitorId","page","query","referrer"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getWarrantyWatch: { method: "GET", path: "/v1/equipment-warranties", pathParams: [], queryParams: ["withinDays","on","from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
+  getWebhookHistoryKeeping: { method: "GET", path: "/v1/webhooks/history", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getWebhookPosition: { method: "GET", path: "/v1/webhooks/endpoints/{id}/position", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
   getWebsiteTracking: { method: "GET", path: "/v1/marketing/website-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getWorkdaySettings: { method: "GET", path: "/v1/dispatch/workday", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
@@ -38727,6 +38995,7 @@ export const OPERATIONS = {
   removeHoliday: { method: "DELETE", path: "/v1/holidays/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   removeHoursSeason: { method: "DELETE", path: "/v1/booking/seasons/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   removeKnowledgeNote: { method: "DELETE", path: "/v1/knowledge-notes/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["knowledge:write"] },
+  removeMenuHoliday: { method: "DELETE", path: "/v1/phone-menus/{id}/holidays/{holidayId}", pathParams: ["id","holidayId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   removeMileageOverride: { method: "POST", path: "/v1/payroll/mileage-overrides/{id}/removal", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   removeMileageRate: { method: "POST", path: "/v1/payroll/mileage-rates/{from}/removal", pathParams: ["from"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
   removeMyEmergencyContact: { method: "POST", path: "/v1/me/emergency-contacts/{id}/remove", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
@@ -38899,6 +39168,7 @@ export const OPERATIONS = {
   setMemberLocation: { method: "POST", path: "/v1/memberships/{membershipId}/location", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   setMemberRole: { method: "POST", path: "/v1/memberships/{membershipId}/role", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setMembershipActive: { method: "POST", path: "/v1/memberships/{membershipId}/active", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
+  setMenuHours: { method: "PUT", path: "/v1/phone-menus/{id}/hours", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMessagingBrandStatus: { method: "POST", path: "/v1/messaging/brands/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMessagingCampaignStatus: { method: "POST", path: "/v1/messaging/campaigns/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMyContact: { method: "POST", path: "/v1/me/contact", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["profile:own"] },
@@ -38963,6 +39233,7 @@ export const OPERATIONS = {
   setVisitCustomFields: { method: "PUT", path: "/v1/visits/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read","visit:write"] },
   setVisitMovable: { method: "PUT", path: "/v1/visits/{id}/movable", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
   setWageClassification: { method: "POST", path: "/v1/payroll/classifications", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:configure"] },
+  setWebhookHistoryKeeping: { method: "PUT", path: "/v1/webhooks/history", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
   setWebsiteTracking: { method: "PATCH", path: "/v1/marketing/website-tracking", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setWorkdaySettings: { method: "PUT", path: "/v1/dispatch/workday", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setWorkflowEnabled: { method: "POST", path: "/v1/workflows/{id}/enabled", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["workflow:write"] },
@@ -39265,6 +39536,15 @@ export abstract class GeneratedOperations {
    */
   addIncidentPhoto(input: AddIncidentPhotoParams & AddIncidentPhotoInput, options?: CallOptions): Promise<AddIncidentPhotoOutput> {
     return this.call("addIncidentPhoto", input, options);
+  }
+
+  /**
+   * Add a day off of the menu's own.
+   *
+   * POST /v1/phone-menus/{id}/holidays. Needs settings:write.
+   */
+  addMenuHoliday(input: AddMenuHolidayParams & AddMenuHolidayInput, options?: CallOptions): Promise<AddMenuHolidayOutput> {
+    return this.call("addMenuHoliday", input, options);
   }
 
   /**
@@ -42544,6 +42824,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The hours and days off a phone menu goes by.
+   *
+   * GET /v1/phone-menus/{id}/hours. Needs settings:read.
+   */
+  getMenuHours(input: GetMenuHoursInput, options?: CallOptions): Promise<GetMenuHoursOutput> {
+    return this.call("getMenuHours", input, options);
+  }
+
+  /**
    * Propose several days rebalanced, moving visits between days where the customer agreed.
    *
    * GET /v1/dispatch/rebalance/days. Needs visit:read.
@@ -43297,6 +43586,15 @@ export abstract class GeneratedOperations {
    */
   getWarrantyWatch(input: GetWarrantyWatchInput = {} as GetWarrantyWatchInput, options?: CallOptions): Promise<GetWarrantyWatchOutput> {
     return this.call("getWarrantyWatch", input, options);
+  }
+
+  /**
+   * How long webhook delivery history is kept.
+   *
+   * GET /v1/webhooks/history. Needs integration:read.
+   */
+  getWebhookHistoryKeeping(input: GetWebhookHistoryKeepingInput = {} as GetWebhookHistoryKeepingInput, options?: CallOptions): Promise<GetWebhookHistoryKeepingOutput> {
+    return this.call("getWebhookHistoryKeeping", input, options);
   }
 
   /**
@@ -47242,6 +47540,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Take a day off the menu's own list.
+   *
+   * DELETE /v1/phone-menus/{id}/holidays/{holidayId}. Needs settings:write.
+   */
+  removeMenuHoliday(input: RemoveMenuHolidayParams & RemoveMenuHolidayInput, options?: CallOptions): Promise<RemoveMenuHolidayOutput> {
+    return this.call("removeMenuHoliday", input, options);
+  }
+
+  /**
    * Take a person's, a vehicle's or a kind of work's mileage rate off.
    *
    * POST /v1/payroll/mileage-overrides/{id}/removal. Needs payroll:configure.
@@ -48790,6 +49097,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Where a phone menu's hours come from, and its own week.
+   *
+   * PUT /v1/phone-menus/{id}/hours. Needs settings:write.
+   */
+  setMenuHours(input: SetMenuHoursParams & SetMenuHoursInput, options?: CallOptions): Promise<SetMenuHoursOutput> {
+    return this.call("setMenuHours", input, options);
+  }
+
+  /**
    * Record what the carrier said.
    *
    * POST /v1/messaging/brands/{id}/status. Needs settings:write.
@@ -49363,6 +49679,15 @@ export abstract class GeneratedOperations {
    */
   setWageClassification(input: SetWageClassificationInput, options?: CallOptions): Promise<SetWageClassificationOutput> {
     return this.call("setWageClassification", input, options);
+  }
+
+  /**
+   * Keep webhook delivery history longer or shorter.
+   *
+   * PUT /v1/webhooks/history. Needs integration:write.
+   */
+  setWebhookHistoryKeeping(input: SetWebhookHistoryKeepingInput, options?: CallOptions): Promise<SetWebhookHistoryKeepingOutput> {
+    return this.call("setWebhookHistoryKeeping", input, options);
   }
 
   /**

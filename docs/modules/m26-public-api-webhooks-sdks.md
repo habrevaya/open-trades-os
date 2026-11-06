@@ -79,8 +79,10 @@ delivery attempt records the event, the attempt number (replays included), when 
 went, how long it took, the status the receiver answered, the first two thousand
 characters of its body and any error. An attempt is delivered (a 2xx), refused (any
 other answer) or unreachable (no answer at all). The history is pruned on every pass,
-per endpoint, to thirty days and a thousand attempts, whichever cuts first, so a
-receiver answering every retry with a megabyte of HTML cannot grow it without bound.
+per endpoint, to thirty days and a thousand attempts, whichever cuts first, or to what
+the company chose instead (between a day and a year, and between a hundred and ten
+thousand attempts), so a receiver answering every retry with a megabyte of HTML
+cannot grow it without bound.
 
 **A replay is a second copy of history, not a rewind.** One delivery, one event, or
 everything an endpoint subscribes to from a point in the log can be sent again. It is
@@ -222,6 +224,24 @@ idempotency key answers from the record as one `answer` event. A caller that
 drops the connection does not stop the answer: it is written and kept, and the
 retry reads it.
 
+**Event ids and resuming.** Every `writing` event carries an `id`: how many
+characters long the answer so far is (`id: 23`), and `answer` carries the id
+`answer`. A request sending `Last-Event-ID` is not sent a `writing` event it
+already has (one no longer than the id), and goes on from there. A resume with the
+same idempotency key while the first answer is still being written joins it rather
+than asking the model again: the key's record is marked in progress (`in_flight`)
+before the model is asked, the answer so far is written onto it (for the chat, onto
+the chat) as each sentence is finished, and the second request is sent the
+sentences after its id as they are written, then the same whole answer, read from
+the record. The model is asked once and paid once. A first request that failed
+leaves its mark failed, so a retry asks again; a mark nobody has written to for two
+minutes is a request that died and is taken over by the next one, which asks again;
+a request that waits three minutes on another's answer is told it is still being
+answered, in words. The chat's mark is the same one that makes a double tap one
+message: a resume of the chat's message joins its reply, and the visitor's words and
+the reply are each kept once. `Last-Event-ID` is allowed from any origin on the open
+routes, beside `idempotency-key`.
+
 ### Register a webhook
 
 `POST /v1/webhooks/endpoints` registers one and returns the signing secret once.
@@ -243,6 +263,14 @@ endpoint. `POST /v1/webhooks/endpoints/{id}/replays` sends one `deliveryId`, one
 Settings > Webhooks (`/settings/webhooks`) registers endpoints, switches them on and
 off, and shows the history with a filter by what happened and a send again button on
 every attempt, and a **Stop it** button on every replay still waiting.
+
+How long the history is kept is the company's choice: "How long we keep what was
+sent" on the same page, or `GET /v1/webhooks/history` (`integration:read`) and
+`PUT /v1/webhooks/history` (`integration:write`) with `keepDays` (1 to 365) and
+`keepPerEndpoint` (100 to 10000). Thirty days and a thousand attempts, as before,
+for a company that chose nothing. Whichever cuts first wins; the next delivery pass
+trims to it, and keeping less never brings back what was removed. Every change is
+audited (`organization.webhook_history_kept`).
 
 ### Rotate a signing secret
 
@@ -311,7 +339,9 @@ is thrown as the same `OpenTradesOSError` a refusal is. A dropped connection, a
 stream that ends before its answer, a 429 or a 5xx is asked again after a pause
 (half a second, doubling, capped at ten seconds, or the server's `Retry-After` or
 `retry`), with the same idempotency key and `Last-Event-ID` set to the last id the
-server sent, up to `maxReconnects` (5) times in a row. It asks again only for an
+server sent, up to `maxReconnects` (5) times in a row. The server's ids say how much
+of the answer it had, so a resume while the answer is still being written joins it
+and is sent only the sentences after the id; its behaviour did not otherwise change. It asks again only for an
 operation that takes an idempotency key, so the website chat's message, which takes
 none, is never sent twice: a drop there is thrown. An abort `signal` stops it at
 once, mid stream or mid pause, and closes the connection, as leaving the loop early
@@ -349,6 +379,8 @@ particular.
 | `DELETE /v1/webhooks/endpoints/{id}` | `integration:write` |
 | `GET /v1/webhooks/events` | `integration:read` |
 | `GET /v1/webhooks/endpoints/{id}/position` | `integration:read` |
+| `GET /v1/webhooks/history` | `integration:read` |
+| `PUT /v1/webhooks/history` | `integration:write` |
 | `GET /v1/webhooks/endpoints/{id}/deliveries` | `integration:read` |
 | `GET /v1/webhooks/deliveries` | `integration:read` |
 | `POST /v1/webhooks/endpoints/{id}/replays` | `integration:write` |
@@ -383,16 +415,17 @@ to retry.
 ## What is not built
 
 Only the field assistant and the website chat's messages answer as they are
-written; every other route answers whole. The server's answer streams carry no
-event ids and the server does not read `Last-Event-ID`, so the SDK's `events()`
-sends one only once a server has given it one; today a resume is the same request
-with the same idempotency key, which the field assistant answers from its record as
-one `answer` event when the first answer was finished. A resume that arrives while the
-first answer is still being written asks the model again, because nothing marks a
-question as in progress. The chat takes no idempotency key, so `events()` never
-resumes it. A sentence is sent only once it is finished, so a long first sentence
-arrives late, and on a model connection that does not stream (see M27) the stream
-holds only the `answer` event.
+written; every other route answers whole. The SDK resumes only the field assistant:
+the OpenAPI document does not mark the open chat route as taking an idempotency key,
+so `events()` never asks it again, though a widget or any caller sending the same
+key and `Last-Event-ID` is joined to the reply. Joining reads the record about
+every half second, so a joined stream can be a sentence behind the first, and a
+first answer given as JSON (not a stream) writes no sentences onto the record, so a
+stream joining it waits for the whole answer. A resume that reaches a different
+server while the first is still answering joins it the same way, through the
+database, not the first server's memory. A sentence is sent only once it is
+finished, so a long first sentence arrives late, and on a model connection that does
+not stream (see M27) the stream holds only the `answer` event.
 
 The SDK is TypeScript only, and it is not published to a package registry: it is
 used from this repository, and its package is marked private until the licensing
@@ -412,8 +445,10 @@ most, once when it asks and once as a reminder, and a request nobody answers sti
 its own date; the reminder is one number for the whole company, is not sent
 at all by a company that left it empty, and never repeats.
 
-Delivery history is kept for thirty days and a thousand attempts per endpoint and
-not longer; an older answer is gone. A replay cannot reach further back than the
+Delivery history is kept for as long as the company chose, between a day and a
+year and between a hundred and ten thousand attempts per endpoint, thirty days and
+a thousand unless it chose otherwise; one setting covers every endpoint, an older
+answer is gone, and keeping more only keeps what was still there. A replay cannot reach further back than the
 event log does, and covers only the events the endpoint subscribes to now. A stopped
 replay cannot be started again where it stopped: asking again queues a new one. A receiver that compares the whole signature header against
 one value refuses deliveries for the length of a rotation's overlap.

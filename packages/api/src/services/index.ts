@@ -212,6 +212,7 @@ export * as holidays from "./holidays";
 export * as businessHours from "./business-hours";
 /** A phone number's own hours and days off, or its branch's, or the company's (M18). */
 export * as numberHours from "./number-hours";
+export * as menuHours from "./menu-hours";
 /** Which item is charged after hours and on a holiday, and the offer of it on an invoice (M02, M13). */
 export * as afterHours from "./after-hours";
 /** Toolbox talk topics, talks on a schedule and who has not signed (M23). */

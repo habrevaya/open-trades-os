@@ -7,6 +7,7 @@ import {
 } from "./context";
 import * as booking from "./booking";
 import * as base from "./agents";
+import * as answering from "./answering";
 import { companyFor, throttle } from "./website-tracking";
 import { companyOf, servicesAndWindows, hoursOf, serviceAreaOf, bookItems, memberByContact, contactsIn } from "./agent-facts";
 import { sendTransactional, quietHoursFor } from "./comms-send";
@@ -193,23 +194,58 @@ export async function say(
   if (text === "") throw new ConflictError("Type a message first.");
   if (session.status === "closed") throw new ConflictError("This chat has ended. Start a new one.");
 
-  const replay = await inTenant(reader(db, organizationId), async (tx) => {
+  const asked = await inTenant(reader(db, organizationId), async (tx) => {
+    let markId: string | null = null;
     if (meta?.idempotencyKey) {
       /** A double tap on Send on one bar of signal is one message, and one answer. */
       const key = `chat:${session.id}:${meta.idempotencyKey.slice(0, 100)}`;
-      const [seen] = await tx.select({ id: schema.integrationEvent.id }).from(schema.integrationEvent)
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`answering:${organizationId}:webchat:${key}`}))`);
+      const [seen] = await tx.select({ id: schema.integrationEvent.id, status: schema.integrationEvent.status })
+        .from(schema.integrationEvent)
         .where(and(eq(schema.integrationEvent.provider, "webchat"), eq(schema.integrationEvent.idempotencyKey, key)))
         .limit(1);
-      if (seen) return true;
-      await tx.insert(schema.integrationEvent).values({
+      if (seen) return { replay: true as const, markId: seen.id, answering: seen.status === "in_flight" };
+      /** Marked as being answered until the reply is kept, so a resume meanwhile joins it (`answering.ts`). */
+      const [made] = await tx.insert(schema.integrationEvent).values({
         organizationId, direction: "inbound", provider: "webchat", eventType: "chat.message",
-        idempotencyKey: key, status: "succeeded", entityType: "ai_chat_session", entityId: session.id,
-      });
+        idempotencyKey: key, status: "in_flight", entityType: "ai_chat_session", entityId: session.id,
+      }).returning({ id: schema.integrationEvent.id });
+      markId = made!.id;
     }
     await inbound(tx, organizationId, session, text);
-    return false;
+    return { replay: false as const, markId, answering: false };
   });
-  if (!replay) await answer(db, organizationId, session.id, deps, show);
+  if (!asked.replay) {
+    try {
+      await answer(db, organizationId, session.id, deps, show);
+      if (asked.markId) await answering.finish(reader(db, organizationId), asked.markId, true);
+    } catch (error) {
+      if (asked.markId) {
+        await answering.finish(reader(db, organizationId), asked.markId, false, error instanceof Error ? error.message : undefined)
+          .catch(() => {});
+      }
+      throw error;
+    }
+  } else if (asked.answering) {
+    /**
+     * The same message again while its reply is still being written: join
+     * it, with the reply so far as the chat keeps it, and answer with the
+     * transcript once it is kept. A reply that failed, or a request that
+     * died, is answered with the transcript as it stands, as before: the
+     * visitor's words are in and a person sees them.
+     */
+    await answering.join(reader(db, organizationId), asked.markId, async (tx) => {
+      const [mark] = await tx.select({ status: schema.integrationEvent.status }).from(schema.integrationEvent)
+        .where(eq(schema.integrationEvent.id, asked.markId)).limit(1);
+      return mark?.status === "succeeded" ? true : null;
+    }, show, {
+      writing: async (tx) => {
+        const [row] = await tx.select({ writing: schema.aiChatSession.writing }).from(schema.aiChatSession)
+          .where(eq(schema.aiChatSession.id, session.id)).limit(1);
+        return row?.writing ?? null;
+      },
+    });
+  }
   const [fresh] = await inTenant(reader(db, organizationId), (tx) =>
     tx.select().from(schema.aiChatSession).where(eq(schema.aiChatSession.id, session.id)).limit(1));
   return inTenant(reader(db, organizationId), (tx) => transcript(tx, fresh!));

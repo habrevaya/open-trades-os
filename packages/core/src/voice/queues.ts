@@ -328,6 +328,79 @@ export function callbackConfirmation(e164: string): string {
   return `Thanks. We will call you back on ${spokenNumber(e164)} when it is your turn, so you can hang up now. Goodbye.`;
 }
 
+/* ------------------------------------------- a callback number typed in */
+
+/**
+ * What a caller waiting for a callback hears once they have asked: they may
+ * give another number instead of the one they called from (a desk phone
+ * calling about a mobile, a borrowed phone). Said before the confirmation,
+ * which follows when they press nothing.
+ */
+export const OTHER_NUMBER_OFFER = "You keep your place in line. To be called back on a different number, press 2.";
+/** Asked when they press 2, and again after a number that could not be used. */
+export const TYPE_NUMBER_PROMPT = "Type the number to call you back on, with its area code, then press pound.";
+/**
+ * How many times a caller may type a number before they are called back on
+ * the one they called from. Three: a slip, a second slip, and then the
+ * number that is known to work.
+ */
+export const TYPE_NUMBER_ATTEMPTS = 3;
+/**
+ * How long the callback waits for its caller to finish typing before the
+ * group may be rung for it: long enough to type and confirm a number twice,
+ * short enough that a caller who hung up mid way loses nothing. The caller's
+ * call ending lifts it at once.
+ */
+export const TYPE_NUMBER_HOLD_SECONDS = 3 * 60;
+/**
+ * How long the callback waits, once asked for, while its caller hears the
+ * offer of another number and the goodbye: so the group is not rung for the
+ * number they called from in the seconds they might change it. Hanging up
+ * lifts it at once, which is what nearly every caller does.
+ */
+export const OTHER_NUMBER_OFFER_HOLD_SECONDS = 30;
+/** Ten digits and a leading 1 at most: the longest a North American number typed with its 1 can be. */
+export const TYPE_NUMBER_MAX_DIGITS = 11;
+
+export type TypedNumber = { ok: true; e164: string } | { ok: false; why: string };
+
+/**
+ * The number a caller typed on the keypad, checked.
+ *
+ * North American numbers only (ten digits, or eleven with the 1): a keypad
+ * has no plus key, and a number abroad typed as digits cannot be told from a
+ * slip. An area code or exchange starting 0 or 1 is not a real number, a
+ * three digit service code (911, 411) is never a callback, and a premium
+ * rate 900 or 976 number is refused because the company pays for the call.
+ * What passes is then held to the same rule as a number called from
+ * (`callbackNumber`): one a phone can dial and not the carrier's withheld
+ * placeholders. `why` is said to the caller, so it is short and spoken.
+ */
+export function typedCallbackNumber(digits: string | null | undefined): TypedNumber {
+  const typed = (digits ?? "").replace(/[#\s]/g, "");
+  if (typed === "") return { ok: false, why: "Sorry, I did not get a number." };
+  if (!/^\d+$/.test(typed)) return { ok: false, why: "Sorry, that is not a number we can call." };
+  const ten = typed.length === 11 && typed.startsWith("1") ? typed.slice(1) : typed;
+  if (ten.length !== 10) {
+    return { ok: false, why: "Sorry, that is not a number we can call. It needs ten digits with the area code." };
+  }
+  const area = ten.slice(0, 3);
+  const exchange = ten.slice(3, 6);
+  if (!/^[2-9]/.test(area) || !/^[2-9]/.test(exchange) || /^[2-9]11$/.test(area) || /^[2-9]11$/.test(exchange)) {
+    return { ok: false, why: "Sorry, that is not a number we can call." };
+  }
+  if (area === "900" || area === "976" || exchange === "976") {
+    return { ok: false, why: "Sorry, we cannot call that kind of number back." };
+  }
+  const e164 = `+1${ten}`;
+  return callbackNumber(e164) ? { ok: true, e164 } : { ok: false, why: "Sorry, that is not a number we can call." };
+}
+
+/** The number they typed, read back, and what to press. */
+export function typedNumberReadBack(e164: string): string {
+  return `You typed ${spokenNumber(e164)}. To be called back on that number, press 1. To type it again, press 2.`;
+}
+
 /**
  * Who is next: the caller waiting longest on the line, or the one who asked
  * to be called back, whichever joined first. A callback keeps the place its

@@ -4100,3 +4100,29 @@ drop trigger if exists membership_notice_defaults on public.membership;
 create trigger membership_notice_defaults
   after insert on public.membership
   for each row execute function app.membership_notice_defaults();
+
+-- ---- A phone menu's own week and days off (M18) ---------------------------
+-- `business_hours.phone_menu_id` and `company_holiday.phone_menu_id` hold a
+-- phone menu's own hours. Added here rather than in the drizzle schema for the
+-- same reason as the phone number's columns beside them: `scheduling.ts`
+-- cannot import `comms.ts` without an import cycle. CASCADE, because a menu's
+-- own week means nothing once the menu is gone.
+do $$ begin
+  alter table public.business_hours
+    add constraint business_hours_phone_menu_id_phone_menu_id_fk
+    foreign key (phone_menu_id) references public.phone_menu(id)
+    on delete cascade;
+exception
+  when duplicate_object then null;
+  when duplicate_table then null;
+end $$;
+
+do $$ begin
+  alter table public.company_holiday
+    add constraint company_holiday_phone_menu_id_phone_menu_id_fk
+    foreign key (phone_menu_id) references public.phone_menu(id)
+    on delete cascade;
+exception
+  when duplicate_object then null;
+  when duplicate_table then null;
+end $$;

@@ -98890,7 +98890,7 @@
       "post": {
         "operationId": "createPhoneMenu",
         "summary": "Build a phone menu",
-        "description": "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside the business hours online booking keeps; absent, the menu answers at every hour. With speech on, a caller may also say an option (its label, or one of its words, or its key's number); words no option matches, or that match two as well as each other, read the menu once more and then go where noInputTo says. A phrase two options listen for, or a key's name as a word, is refused.\n\nRequires a session holding: settings:write.",
+        "description": "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside business hours: the number's, or the menu's own when it keeps hours of its own (`PUT /v1/phone-menus/{id}/hours`); absent, the menu answers at every hour, and clearing it is refused while the menu keeps hours of its own. With speech on, a caller may also say an option (its label, or one of its words, or its key's number); words no option matches, or that match two as well as each other, read the menu once more and then go where noInputTo says. A phrase two options listen for, or a key's name as a word, is refused.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M18"
         ],
@@ -99361,6 +99361,505 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UpdatePhoneMenuOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/phone-menus/{id}/holidays": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "addMenuHoliday",
+        "summary": "Add a day off of the menu's own",
+        "description": "The same fields as a company holiday, without a branch: a date, a yearly date or a day of the week in a month, closed or open shorter. Checked against the menu's own list alone. Read only while the menu keeps its own hours.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMenuHolidayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a day off of the menu's own",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddMenuHolidayOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/phone-menus/{id}/holidays/{holidayId}": {
+      "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "DELETE"
+      ],
+      "delete": {
+        "operationId": "removeMenuHoliday",
+        "summary": "Take a day off the menu's own list",
+        "description": "One already gone, or another menu's, answers with nothing removed.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "holidayId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveMenuHolidayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Take a day off the menu's own list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveMenuHolidayOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
+    "/v1/phone-menus/{id}/hours": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getMenuHours",
+        "summary": "The hours and days off a phone menu goes by",
+        "description": "Where they come from (`hoursFrom`), the menu's own week and days off, and what it goes by today, with whose it is: a season's on the season's dates.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The hours and days off a phone menu goes by",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMenuHoursOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "put": {
+        "operationId": "setMenuHours",
+        "summary": "Where a phone menu's hours come from, and its own week",
+        "description": "`number` follows the hours of the number each call came in on, as every menu did before. `branch` follows `businessUnitId`'s hours (the company's for a branch keeping none) with its seasons and holidays, `company` the company's with its seasons and holidays, and `own` its own week and days off and none of the company's: `days` sets all seven, and choosing `own` with no week given and none written before is refused. Anything but `number` is refused for a menu with no after hours setting, because a closed menu needs somewhere to send the caller. Its own week and days off are kept when it is switched away.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M18"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMenuHoursInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Where a phone menu's hours come from, and its own week",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetMenuHoursOutput"
                 }
               }
             }
@@ -155141,7 +155640,7 @@
       "get": {
         "operationId": "listWebhookDeliveries",
         "summary": "What was sent to this endpoint and what it answered",
-        "description": "Every attempt, newest first, with the status the receiver answered, the first two thousand characters of its body, how long it took and any error. Kept for thirty days and at most a thousand attempts per endpoint, whichever is shorter. Filter by status or by one event.\n\nRequires a session holding: integration:read.",
+        "description": "Every attempt, newest first, with the status the receiver answered, the first two thousand characters of its body, how long it took and any error. Kept for as long as the company chose (`PUT /v1/webhooks/history`), thirty days and at most a thousand attempts per endpoint unless it chose otherwise, whichever is shorter. Filter by status or by one event.\n\nRequires a session holding: integration:read.",
         "tags": [
           "M26"
         ],
@@ -156014,6 +156513,217 @@
         "x-authorization": "session",
         "x-permissions": [
           "integration:read"
+        ]
+      }
+    },
+    "/v1/webhooks/history": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getWebhookHistoryKeeping",
+        "summary": "How long webhook delivery history is kept",
+        "description": "Days and attempts per endpoint, whichever cuts first, and the defaults: thirty days and a thousand attempts for a company that chose nothing.\n\nRequires a session holding: integration:read.",
+        "tags": [
+          "M26"
+        ],
+        "responses": {
+          "200": {
+            "description": "How long webhook delivery history is kept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetWebhookHistoryKeepingOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:read"
+        ]
+      },
+      "put": {
+        "operationId": "setWebhookHistoryKeeping",
+        "summary": "Keep webhook delivery history longer or shorter",
+        "description": "Between 1 and 365 days and between 100 and 10000 attempts per endpoint, whichever cuts first. The next delivery pass trims to it. A shorter choice never brings back what a longer one removed. Audited.\n\nRequires a session holding: integration:write.",
+        "tags": [
+          "M26"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWebhookHistoryKeepingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Keep webhook delivery history longer or shorter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetWebhookHistoryKeepingOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "integration:write"
         ]
       }
     },
@@ -159092,6 +159802,248 @@
         },
         "required": [
           "id"
+        ]
+      },
+      "AddMenuHolidayInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "rule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "observed": {
+            "type": "string",
+            "enum": [
+              "as_is",
+              "sunday_to_monday",
+              "weekend_to_weekday"
+            ]
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "opensAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{2}:\\d{2}$"
+          },
+          "closesAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^\\d{2}:\\d{2}$"
+          }
+        },
+        "required": [
+          "name",
+          "closed"
+        ]
+      },
+      "AddMenuHolidayOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "repeatsYearly": {
+            "type": "boolean"
+          },
+          "rule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "observed": {
+            "type": "string",
+            "enum": [
+              "as_is",
+              "sunday_to_monday",
+              "weekend_to_weekday"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "when": {
+            "type": "string"
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "opensAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closesAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nextOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hours": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "date",
+          "repeatsYearly",
+          "rule",
+          "observed",
+          "businessUnitId",
+          "branchName",
+          "when",
+          "closed",
+          "opensAt",
+          "closesAt",
+          "nextOn",
+          "hours"
         ]
       },
       "AddMileageOverrideInput": {
@@ -180716,6 +181668,15 @@
           "speech": {
             "type": "boolean"
           },
+          "hoursFrom": {
+            "type": "string",
+            "enum": [
+              "number",
+              "branch",
+              "company",
+              "own"
+            ]
+          },
           "prompt": {
             "type": "string"
           },
@@ -180755,6 +181716,7 @@
           "afterHoursTo",
           "timeoutSeconds",
           "speech",
+          "hoursFrom",
           "prompt",
           "numbers"
         ]
@@ -207574,6 +208536,79 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 5
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
+                  ]
                 }
               },
               "required": [
@@ -207645,6 +208680,79 @@
                   "required": [
                     "field",
                     "oneOf"
+                  ]
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
                   ]
                 }
               },
@@ -207959,6 +209067,79 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 5
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
+                  ]
                 }
               },
               "required": [
@@ -208005,6 +209186,79 @@
                   "required": [
                     "field",
                     "oneOf"
+                  ]
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
                   ]
                 }
               },
@@ -214707,6 +215961,319 @@
           "leavesOut"
         ]
       },
+      "GetMenuHoursOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "hoursFrom": {
+            "type": "string",
+            "enum": [
+              "number",
+              "branch",
+              "company",
+              "own"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasAfterHours": {
+            "type": "boolean"
+          },
+          "numbers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "e164": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "e164",
+                "label"
+              ]
+            }
+          },
+          "ownWeek": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dayOfWeek",
+                "opensAt",
+                "closesAt",
+                "closed"
+              ]
+            }
+          },
+          "ownHolidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "repeatsYearly": {
+                  "type": "boolean"
+                },
+                "rule": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "month": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 12
+                    },
+                    "weekday": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "week": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            2
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            3
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            4
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "last"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "month",
+                    "weekday",
+                    "week"
+                  ]
+                },
+                "observed": {
+                  "type": "string",
+                  "enum": [
+                    "as_is",
+                    "sunday_to_monday",
+                    "weekend_to_weekday"
+                  ]
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "branchName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "when": {
+                  "type": "string"
+                },
+                "closed": {
+                  "type": "boolean"
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "nextOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "hours": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "date",
+                "repeatsYearly",
+                "rule",
+                "observed",
+                "businessUnitId",
+                "branchName",
+                "when",
+                "closed",
+                "opensAt",
+                "closesAt",
+                "nextOn",
+                "hours"
+              ]
+            }
+          },
+          "goesBy": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "follows_number",
+                  "menu",
+                  "number",
+                  "branch",
+                  "company",
+                  "none"
+                ]
+              },
+              "whose": {
+                "type": "string"
+              },
+              "days": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "dayOfWeek": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "opensAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^\\d{2}:\\d{2}$"
+                    },
+                    "closesAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^\\d{2}:\\d{2}$"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "dayOfWeek",
+                    "opensAt",
+                    "closesAt",
+                    "closed"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "source",
+              "whose",
+              "days"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "hoursFrom",
+          "businessUnitId",
+          "branchName",
+          "hasAfterHours",
+          "numbers",
+          "ownWeek",
+          "ownHolidays",
+          "goesBy"
+        ]
+      },
       "GetMultiDayRebalanceOutput": {
         "type": "object",
         "properties": {
@@ -219445,6 +221012,15 @@
           "speech": {
             "type": "boolean"
           },
+          "hoursFrom": {
+            "type": "string",
+            "enum": [
+              "number",
+              "branch",
+              "company",
+              "own"
+            ]
+          },
           "prompt": {
             "type": "string"
           },
@@ -219484,6 +221060,7 @@
           "afterHoursTo",
           "timeoutSeconds",
           "speech",
+          "hoursFrom",
           "prompt",
           "numbers"
         ]
@@ -229205,6 +230782,37 @@
         },
         "required": [
           "units"
+        ]
+      },
+      "GetWebhookHistoryKeepingOutput": {
+        "type": "object",
+        "properties": {
+          "keepDays": {
+            "type": "integer"
+          },
+          "keepPerEndpoint": {
+            "type": "integer"
+          },
+          "defaults": {
+            "type": "object",
+            "properties": {
+              "keepDays": {
+                "type": "integer"
+              },
+              "keepPerEndpoint": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "keepDays",
+              "keepPerEndpoint"
+            ]
+          }
+        },
+        "required": [
+          "keepDays",
+          "keepPerEndpoint",
+          "defaults"
         ]
       },
       "GetWebhookPositionOutput": {
@@ -250229,6 +251837,15 @@
                 "speech": {
                   "type": "boolean"
                 },
+                "hoursFrom": {
+                  "type": "string",
+                  "enum": [
+                    "number",
+                    "branch",
+                    "company",
+                    "own"
+                  ]
+                },
                 "prompt": {
                   "type": "string"
                 },
@@ -250268,6 +251885,7 @@
                 "afterHoursTo",
                 "timeoutSeconds",
                 "speech",
+                "hoursFrom",
                 "prompt",
                 "numbers"
               ]
@@ -279197,6 +280815,21 @@
           "removed"
         ]
       },
+      "RemoveMenuHolidayInput": {
+        "type": "object",
+        "properties": {}
+      },
+      "RemoveMenuHolidayOutput": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed"
+        ]
+      },
       "RemoveMileageOverrideInput": {
         "type": "object",
         "properties": {}
@@ -288264,6 +289897,79 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 5
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
+                  ]
                 }
               },
               "required": [
@@ -288336,6 +290042,79 @@
                   "required": [
                     "field",
                     "oneOf"
+                  ]
+                },
+                "rule": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "show",
+                        "hide"
+                      ]
+                    },
+                    "match": {
+                      "type": "string",
+                      "enum": [
+                        "all",
+                        "any"
+                      ]
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "one_of",
+                              "greater_than",
+                              "less_than",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 20
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 8
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "match",
+                    "conditions"
                   ]
                 }
               },
@@ -295224,6 +297003,376 @@
           "sessionsRevoked"
         ]
       },
+      "SetMenuHoursInput": {
+        "type": "object",
+        "properties": {
+          "hoursFrom": {
+            "type": "string",
+            "enum": [
+              "number",
+              "branch",
+              "company",
+              "own"
+            ]
+          },
+          "businessUnitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dayOfWeek",
+                "opensAt",
+                "closesAt",
+                "closed"
+              ]
+            }
+          }
+        },
+        "required": [
+          "hoursFrom"
+        ]
+      },
+      "SetMenuHoursOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "hoursFrom": {
+            "type": "string",
+            "enum": [
+              "number",
+              "branch",
+              "company",
+              "own"
+            ]
+          },
+          "businessUnitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "branchName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasAfterHours": {
+            "type": "boolean"
+          },
+          "numbers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "e164": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "e164",
+                "label"
+              ]
+            }
+          },
+          "ownWeek": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "dayOfWeek": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^\\d{2}:\\d{2}$"
+                },
+                "closed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "dayOfWeek",
+                "opensAt",
+                "closesAt",
+                "closed"
+              ]
+            }
+          },
+          "ownHolidays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "repeatsYearly": {
+                  "type": "boolean"
+                },
+                "rule": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "month": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 12
+                    },
+                    "weekday": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "week": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            2
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            3
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            4
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "last"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "month",
+                    "weekday",
+                    "week"
+                  ]
+                },
+                "observed": {
+                  "type": "string",
+                  "enum": [
+                    "as_is",
+                    "sunday_to_monday",
+                    "weekend_to_weekday"
+                  ]
+                },
+                "businessUnitId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "branchName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "when": {
+                  "type": "string"
+                },
+                "closed": {
+                  "type": "boolean"
+                },
+                "opensAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "nextOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "hours": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "date",
+                "repeatsYearly",
+                "rule",
+                "observed",
+                "businessUnitId",
+                "branchName",
+                "when",
+                "closed",
+                "opensAt",
+                "closesAt",
+                "nextOn",
+                "hours"
+              ]
+            }
+          },
+          "goesBy": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "follows_number",
+                  "menu",
+                  "number",
+                  "branch",
+                  "company",
+                  "none"
+                ]
+              },
+              "whose": {
+                "type": "string"
+              },
+              "days": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "dayOfWeek": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "opensAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^\\d{2}:\\d{2}$"
+                    },
+                    "closesAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^\\d{2}:\\d{2}$"
+                    },
+                    "closed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "dayOfWeek",
+                    "opensAt",
+                    "closesAt",
+                    "closed"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "source",
+              "whose",
+              "days"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "hoursFrom",
+          "businessUnitId",
+          "branchName",
+          "hasAfterHours",
+          "numbers",
+          "ownWeek",
+          "ownHolidays",
+          "goesBy"
+        ]
+      },
       "SetMessagingBrandStatusInput": {
         "type": "object",
         "properties": {
@@ -302034,6 +304183,52 @@
           "id",
           "displayName",
           "classification"
+        ]
+      },
+      "SetWebhookHistoryKeepingInput": {
+        "type": "object",
+        "properties": {
+          "keepDays": {
+            "type": "integer"
+          },
+          "keepPerEndpoint": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "keepDays",
+          "keepPerEndpoint"
+        ]
+      },
+      "SetWebhookHistoryKeepingOutput": {
+        "type": "object",
+        "properties": {
+          "keepDays": {
+            "type": "integer"
+          },
+          "keepPerEndpoint": {
+            "type": "integer"
+          },
+          "defaults": {
+            "type": "object",
+            "properties": {
+              "keepDays": {
+                "type": "integer"
+              },
+              "keepPerEndpoint": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "keepDays",
+              "keepPerEndpoint"
+            ]
+          }
+        },
+        "required": [
+          "keepDays",
+          "keepPerEndpoint",
+          "defaults"
         ]
       },
       "SetWebsiteTrackingInput": {
@@ -314516,6 +316711,15 @@
           "speech": {
             "type": "boolean"
           },
+          "hoursFrom": {
+            "type": "string",
+            "enum": [
+              "number",
+              "branch",
+              "company",
+              "own"
+            ]
+          },
           "prompt": {
             "type": "string"
           },
@@ -314555,6 +316759,7 @@
           "afterHoursTo",
           "timeoutSeconds",
           "speech",
+          "hoursFrom",
           "prompt",
           "numbers"
         ]

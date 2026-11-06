@@ -1159,9 +1159,11 @@ async function recordAttempt(
  */
 async function prune(ctx: ServiceContext, endpointId: string, now: Date): Promise<void> {
   await guardedWrite(ctx, "integration:write", async (tx) => {
+    /** As long as the company says, or thirty days and a thousand attempts. */
+    const keep = await keepingWithin(tx, ctx.actor.organizationId);
     await tx.delete(schema.webhookDelivery).where(and(
       eq(schema.webhookDelivery.endpointId, endpointId),
-      lt(schema.webhookDelivery.requestedAt, rules.retentionCutoff(now)),
+      lt(schema.webhookDelivery.requestedAt, rules.retentionCutoff(now, keep.keepDays)),
     ));
     await tx.execute(sql`
       delete from public.webhook_delivery
@@ -1170,8 +1172,51 @@ async function prune(ctx: ServiceContext, endpointId: string, now: Date): Promis
           select id from public.webhook_delivery
           where endpoint_id = ${endpointId}
           order by requested_at desc, id desc
-          offset ${rules.KEEP_PER_ENDPOINT}
+          offset ${keep.keepPerEndpoint}
         )`);
+  });
+}
+
+/* ------------------------------------------- how long the history is kept */
+
+async function keepingWithin(tx: Database, organizationId: string): Promise<rules.HistoryKeep> {
+  const [row] = await tx.select({ settings: schema.organization.settings })
+    .from(schema.organization).where(eq(schema.organization.id, organizationId)).limit(1);
+  return rules.historyKeep(((row?.settings ?? {}) as Record<string, unknown>)["webhookHistory"]);
+}
+
+export interface HistoryKeepView extends rules.HistoryKeep {
+  defaults: rules.HistoryKeep;
+}
+
+/** How long this company keeps webhook delivery history. `integration:read`, as the history is. */
+export function historyKeeping(ctx: ServiceContext): Promise<HistoryKeepView> {
+  return guardedRead(ctx, "integration:read", async (tx) => ({
+    ...await keepingWithin(tx, ctx.actor.organizationId),
+    defaults: { keepDays: rules.KEEP_DAYS, keepPerEndpoint: rules.KEEP_PER_ENDPOINT },
+  }));
+}
+
+/**
+ * Keep delivery history so many days and so many attempts per endpoint,
+ * whichever cuts first. `integration:write`, audited. The next delivery pass
+ * trims to it; a shorter choice never brings back what a longer one removed,
+ * and a longer one keeps what is still there from now on.
+ */
+export function setHistoryKeeping(ctx: ServiceContext, input: rules.HistoryKeep): Promise<HistoryKeepView> {
+  return guardedWrite(ctx, "integration:write", async (tx) => {
+    const problem = rules.historyKeepProblem(input);
+    if (problem) throw new ConflictError(problem);
+    const before = await keepingWithin(tx, ctx.actor.organizationId);
+    const after = { keepDays: input.keepDays, keepPerEndpoint: input.keepPerEndpoint };
+    await tx.update(schema.organization).set({
+      settings: sql`coalesce(${schema.organization.settings}, '{}'::jsonb) || ${JSON.stringify({ webhookHistory: after })}::jsonb`,
+      updatedAt: new Date(),
+    }).where(eq(schema.organization.id, ctx.actor.organizationId));
+    if (before.keepDays !== after.keepDays || before.keepPerEndpoint !== after.keepPerEndpoint) {
+      await audit(tx, ctx, "organization.webhook_history_kept", "organization", ctx.actor.organizationId, before, after);
+    }
+    return { ...after, defaults: { keepDays: rules.KEEP_DAYS, keepPerEndpoint: rules.KEEP_PER_ENDPOINT } };
   });
 }
 
@@ -1832,6 +1877,9 @@ export async function replays(ctx: ServiceContext, input: { id: string }): Promi
  * second place to look for what an endpoint does.
  */
 export const handlers = {
+  getWebhookHistoryKeeping: (ctx: ServiceContext) => historyKeeping(ctx),
+  setWebhookHistoryKeeping: (ctx: ServiceContext, input: rules.HistoryKeep) => setHistoryKeeping(ctx, input),
+
   registerWebhookEndpoint: (
     ctx: ServiceContext,
     input: { url: string; events: string[]; active?: boolean | undefined },

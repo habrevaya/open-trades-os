@@ -31,6 +31,45 @@ export const KEEP_PER_ENDPOINT = 1000;
 export const KEEP_DAYS = 30;
 
 /**
+ * What a company may choose instead (M26): at least a day and a hundred
+ * attempts, so the history still answers "what did we send this morning",
+ * and at most a year and ten thousand attempts, so a debugging table never
+ * becomes the company's archive of customer data.
+ */
+export const MIN_KEEP_DAYS = 1;
+export const MAX_KEEP_DAYS = 365;
+export const MIN_KEEP_PER_ENDPOINT = 100;
+export const MAX_KEEP_PER_ENDPOINT = 10_000;
+
+export interface HistoryKeep {
+  keepDays: number;
+  keepPerEndpoint: number;
+}
+
+/** What a company keeps, from what it saved: the defaults wherever it saved nothing usable. */
+export function historyKeep(saved: unknown): HistoryKeep {
+  const value = (saved ?? {}) as { keepDays?: unknown; keepPerEndpoint?: unknown };
+  const days = typeof value.keepDays === "number" && Number.isInteger(value.keepDays)
+    && value.keepDays >= MIN_KEEP_DAYS && value.keepDays <= MAX_KEEP_DAYS ? value.keepDays : KEEP_DAYS;
+  const count = typeof value.keepPerEndpoint === "number" && Number.isInteger(value.keepPerEndpoint)
+    && value.keepPerEndpoint >= MIN_KEEP_PER_ENDPOINT && value.keepPerEndpoint <= MAX_KEEP_PER_ENDPOINT
+    ? value.keepPerEndpoint : KEEP_PER_ENDPOINT;
+  return { keepDays: days, keepPerEndpoint: count };
+}
+
+/** Why a choice cannot be kept, in words, or null. */
+export function historyKeepProblem(input: HistoryKeep): string | null {
+  if (!Number.isInteger(input.keepDays) || input.keepDays < MIN_KEEP_DAYS || input.keepDays > MAX_KEEP_DAYS) {
+    return `Keep delivery history for between ${MIN_KEEP_DAYS} and ${MAX_KEEP_DAYS} days.`;
+  }
+  if (!Number.isInteger(input.keepPerEndpoint) || input.keepPerEndpoint < MIN_KEEP_PER_ENDPOINT
+    || input.keepPerEndpoint > MAX_KEEP_PER_ENDPOINT) {
+    return `Keep between ${MIN_KEEP_PER_ENDPOINT} and ${MAX_KEEP_PER_ENDPOINT} attempts for each endpoint.`;
+  }
+  return null;
+}
+
+/**
  * The most events one replay request may cover.
  *
  * A replay is a request to somebody else's server per event, in order, and

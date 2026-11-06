@@ -66,6 +66,11 @@ const Menu = z.object({
   afterHoursTo: Destination.nullable(),
   timeoutSeconds: z.number().int(),
   speech: z.boolean(),
+  /**
+   * Whose hours decide whether it is open: `number` (the number each call came in on), or its own choice of
+   * `branch`, `company` or `own`, set with `PUT /v1/phone-menus/{id}/hours`.
+   */
+  hoursFrom: z.enum(["number", "branch", "company", "own"]),
   /** Exactly what the caller hears: the greeting, then every option. */
   prompt: z.string(),
   numbers: z.array(z.object({ id: Uuid, e164: z.string(), label: z.string().nullable() })),
@@ -96,7 +101,7 @@ export const createPhoneMenu = defineRoute({
   path: "/v1/phone-menus",
   summary: "Build a phone menu",
   description:
-    "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside the business hours online booking keeps; absent, the menu answers at every hour. With speech on, a caller may also say an option (its label, or one of its words, or its key's number); words no option matches, or that match two as well as each other, read the menu once more and then go where noInputTo says. A phrase two options listen for, or a key's name as a word, is refused.",
+    "Every option is checked against what exists: a person with no number to ring, a deleted ring group or a forward nobody can dial is refused with the option named. A caller who presses nothing is sent where noInputTo says after hearing the menu three times; sending them back to the same menu is refused, because it would never end. afterHoursTo is where calls go outside business hours: the number's, or the menu's own when it keeps hours of its own (`PUT /v1/phone-menus/{id}/hours`); absent, the menu answers at every hour, and clearing it is refused while the menu keeps hours of its own. With speech on, a caller may also say an option (its label, or one of its words, or its key's number); words no option matches, or that match two as well as each other, read the menu once more and then go where noInputTo says. A phrase two options listen for, or a key's name as a word, is refused.",
   module: "M18",
   permissions: ["settings:write"],
   idempotent: true,

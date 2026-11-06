@@ -158,7 +158,7 @@ function MenuForm({ menu, choices }: { menu?: phoneMenus.MenuView | undefined; c
                     label="A caller who presses nothing after hearing it three times, or is not understood twice, goes to"
                     value={menu?.noInputTo ?? { kind: "voicemail", box: "main" }} />
       <Destinations name="afterHoursTo" numberName="afterHoursNumber" choices={choices}
-                    label="Outside your business hours, calls go to"
+                    label={menu && menu.hoursFrom !== "number" ? "Outside this menu's own hours, calls go to" : "Outside your business hours, calls go to"}
                     value={menu?.afterHoursTo ?? null} allowNone="This menu, at every hour" />
       <Select label="Seconds a caller has to press a key" name="timeoutSeconds"
               defaultValue={String(menu?.timeoutSeconds ?? 6)} className="block w-40"
@@ -260,6 +260,14 @@ function QueueForm({ queue, choices }: { queue?: callQueues.QueueView | undefine
  * left empty is ignored. `settings:read` to see it and `settings:write` to
  * change it, the same as how a number rings.
  */
+/** Whose hours a menu goes by, in a line under it. */
+const MENU_HOURS: Record<phoneMenus.MenuView["hoursFrom"], string> = {
+  number: "Goes by the hours of the number each call came in on.",
+  branch: "Goes by a branch's hours.",
+  company: "Goes by the company's hours.",
+  own: "Goes by hours of its own.",
+};
+
 export default async function PhoneMenusPage() {
   const user = await requireSetupUser();
   assertCan(user.actor, "settings:read");
@@ -343,6 +351,10 @@ export default async function PhoneMenusPage() {
               {menu.numbers.length > 0 ? (
                 <p className="mt-1 text-sm text-ink-500">Answers {menu.numbers.map((n) => n.e164).join(", ")}.</p>
               ) : null}
+              <p className="mt-1 text-sm text-ink-500">
+                {MENU_HOURS[menu.hoursFrom]}{" "}
+                <a href={`/settings/phone/menus/${menu.id}`} className="underline underline-offset-4">Its hours</a>
+              </p>
               {writes ? (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-sm underline underline-offset-4">Change it</summary>

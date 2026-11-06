@@ -5,8 +5,9 @@
  * `Accept: text/event-stream` (docs/modules/m26, "Read an answer as it is
  * written"). This is the parser the client's `events()` reads them with,
  * written to the format's own rules rather than to what one server happens
- * to send today, so a server that later adds event ids or a retry hint is
- * read correctly by a client already in the field:
+ * to send today. The server's answer streams carry ids (how long the answer
+ * so far is, and `answer` on the whole answer), and a retry hint would be
+ * read too:
  *
  *   - a line is ended by CRLF, LF or CR, and may arrive split across chunks;
  *   - a line starting with a colon is a comment (the server's keep alive);

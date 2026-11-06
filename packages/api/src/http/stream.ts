@@ -31,6 +31,16 @@ import { errorResponse } from "./problem";
  * A dropped connection does not stop the answer: it is written and kept as
  * it would have been, so a retry with the same idempotency key answers from
  * the record where the route keeps one.
+ *
+ * EVENT IDS, AND WHERE A RESUME LEFT OFF. Every `writing` event carries an id:
+ * how many characters long the answer so far is. The answer only grows, so
+ * the id says how much of it the client has, whichever connection sent it,
+ * the first or one that joined the answer later. A request sending
+ * `Last-Event-ID` is not sent a `writing` event it already has (one no longer
+ * than that), and goes on from there; `answer` carries the id `answer`. A
+ * resume with the same idempotency key while the first answer is still being
+ * written joins it, rather than asking again (the routes' services do that,
+ * from the in progress mark on their idempotency record).
  */
 
 /** Whether the caller asked for events. A preference among others still counts. */
@@ -42,10 +52,19 @@ export function wantsEventStream(request: Request): boolean {
 /** Handed the answer so far, by a handler that can show one. */
 export type Show = (text: string) => void;
 
-/** One event, as the format writes it: every line of the data on a `data:` line of its own. */
-export function eventText(event: string, value: unknown): string {
+/** One event, as the format writes it: its id when it has one, and every line of the data on a `data:` line of its own. */
+export function eventText(event: string, value: unknown, id?: string): string {
   const data = JSON.stringify(value ?? null).split("\n").map((line) => `data: ${line}`).join("\n");
-  return `event: ${event}\n${data}\n\n`;
+  return `event: ${event}\n${id !== undefined ? `id: ${id}\n` : ""}${data}\n\n`;
+}
+
+/** The id the answer's last event carries, so a resume after it asks for nothing more. */
+export const ANSWER_EVENT_ID = "answer";
+
+/** How much of the answer a resuming client says it has, from `Last-Event-ID`: a length, or nothing. */
+export function heldLength(lastEventId: string | null | undefined): number {
+  const text = (lastEventId ?? "").trim();
+  return /^\d{1,7}$/.test(text) ? Number(text) : -1;
 }
 
 /** How often a quiet stream says it is still open, so a proxy does not close it as idle. */
@@ -54,14 +73,20 @@ const KEEP_ALIVE_MS = 15_000;
 export async function eventStream(
   run: (show: Show) => Promise<unknown>,
   status: number,
+  /** What the client says it already has (`Last-Event-ID`), when it is resuming. */
+  lastEventId?: string | null,
 ): Promise<Response> {
   const pending: string[] = [];
   let send: ((text: string) => void) | null = null;
   let opened: (() => void) | null = null;
   const firstPiece = new Promise<void>((resolve) => { opened = resolve; });
+  let held = heldLength(lastEventId);
 
   const show: Show = (text) => {
-    const event = eventText("writing", { text });
+    /** Already on the client's screen, from the connection before this one. */
+    if (text.length <= held) return;
+    held = text.length;
+    const event = eventText("writing", { text }, String(text.length));
     if (send) send(event);
     else pending.push(event);
     opened?.();
@@ -92,7 +117,7 @@ export async function eventStream(
       send = write;
       keepAlive = setInterval(() => write(": still writing\n\n"), KEEP_ALIVE_MS);
       void answering.then(async (outcome) => {
-        if (outcome.ok) write(eventText("answer", outcome.value));
+        if (outcome.ok) write(eventText("answer", outcome.value, ANSWER_EVENT_ID));
         else {
           const refusal = errorResponse(outcome.error);
           const said = await refusal.json().catch(() => null) as { error?: unknown } | null;

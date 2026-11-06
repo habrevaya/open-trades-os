@@ -286,8 +286,38 @@ or pick several question, or for an option the question does not offer, or if
 the first page is given one. A form needs a required phone or email on a page
 everybody sees, so a lead cannot reach the office with no way to be rung back
 because the only phone question was on a page they were never sent to. A form
-saved on one page keeps no rule. A pick several question shows the page when
-any one of the ticked options is among its options.
+saved on one page keeps no page rule. A pick several question shows the page
+when any one of the ticked options is among its options.
+
+**Rules over several answers, for a page or one question.** "Who sees page 3"
+can also be "Answers that match a rule", and every question has "Who is
+asked": "Everybody who reaches it" or "Answers that match a rule". A rule
+shows the page or question (or hides it: "Hide it") when all of its
+conditions are true, or any one of them, up to eight. Each condition names an
+earlier question and what its answer is: a pick one or pick several "is" an
+option or "is one of" several; a number "is", "is more than" or "is less
+than" a number; a short answer "is" or "has the words", and a long answer
+"has the words", without regard to capitals or spacing. A page's rule waits
+for questions on earlier pages; a question's rule waits for questions asked
+before it, on its own page or an earlier one, and on the hosted page the
+question appears or goes as the person answers. On the API it is `rule` on a
+page or a field of `PUT /v1/marketing/forms/{slug}`: `action` (`show` or
+`hide`), `match` (`all` or `any`) and `conditions`, each a `field`, an `op`
+(`equals`, `one_of`, `greater_than`, `less_than`, `contains`) and its `value`
+or `values`. The server holds every rule the same way (`marketing.visibility`
+in core): a page or question the answers do not lead to is not asked, so it
+is never required, and what was sent for it is dropped before the submission
+is stored. A question nobody was asked (on a skipped page, or hidden by its
+own rule) counts as no answer to any rule after it, so a stale answer cannot
+open anything. A condition on a question nobody answered is never true, so
+"Hide it" leaves a question showing until the answer it waits for is given.
+A rule is refused when the form is saved if it waits for a question that is
+not asked before it, that a rule cannot read (an address, a date, a file, a
+tick box, a phone or an email), with a comparison that kind of question does
+not take, for an option the question does not offer, or with no conditions,
+no number or no words; a page has one rule, never both kinds. A required
+phone or email behind any rule does not count as a way to ring the person
+back. A rule on a question works on a form that is not split, too.
 
 **Their answers in the confirmation.** The sentence the page shows, the text
 and the email may repeat an answer by its question's key, as `{{ name }}` or
@@ -1503,10 +1533,14 @@ sample and therefore not a test of anything.
   check and the per address ceilings are what there is). Files arrive only in
   the one post at the end, so a form takes at most five files and four
   megabytes in all, and a PDF is not made smaller; a person whose files are
-  refused picks them again rather than resuming. A page waits only for
-  one earlier pick one or pick several question and the options that show it:
-  there is no rule over several questions, over a typed answer or a number, or
-  that hides a single question rather than a page. A confirmation
+  refused picks them again rather than resuming. A rule reads only pick
+  one, pick several, number and typed answers: not a date (no "before" or
+  "after"), an address, a tick box, a phone, an email or a file. It cannot
+  mix all and any in one rule (no brackets), compares typed words only by
+  "is" and "has the words" (no spelling allowance, no "does not have"), and
+  waits only for earlier questions, never a later one or a hidden value. A
+  question's rule and its page's rule both have to let it be asked. A
+  confirmation
   repeats answers only from the closed list of short kinds, cut short and with
   links left out in a text or an email; `{{ firstName }}` is the first word of
   the name answer as it was typed, with no attempt to tell a title or a

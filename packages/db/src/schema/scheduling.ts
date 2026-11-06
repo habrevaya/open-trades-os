@@ -112,6 +112,12 @@ export const businessHours = pgTable("business_hours", {
    */
   phoneNumberId: uuid("phone_number_id"),
   /**
+   * The phone menu whose own week this is (M18); goes with the menu. Its
+   * foreign key is in `sql/after.sql` for the same import cycle as the
+   * number's. Read only by that menu, never as the company's or a branch's.
+   */
+  phoneMenuId: uuid("phone_menu_id"),
+  /**
    * The season these seven rows are the week of, with the season's branch
    * (or none, for the company's) in `business_unit_id` beside it. Null for a
    * normal week. A season's rows are never read as the normal week.
@@ -129,6 +135,9 @@ export const businessHours = pgTable("business_hours", {
   /** A season is a branch's or the company's, never a phone number's. */
   seasonNotNumber: check("business_hours_season_not_number", sql`${t.seasonId} is null or ${t.phoneNumberId} is null`),
   seasonIdx: index("business_hours_season_idx").on(t.seasonId),
+  /** A phone menu's own week is the menu's alone: no branch, no number and no season beside it. */
+  menuOwner: check("business_hours_menu_owner",
+    sql`${t.phoneMenuId} is null or (${t.businessUnitId} is null and ${t.phoneNumberId} is null and ${t.seasonId} is null)`),
 }));
 
 /**
@@ -176,6 +185,12 @@ export const companyHoliday = pgTable("company_holiday", {
    * on `business_hours` above.
    */
   phoneNumberId: uuid("phone_number_id"),
+  /**
+   * The phone menu whose own day off this is, read only for that menu while
+   * it keeps its own hours. Goes with the menu: the foreign key is in
+   * `sql/after.sql`.
+   */
+  phoneMenuId: uuid("phone_menu_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -183,6 +198,9 @@ export const companyHoliday = pgTable("company_holiday", {
   branchIdx: index("company_holiday_branch_idx").on(t.businessUnitId),
   numberIdx: index("company_holiday_number_idx").on(t.phoneNumberId),
   oneOwner: check("company_holiday_one_owner", sql`${t.businessUnitId} is null or ${t.phoneNumberId} is null`),
+  menuIdx: index("company_holiday_menu_idx").on(t.phoneMenuId),
+  menuOwner: check("company_holiday_menu_owner",
+    sql`${t.phoneMenuId} is null or (${t.businessUnitId} is null and ${t.phoneNumberId} is null)`),
 }));
 
 // ---------------------------------------------------------------------------

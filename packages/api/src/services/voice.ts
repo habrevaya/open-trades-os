@@ -18,6 +18,7 @@ import * as callbacks from "./queue-callbacks";
 import * as transfers from "./call-transfers";
 import { memberActor } from "./session";
 import { hoursOfNumber } from "./number-hours";
+import { hoursOfMenu } from "./menu-hours";
 import { emit } from "./events";
 import { leaseForCall } from "./website-tracking";
 import { readerFor } from "../secrets/store";
@@ -331,6 +332,11 @@ export const STEPS = [
    */
   "queue-callback", "queue-leg", "callback-dialed",
   /**
+   * A caller who asked to be called back giving another number: pressing 2
+   * for it, the digits they typed, and the read back they confirm.
+   */
+  "callback-number", "callback-typed", "callback-confirm",
+  /**
    * The browser phone moving a caller: on hold and its music, how they left
    * it and who took them, passed on cold, and a warm pass's colleague picking
    * up, the browser's call to them ending, and the colleague joined to the
@@ -448,6 +454,9 @@ async function answerStep(
     case "queue-callback": return queueCallback(ctx, form, query, wire);
     case "queue-leg": return queueLeg(ctx, form, query, now);
     case "callback-dialed": return callbackDialed(ctx, form, query, wire);
+    case "callback-number": return callbackNumberStep(ctx, form, query, wire);
+    case "callback-typed": return callbackTyped(ctx, form, query, wire);
+    case "callback-confirm": return callbackConfirm(ctx, form, query, wire);
     case "hold": return holdStep(ctx, form, query, wire);
     case "hold-wait": return holdWait(form);
     case "hold-done": return holdDone(ctx, form, query, wire);
@@ -530,15 +539,38 @@ async function routeOf(tx: Database, organizationId: string, number: NumberRow, 
   const holidays = holidayRules.forPhones(own.holidays, time.addDays(today, -1), time.addDays(today, 1));
   const hours = voice.businessHoursFrom(rows, zone, holidays);
   if (number.menuId) {
-    const menu = await phoneMenus.loadMenu(tx, organizationId, number.menuId);
-    if (menu) {
+    const row = await phoneMenus.menuRow(tx, organizationId, number.menuId);
+    if (row) {
+      const menu = phoneMenus.menuOf(row);
       const directory = await phoneMenus.directoryFor(tx, organizationId);
-      return voice.routeToMenu({
-        menu, dialled: number.e164, hours, knownCustomer, now, describe: voice.describeIn(directory),
+      /** A menu keeping hours apart from the number's goes by its own instead. */
+      const own = await menuHoursNow(tx, organizationId, row, now);
+      const routed = voice.routeToMenu({
+        menu, dialled: number.e164, hours: own ? own.hours : hours, knownCustomer, now, describe: voice.describeIn(directory),
       });
+      return own ? { ...routed, why: `The ${menu.name} menu goes by ${own.whose}. ${routed.why}` } : routed;
     }
   }
   return voice.routeCall({ number, dialled: number.e164, hours, knownCustomer, now });
+}
+
+/**
+ * The hours a phone menu keeping hours apart from the number's goes by now,
+ * in the router's shape, and whose they are in words for "Where it went".
+ * Null for a menu following the number, which goes by the number's.
+ */
+async function menuHoursNow(
+  tx: Database, organizationId: string, row: typeof schema.phoneMenu.$inferSelect, now: Date,
+): Promise<{ hours: ReturnType<typeof voice.businessHoursFrom>; whose: string } | null> {
+  if (row.hoursFrom === "number") return null;
+  const zone = await timezoneOf(tx, organizationId);
+  const today = time.dateIn(now, zone);
+  const own = await hoursOfMenu(tx, organizationId, row, today);
+  if (!own) return null;
+  const holidays = holidayRules.forPhones(own.holidays, time.addDays(today, -1), time.addDays(today, 1));
+  const whose = own.season ? `the season it follows, ${own.season}`
+    : row.hoursFrom === "own" ? "its own hours" : row.hoursFrom === "branch" ? "its branch's hours" : "the company's hours";
+  return { hours: voice.businessHoursFrom(own.rows, zone, holidays), whose };
 }
 
 const voicemailVerbs = (url: StepUrl): voice.Verb[] => [
@@ -684,10 +716,31 @@ async function answer(leg: Leg, to: tel.RoutingDestination, hops: number): Promi
       return { verbs: [dialVerb(leg, [to.e164], 20, query)], voicemail: false };
 
     case "ivr": {
-      const menu = await phoneMenus.loadMenu(leg.tx, org, to.menu);
-      if (!menu) {
+      const row = await phoneMenus.menuRow(leg.tx, org, to.menu);
+      if (!row) {
         await note(leg.tx, leg.call, "The menu it was sent to has been deleted, so it went to voicemail.");
         return voicemail();
+      }
+      const menu = phoneMenus.menuOf(row);
+      /**
+       * A menu keeping hours of its own looks at them however the caller
+       * reached it, from a number or another menu, and when closed sends
+       * them where its after hours setting says. A menu following the
+       * number was already routed by the number's hours where it answers
+       * the number, and a menu reached from another one is read as it
+       * always was.
+       */
+      const own = menu.afterHoursTo ? await menuHoursNow(leg.tx, org, row, leg.now) : null;
+      if (own) {
+        const directory = await phoneMenus.directoryFor(leg.tx, org);
+        const routed = voice.routeToMenu({
+          menu, dialled: leg.number.e164, hours: own.hours, knownCustomer: Boolean(leg.call.customerId), now: leg.now,
+          describe: voice.describeIn(directory),
+        });
+        if (routed.destination.kind !== "ivr" || routed.destination.menu !== menu.id) {
+          await note(leg.tx, leg.call, `The ${menu.name} menu goes by ${own.whose}. ${routed.why}`);
+          return answer(leg, routed.destination, hops + 1);
+        }
       }
       return { verbs: menuVerbs(leg, menu, 1, hops, null), voicemail: false };
     }
@@ -1084,6 +1137,16 @@ async function status(ctx: ServiceContext, form: Record<string, string>, now: Da
      * announces the miss then.
      */
     if (unanswered && !(await callbacks.forCall(tx, call.id))) await callTracking.emitMissed(tx, ctx, call.id);
+    /**
+     * A caller who hung up while typing another number keeps the one they
+     * called from, and their callback is free to be rung for at once rather
+     * than after the typing hold. Only a callback never yet rung can be
+     * held for typing, so `attempts = 0` leaves a retry's pause alone.
+     */
+    await tx.update(schema.queueCallback).set({ notBefore: null, updatedAt: now }).where(and(
+      eq(schema.queueCallback.callId, call.id), eq(schema.queueCallback.status, "waiting"),
+      eq(schema.queueCallback.attempts, 0), sql`${schema.queueCallback.notBefore} is not null`,
+    ));
     return empty;
   });
 }
@@ -1344,6 +1407,148 @@ async function queueCallback(
   });
 }
 
+/* ---------------------------------------- another number for a callback */
+
+/**
+ * The callback a caller is choosing a number for: theirs, and still waiting
+ * to be made. Null for anything else, including a callback somebody is
+ * already ringing, which a new number can no longer change.
+ */
+async function typingFor(tx: Database, form: Record<string, string>, query: URLSearchParams) {
+  const id = query.get("k") ?? "";
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const call = await callBySid(tx, form["CallSid"]);
+  if (!call) return null;
+  const [callback] = await tx.select().from(schema.queueCallback)
+    .where(and(eq(schema.queueCallback.id, id), eq(schema.queueCallback.callId, call.id))).limit(1);
+  return callback && callback.status === "waiting" ? { call, callback } : null;
+}
+
+const attemptOf = (query: URLSearchParams) => Math.max(1, count(query.get("t"), voice.TYPE_NUMBER_ATTEMPTS));
+
+/** Asked to type the number, with what to say first after a number that could not be used. */
+const typeNumberVerbs = (wire: Wire, callbackId: string, attempt: number, before: string | null): voice.Verb[] => {
+  const action = wire.url("callback-typed", { k: callbackId, t: attempt });
+  return [
+    {
+      verb: "gather", action, numDigits: voice.TYPE_NUMBER_MAX_DIGITS, finishOnKey: "#", timeoutSeconds: 8,
+      say: [before, voice.TYPE_NUMBER_PROMPT].filter(Boolean).join(" "),
+    },
+    { verb: "redirect", url: action },
+  ];
+};
+
+/**
+ * Still the number they called from: said, the callback put back to be
+ * rung for at once, and goodbye. `sentence` goes on the call.
+ */
+async function keepCalledFrom(
+  tx: Database, call: CallRow, callback: typeof schema.queueCallback.$inferSelect, say: string | null, sentence: string | null, now: Date,
+): Promise<VoiceReply> {
+  await tx.update(schema.queueCallback).set({ notBefore: null, updatedAt: now })
+    .where(and(eq(schema.queueCallback.id, callback.id), eq(schema.queueCallback.status, "waiting")));
+  if (sentence) await note(tx, call, sentence);
+  return reply([
+    ...(say ? [{ verb: "say" as const, text: say }] : []),
+    { verb: "say", text: voice.callbackConfirmation(callback.callbackE164) },
+    { verb: "hangup" },
+  ]);
+}
+
+/**
+ * A key pressed after asking to be called back. 2 is "call me on another
+ * number": the callback is held from being rung for while they type (the
+ * group ringing a number about to change would ring the wrong phone), and
+ * they are asked for it. Anything else is the number they called from.
+ */
+async function callbackNumberStep(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const found = await typingFor(tx, form, query);
+    if (!found) return reply([{ verb: "say", text: "Thanks. Goodbye." }, { verb: "hangup" }]);
+    if ((form["Digits"] ?? "").trim() !== "2") {
+      return keepCalledFrom(tx, found.call, found.callback, null, null, wire.now);
+    }
+    await tx.update(schema.queueCallback).set({
+      notBefore: new Date(wire.now.getTime() + voice.TYPE_NUMBER_HOLD_SECONDS * 1000), updatedAt: wire.now,
+    }).where(eq(schema.queueCallback.id, found.callback.id));
+    return reply(typeNumberVerbs(wire, found.callback.id, 1, null));
+  });
+}
+
+/**
+ * The digits they typed. A number that can be used is read back a digit at a
+ * time to be confirmed; one that cannot is asked for again, and after the
+ * last try they are rung on the number they called from. The digits travel
+ * in the confirm step's signed address and are checked again there.
+ */
+async function callbackTyped(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const found = await typingFor(tx, form, query);
+    if (!found) return reply([{ verb: "say", text: "Thanks. Goodbye." }, { verb: "hangup" }]);
+    const attempt = attemptOf(query);
+    const digits = (form["Digits"] ?? "").replace(/[^\d*]/g, "");
+    let typed = voice.typedCallbackNumber(digits);
+    if (typed.ok && await companyNumber(tx, typed.e164)) {
+      typed = { ok: false, why: "Sorry, that is our own number, so we cannot call you back on it." };
+    }
+    if (!typed.ok) {
+      if (attempt < voice.TYPE_NUMBER_ATTEMPTS) return reply(typeNumberVerbs(wire, found.callback.id, attempt + 1, typed.why));
+      return keepCalledFrom(tx, found.call, found.callback, `${typed.why} We will use the number you are calling from.`,
+        `Tried to give another number to be called back on ${attempt} times and none could be used, so they will be called back on ${found.callback.callbackE164}.`,
+        wire.now);
+    }
+    const action = wire.url("callback-confirm", { k: found.callback.id, t: attempt, d: typed.e164.slice(2) });
+    return reply([
+      { verb: "gather", action, numDigits: 1, timeoutSeconds: 6, say: voice.typedNumberReadBack(typed.e164) },
+      { verb: "redirect", url: action },
+    ]);
+  });
+}
+
+/**
+ * The read back answered. 1 makes the typed number the one they are rung
+ * back on, written on the call and in the audit log; 2 asks for it again
+ * while tries are left; anything else, or nothing, keeps the number they
+ * called from, because a number nobody confirmed is never the one rung.
+ */
+async function callbackConfirm(
+  ctx: ServiceContext, form: Record<string, string>, query: URLSearchParams, wire: Wire,
+): Promise<VoiceReply> {
+  return inTenant(ctx, async (tx) => {
+    const found = await typingFor(tx, form, query);
+    if (!found) return reply([{ verb: "say", text: "Thanks. Goodbye." }, { verb: "hangup" }]);
+    const attempt = attemptOf(query);
+    const pressed = (form["Digits"] ?? "").trim();
+    const typed = voice.typedCallbackNumber(query.get("d"));
+    if (pressed === "2" && attempt < voice.TYPE_NUMBER_ATTEMPTS) {
+      return reply(typeNumberVerbs(wire, found.callback.id, attempt + 1, null));
+    }
+    if (pressed !== "1" || !typed.ok || await companyNumber(tx, typed.e164)) {
+      return keepCalledFrom(tx, found.call, found.callback, "Nothing has changed.",
+        "Started to give another number to be called back on and did not confirm it, so they will be called back on the number they called from.",
+        wire.now);
+    }
+    const before = found.callback.callbackE164;
+    const [changed] = await tx.update(schema.queueCallback).set({ callbackE164: typed.e164, notBefore: null, updatedAt: wire.now })
+      .where(and(eq(schema.queueCallback.id, found.callback.id), eq(schema.queueCallback.status, "waiting"))).returning();
+    if (!changed) return reply([{ verb: "say", text: "Thanks. Goodbye." }, { verb: "hangup" }]);
+    await note(tx, found.call, `Typed another number to be called back on: ${typed.e164}, instead of ${before}.`);
+    await audit(tx, ctx, "call.callback_number_changed", "call", found.call.id, { number: before }, { number: typed.e164 });
+    return reply([{ verb: "say", text: voice.callbackConfirmation(typed.e164) }, { verb: "hangup" }]);
+  });
+}
+
+/** Whether a number is one of the company's own lines: never a callback, which would ring the company back. */
+async function companyNumber(tx: Database, e164: string): Promise<boolean> {
+  const [row] = await tx.select({ id: schema.phoneNumber.id }).from(schema.phoneNumber)
+    .where(and(eq(schema.phoneNumber.e164, e164), isNull(schema.phoneNumber.releasedAt))).limit(1);
+  return Boolean(row);
+}
+
 /**
  * A person in the line's group picked up. Put them through to whoever is
  * next: the caller waiting longest, or the caller who asked to be called back
@@ -1456,7 +1661,26 @@ async function queueDone(
     if (outcome.kind === "answered" || outcome.kind === "moved") return outcome.kind === "moved" ? empty : reply([{ verb: "hangup" }]);
     const callback = await callbacks.forCall(tx, call.id);
     if (callback && callback.status === "waiting") {
-      return reply([{ verb: "say", text: voice.callbackConfirmation(callback.callbackE164) }, { verb: "hangup" }]);
+      /**
+       * A moment to give another number first (2), then the number they
+       * will be rung on. Pressing nothing changes nothing: the number they
+       * called from is the one that is known to reach them. The group is
+       * not rung for it while the caller is still deciding: the carrier's
+       * report of the call ending lifts the hold (`status`).
+       */
+      if (callback.attempts === 0) {
+        await tx.update(schema.queueCallback).set({
+          notBefore: new Date(wire.now.getTime() + voice.OTHER_NUMBER_OFFER_HOLD_SECONDS * 1000), updatedAt: wire.now,
+        }).where(eq(schema.queueCallback.id, callback.id));
+      }
+      return reply([
+        {
+          verb: "gather", action: wire.url("callback-number", { k: callback.id }), numDigits: 1, timeoutSeconds: 4,
+          say: voice.OTHER_NUMBER_OFFER,
+        },
+        { verb: "say", text: voice.callbackConfirmation(callback.callbackE164) },
+        { verb: "hangup" },
+      ]);
     }
     if (outcome.kind === "gone") {
       await note(tx, call, outcome.why);

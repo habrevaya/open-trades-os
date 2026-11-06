@@ -92,6 +92,20 @@ export interface FormInput {
 /** The kind a file sent with a lead form is kept under, apart from what a signed in customer adds. */
 export const FORM_FILE_KIND = "form_file";
 
+/** A rule as it is stored: each condition with only what its comparison reads, typed words trimmed. */
+function cleanRule(rule: mk.ShowRule): mk.ShowRule {
+  return {
+    action: rule.action,
+    match: rule.match,
+    conditions: rule.conditions.map((c) => ({
+      field: c.field,
+      op: c.op,
+      ...(c.op === "one_of" ? { values: [...new Set(c.values ?? [])] } : {}),
+      ...(c.op !== "one_of" && c.value !== undefined ? { value: typeof c.value === "string" ? c.value.trim() : c.value } : {}),
+    })),
+  };
+}
+
 /** Twelve url safe characters: unguessable enough that the forms are not a list anybody can walk. */
 const newPublicKey = () => randomBytes(9).toString("base64url");
 
@@ -123,11 +137,13 @@ export async function save(ctx: ServiceContext, input: FormInput) {
     const pages = (input.pages ?? []).map((p) => ({
       title: p.title.trim(),
       ...(p.showWhen ? { showWhen: { field: p.showWhen.field, oneOf: [...p.showWhen.oneOf] } } : {}),
+      ...(p.rule ? { rule: cleanRule(p.rule) } : {}),
     }));
     const definition: mk.FormDefinition = {
       key: input.slug,
       title: input.title,
-      fields: pages.length > 1 ? input.fields : input.fields.map(({ page: _page, ...field }) => field),
+      fields: (pages.length > 1 ? input.fields : input.fields.map(({ page: _page, ...field }) => field))
+        .map(({ rule, ...field }) => (rule ? { ...field, rule: cleanRule(rule) } : field)),
       ...(input.minimumFillSeconds === undefined
         ? {}
         : { minimumFillSeconds: input.minimumFillSeconds }),

@@ -244,7 +244,40 @@ hours, M02) on its dates, and its page names the season it goes by now. A
 number keeping its own week has no seasons. The holiday list
 (`/settings/holidays`, M02) is read with them: on a closed holiday a call goes
 where an after hours call goes whatever the weekday, and on a short day the
-day's own hours decide. Every save is checked
+day's own hours decide.
+
+A menu can also keep hours of its own, apart from the number's: a Sales
+menu behind the main menu that shuts at noon while the line stays open, or a
+menu on the main number that keeps a branch's summer hours. Each menu on
+`/settings/phone` says whose hours it goes by and links to "Its hours"
+(`/settings/phone/menus/{id}`), which shows what it goes by today and
+chooses where they come from: the number each call came in on (the default,
+and what every menu did before), the company's, a branch's (the company's
+for a branch that keeps no week), or a week and days off of its own.
+`GET /v1/phone-menus/{id}/hours` (`settings:read`) reads it and
+`PUT /v1/phone-menus/{id}/hours` (`settings:write`) sets `hoursFrom`, with
+`businessUnitId` for a branch and all seven `days` for its own; its own days
+off are kept with `POST /v1/phone-menus/{id}/holidays` and
+`DELETE /v1/phone-menus/{id}/holidays/{holidayId}`. It is season aware like
+the rest: following the company or a branch, it goes by the season in force
+on the day (summer hours, M02) and by that company's or branch's holidays,
+and the call says "The Sales menu goes by the season it follows, Summer
+hours." when a season decided. A menu keeping its own week has no seasons
+and reads its own days off and none of the company's, as a number keeping
+its own does. A menu keeping hours of its own checks them however a caller
+reaches it, from a number it answers or from another menu, a ring group or a
+waiting line, and outside them sends the caller where its "Outside this
+menu's own hours" setting says, written under "Where it went". So it must
+have one: choosing hours of its own for a menu that answers at every hour,
+and clearing that setting while it keeps them, are both refused in words. A
+menu following the number is read exactly as before: where it answers a
+number it goes by the number's hours, and reached from another menu it is
+always open. Its own week and days off are kept when it is switched away,
+are on no other list (Settings, Holidays, booking and every other reader
+never see them), and go with the menu when it is deleted. Every change is
+audited (`phone_menu.hours_set`, and the holiday's own rows).
+
+Every save is checked
 against what exists, so an option ringing a person with no number, a deleted
 group or a number nobody can dial is refused with the option named, and a menu
 or group that something still sends calls to cannot be deleted.
@@ -314,10 +347,26 @@ default on the form for a new line.
 
 **Being called back.** With "Let callers press 1 to be called back" on (off
 unless the owner turns it on), every turn of the music offers it, and the
-caller can press 1 at any moment of the music. They are told "We will call you
-back on" their own number, read back a digit at a time, and hang up. Only the
-number they called from is rung, and a caller whose number was withheld is
-never offered it. They keep their place: the next person free in the line's
+caller can press 1 at any moment of the music. They hear "You keep your place
+in line. To be called back on a different number, press 2", then "We will call
+you back on" their own number, read back a digit at a time, and hang up. A
+caller who presses 2 is asked to type the number with its area code and press
+pound. The digits are checked: ten, or eleven with the 1 (North American
+numbers only, since a keypad has no plus key), never a three digit service
+code, a premium rate 900 or 976 number, or one of the company's own numbers. A
+number that cannot be used is said so ("Sorry, that is not a number we can
+call") and asked for again; after the third try they are called back on the
+number they called from. A number that can be used is read back a digit at a
+time, and only pressing 1 makes it the number they are rung on; 2 types it
+again, and anything else keeps the number they called from, because a number
+nobody confirmed is never the one rung. The change is written under "Where it
+went" ("Typed another number to be called back on: ..., instead of ...") and
+audited (`call.callback_number_changed`). While the caller hears the offer
+(half a minute at most) and while they type (up to three minutes), the group
+is not rung for their callback, so nobody rings a number about to change;
+their call ending lifts the hold at once, keeping whichever number they last
+confirmed. A caller whose number was withheld is still never offered a
+callback. They keep their place: the next person free in the line's
 ring group (and anybody already on a call is not rung) is given whichever of
 the callers still on hold and the callers waiting to be called back joined
 the line first, and a caller on hold behind a callback hears that there is a
@@ -609,6 +658,10 @@ holds `message:send` because they text from the field. Without that scope,
 | `POST /v1/calls/{id}/transcribe` | `message:send` |
 | `GET /v1/phone-menus` | `settings:read` |
 | `POST /v1/phone-menus` | `settings:write` |
+| `GET /v1/phone-menus/{id}/hours` | `settings:read` |
+| `PUT /v1/phone-menus/{id}/hours` | `settings:write` |
+| `POST /v1/phone-menus/{id}/holidays` | `settings:write` |
+| `DELETE /v1/phone-menus/{id}/holidays/{holidayId}` | `settings:write` |
 | `POST /v1/ring-groups` | `settings:write` |
 | `PUT /v1/answering-phones/{userId}` | `settings:write` |
 | `POST /v1/phone-numbers/{id}/answer-here` | `settings:write` |
@@ -654,8 +707,13 @@ caller who says "my furnace is out" reaches Service only if "furnace" or
 where a silent caller goes. What the carrier heard is taken as it is written,
 whatever its confidence, and the carrier's speech recognition, its timing
 and its charge per answer have not been tried on a live line. A number keeping its own hours keeps one week, the same
-every week of the year, and a phone menu answering it goes by that week as a
-whole: a menu cannot keep hours of its own apart from the number's. A number
+every week of the year, and so does a phone menu keeping its own week: a
+season is a branch's or the company's, so a menu wanting summer hours follows
+that branch or the company instead. A menu that follows the number and is
+reached from another menu is always open, as before; only a menu keeping
+hours of its own checks them there. A menu keeping its own week with every
+day marked closed is read as answering at every hour, as a number's is,
+because the router reads a week with no open hours as no week. A number
 has one branch, so a line shared by two branches goes by one of them or by
 the company. JustCall has no voice adapter.
 
@@ -668,8 +726,13 @@ it (see Waiting lines above); one who answered a plain forwarded call on their
 own phone is still rung. The callback offer is said inside the carrier's wait
 for a key with the music, and taking the caller out of the line on a 1 is
 Twilio's documented `Leave` from a key press: like the rest of the line it has
-been tested against a fake carrier, not a live one. A caller is rung back only
-on the number they called from; they cannot type another. A callback is never
+been tested against a fake carrier, not a live one. A caller can type
+another number only in North America, only on the keypad (not by saying it),
+and only in the moments after asking; once they have hung up it cannot be
+changed except by the office from the task it becomes. The typed number is
+checked for its shape, never that it rings anybody, so a well formed wrong
+number is rung, tried twice and then handed to the office like any callback
+nobody picks up. A callback is never
 recorded. The estimate is the same for every caller in the line whatever
 their place, said once as they join, and it is not said at all from fewer than
 five answered callers in the last three hours.
