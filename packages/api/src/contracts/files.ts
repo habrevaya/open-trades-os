@@ -80,6 +80,28 @@ export const markAttachmentSeen = defineRoute({
   output: z.object({ id: Uuid, seenAt: z.string().datetime().nullable() }),
 });
 
+/**
+ * PUTTING A FILE A LEAD SENT ONTO THE CUSTOMER'S JOB.
+ *
+ * A file sent with a hosted lead form is kept on the customer the form matched.
+ * Once the work is booked, the photograph of the leak belongs with the job.
+ * Moved, not copied, and nothing about who sees it changes: it keeps its kind,
+ * so it is still never shown to the customer, never on the job link and never
+ * on a technician's phone, and it is still read with `document:read`.
+ */
+export const moveFormFileToJob = defineRoute({
+  method: "post",
+  path: "/v1/attachments/{id}/job",
+  summary: "Move a file sent with a lead form onto one of the customer's jobs",
+  description:
+    "Only a file sent with a hosted form (kind `form_file`) that is on a customer, and only onto a job of that same customer that this person can see. It keeps its kind, so who can see it stays exactly as it was: the office with `document:read`, never the customer and never the technician's phone. Moving it to the job it is already on changes nothing. On the audit log.",
+  module: "M19",
+  permissions: ["document:read", "job:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, jobId: Uuid }),
+  output: z.object({ id: Uuid, entityType: z.literal("job"), entityId: Uuid }),
+});
+
 export const listAttachments = defineRoute({
   method: "get",
   path: "/v1/attachments",
@@ -239,5 +261,5 @@ export const getUploadStatus = defineRoute({
 
 export const fileRoutes = {
   listAttachments, uploadAttachment, listPendingUploads, storeUpload, failUpload, getUploadStatus,
-  shareAttachmentWithCustomer, markAttachmentSeen,
+  shareAttachmentWithCustomer, markAttachmentSeen, moveFormFileToJob,
 } as const;

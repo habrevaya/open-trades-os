@@ -425,3 +425,18 @@ run("a can that came back empty", () => {
     await expect(haulTimes.recordEmpty(owner(), { id: first.id, at: iso("2026-06-04", "18:00") })).rejects.toThrow(/on its next site/);
   });
 });
+
+run("a hold that names the customer", () => {
+  it("says on the register who a running hold is for, and refuses a customer who is not this company's", async () => {
+    const can = await container("CH-501");
+    const held = await haulTimes.holdForCustomer(keyed(), { assetId: can, reason: "Slab pour on Monday", customerId });
+    const row = (await rentals.listAssets(owner(), { limit: 500 })).data.find((a) => a.id === can)!;
+    expect(row.holds).toEqual([expect.objectContaining({ id: held.id, kind: "customer", customerId, customerName: "Builder Bob" })]);
+    await haulTimes.endHold(owner(), { id: held.id });
+
+    await expect(haulTimes.holdForCustomer(keyed(), {
+      assetId: can, reason: "Somebody else's", customerId: "11111111-1111-4111-8111-111111111111",
+    })).rejects.toThrow(/not found/i);
+    expect((await rentals.listAssets(owner(), { limit: 500 })).data.find((a) => a.id === can)!.holds).toEqual([]);
+  });
+});

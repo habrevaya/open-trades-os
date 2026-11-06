@@ -54,8 +54,11 @@ export async function act(_previous: ContainerState, form: FormData): Promise<Co
       }
       case "hold": {
         const since = localInstant(field(form, "since"), zone);
+        /** The customer who asked, when the office picked one; the service checks they are this company's. */
+        const customerId = field(form, "customerId");
         await haulTimes.holdForCustomer(ctx, {
           assetId: id, reason: String(form.get("reason") ?? ""), ...(since ? { startsAt: since } : {}),
+          ...(customerId ? { customerId } : {}),
         });
         return;
       }

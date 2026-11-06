@@ -1165,6 +1165,7 @@ export const handlers = {
   }),
   shareAttachmentWithCustomer: files.handlers.shareAttachmentWithCustomer,
   markAttachmentSeen: files.handlers.markAttachmentSeen,
+  moveFormFileToJob: files.handlers.moveFormFileToJob,
   // Sign ins seen from the office, the public brand, visit notes, bank payments, booking from the account (M05, M13)
   listPortalSignIns: portalAccess.handlers.listPortalSignIns,
   listCustomerPortalSessions: portalAccess.handlers.listCustomerPortalSessions,

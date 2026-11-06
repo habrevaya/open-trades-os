@@ -148,6 +148,9 @@ export const listRentableAssets = defineRoute({
         kind: z.enum(["repair", "customer"]),
         startsAt: z.string().datetime().nullable(),
         reason: z.string(),
+        /** The customer a hold names, when it names one. */
+        customerId: Uuid.nullable(),
+        customerName: z.string().nullable(),
       })),
     })),
   }),

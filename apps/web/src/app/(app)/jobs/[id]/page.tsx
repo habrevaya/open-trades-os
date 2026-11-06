@@ -37,6 +37,7 @@ import { OfferAgain, OfferWaiting, VisitChangeDecision } from "@/components/Visi
 import { CompleteVisit, CancelJob, JobLifecycle, UsedOnJob, OPEN_VISIT } from "./Work";
 import { Origin } from "./Origin";
 import { JobFiles } from "./Files";
+import { FormFiles } from "../../customers/[id]/FormFiles";
 import { Permits } from "./Permits";
 import { EstimateDrafts } from "./EstimateDrafts";
 import { Stages } from "./Stages";
@@ -759,6 +760,8 @@ export default async function JobPage({ params, searchParams }: {
       )}
 
       <JobFiles ctx={ctx} jobId={id} visitIds={visitIds} timezone={user.organizationTimezone} />
+      {/* Files a lead sent with a form, put on this job from the customer's page. Still the office's alone. */}
+      <FormFiles ctx={ctx} customerId={job.customerId} jobId={id} timezone={user.organizationTimezone} />
       <Permits ctx={ctx} jobId={id} today={todayIn(user.organizationTimezone)} />
 
       <CustomFieldsPanel

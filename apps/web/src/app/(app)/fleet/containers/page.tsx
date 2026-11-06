@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { rentals, rentalBilling, properties, inTenant, disposalFacilities, haulTimes } from "@opentradesos/api/services";
+import { rentals, rentalBilling, properties, inTenant, disposalFacilities, haulTimes, customers } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq } from "drizzle-orm";
@@ -120,6 +120,16 @@ export default async function ContainersPage(
   const writes = can(user.actor, "asset:write");
   const addresses = writes && can(user.actor, "property:read")
     ? (await properties.list(ctx, { limit: 200 })).data
+    : [];
+  /**
+   * Who a hold can name, for somebody who may read customers: the two hundred
+   * added most recently, or the ones matching a name searched for above the
+   * register, so a customer from years ago can be named too.
+   */
+  const holdSearch = one("holdFor")?.trim() || undefined;
+  const holdFor = writes && can(user.actor, "customer:read")
+    ? (await customers.list(ctx, { limit: 200, includeInactive: false, ...(holdSearch ? { q: holdSearch } : {}) }))
+        .data.map((c) => ({ id: c.id, name: c.name }))
     : [];
   const inTheYard = fleet.data.filter((row) => row.status === "available");
   const open = hires.data.filter((row) => row.open);
@@ -547,6 +557,20 @@ export default async function ContainersPage(
       </section>
 
       <h2 className="mt-10 text-base font-semibold">The register</h2>
+      {writes && can(user.actor, "customer:read") ? (
+        <form method="get" className="mt-2 flex flex-wrap items-center gap-2 text-sm" aria-label="Customer search for holds">
+          <input name="holdFor" defaultValue={holdSearch ?? ""} placeholder="Customer name, phone or email"
+                 aria-label="Find a customer to hold a can for" className={`${input} w-64`} />
+          <button type="submit" className="inline-flex h-8 items-center rounded border border-steel-300 px-2.5 hover:bg-steel-100">
+            Find
+          </button>
+          <span className="text-ink-500">
+            {holdSearch
+              ? `"Hold for a customer" below offers the customers matching "${holdSearch}".`
+              : "\"Hold for a customer\" below offers the customers added most recently. Find an older one here."}
+          </span>
+        </form>
+      ) : null}
       <Register
         containers={fleet.data}
         zone={zone}
@@ -604,7 +628,18 @@ export default async function ContainersPage(
             */}
             {container.status === "available" && !(container.holds ?? []).some((h) => h.kind === "customer") && (
               <ActionForm op="hold" label="Hold for a customer" quiet hidden={{ id: container.id }}>
-                <input name="reason" required placeholder="Who asked, and why" className={`${input} w-48`}
+                {/*
+                  The customer on file, when the person may read customers:
+                  named here, the hold says who on the row and in the history,
+                  and the reason says why. Nobody on file is still a hold.
+                */}
+                {holdFor.length > 0 ? (
+                  <select name="customerId" className={input} aria-label={`Customer ${container.identifier} is held for`} defaultValue="">
+                    <option value="">Customer not on file</option>
+                    {holdFor.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                ) : null}
+                <input name="reason" required placeholder={holdFor.length > 0 ? "Why" : "Who asked, and why"} className={`${input} w-48`}
                        aria-label={`Who asked for ${container.identifier} to be held`} />
                 <input name="since" type="datetime-local" className={input} aria-label={`Held since, ${container.identifier}`} />
               </ActionForm>
