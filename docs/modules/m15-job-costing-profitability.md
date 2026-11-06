@@ -203,8 +203,8 @@ its budget, the run rate and the seasonal shape adding up to 100) while every ot
 year's choice: "A blend for one line" on `/books/budget`, or
 `PUT /v1/budgets/{year}/forecast/lines` with the line and `weights`, `null` to take it off
 (`finance:configure`, audited as `budget.line_blend_set` and `budget.line_blend_removed`, and the
-same blend sent again changes nothing). It is kept by the line's key (`category:revenue`,
-`account:6100`), so it applies to that line in the company's report and in every branch's and job
+same blend sent again changes nothing). It is kept by the line (Revenue, or an account number
+such as 6100), so it applies to that line in the company's report and in every branch's and job
 type's. A line not in the year's budget is refused in words, so a mistyped name never quietly does
 nothing, and a blend that weighs the shape needs the shape's years in the books, as the year's
 does. The line says "Its own blend: 50% at its budget and 50% at the run rate" under its forecast,
