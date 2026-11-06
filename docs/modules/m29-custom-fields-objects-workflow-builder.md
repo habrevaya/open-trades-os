@@ -425,6 +425,14 @@ search box does, through the same lists and so at the writer's own scope: a
 technician allowed to file records is offered the work they were sent to, a branch
 manager their branch's. "Point at this one" saves it and goes back to the record. A
 job brings its customer and address with it when the kind points at those too.
+"Change several at once" under the list opens `/records/{type}/{id}/links`, a form
+with every link the kind offers: type words in as many boxes as needed and press
+"Find", then pick one for each link, "Keep it as it is" or "Take it off", and press
+"Save these changes". All of them go to the service as one change, through the same
+lists and the same checks as the one link page, and if any one of them is refused
+none of them is saved, with each refusal said in words, so a record is never left
+half moved (one line in the audit log, one `record.updated`). A person and a record
+are picked from their short lists without typing.
 `PATCH /v1/custom-records/{id}` does the same through the API, and both are held to
 exactly the checks making a record with that link is: the kind's write permission,
 the permission that reads the thing pointed at, and the writer's scope on it (a job,
@@ -832,9 +840,10 @@ kind of record's. A kind of record points at one record of one other kind, not
 several, and an invoice, a person and a record are chosen on the form only as
 described above: an invoice is carried in from its page, a person is picked only by
 somebody holding `user:read` (anybody else opens the form from the person's page),
-and the record list offered is the first two hundred. A record's links are changed
-one at a time on its page, by finding the new one with words: there is no form
-that changes several at once (the API's `PATCH` does). The page that chooses a
+and the record list offered is the first two hundred. A record's links are found with
+words, one link at a time or several on one form; a job chosen there does not fill the
+customer and address boxes on the same form, it brings them with it only when they
+are left as they are, as on the one link page. The page that chooses a
 person offers the people the writer may see and themselves, and the page that
 chooses a record offers fifty of the kind it points at, narrowed by words. An
 address or a unit can be pointed at only when the writer can see work at that

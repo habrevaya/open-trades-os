@@ -32,7 +32,8 @@ test("Dashboards: days chosen on the screen and its PDF, and a second measure on
 
   /** The wrong way round is refused in words, and the dashboard is drawn as it stands. */
   await owner.goto("/dashboards/money?dates=between&from=2001-03-31&to=2001-03-01");
-  await expect(owner.getByRole("alert")).toContainText("The last day, Mar 1, 2001, is before the first, Mar 31, 2001. Swap them.");
+  await expect(owner.getByRole("form", { name: "Dates for this dashboard" }).locator("..").getByRole("alert"))
+    .toContainText("The last day, Mar 1, 2001, is before the first, Mar 31, 2001. Swap them.");
   const refused = await owner.request.get("/dashboards/money/pdf?dates=between&from=2001-03-31&to=2001-03-01");
   expect(refused.status()).toBe(409);
 

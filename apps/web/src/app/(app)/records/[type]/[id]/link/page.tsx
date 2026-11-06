@@ -1,24 +1,16 @@
 import { notFound, redirect } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { billing, customers, customObjects, equipment, jobs, NotFoundError, properties } from "@opentradesos/api/services";
+import { customObjects, NotFoundError } from "@opentradesos/api/services";
 import { customObjects as rules, PermissionError } from "@opentradesos/core";
 import { ActionForm } from "@/components/ActionForm";
 import { Crumb } from "@/components/Detail";
 import { Empty, PageHeader } from "@/components/Table";
 import { ListSearch, searchWords } from "@/components/ListSearch";
 import { setRecordLink } from "../../../actions";
+import { choicesFor, HINT as hint, listedLink, PLURAL, type Choice } from "../choices";
 
 export const dynamic = "force-dynamic";
-
-interface Choice { id: string; title: string; detail: string | null }
-
-const PLURAL: Record<rules.Link, string> = {
-  customer: "customers", property: "addresses", job: "jobs", equipment: "units",
-  invoice: "invoices", membership: "the people list", record: "these records",
-};
-
-const joined = (parts: Array<string | null | undefined>, by = " ") => parts.filter((p) => p && p.trim() !== "").join(by);
 
 /**
  * POINT A RECORD AT SOMETHING ELSE
@@ -55,55 +47,8 @@ export default async function RecordLinkPage({
   const q = searchWords(query.q);
   const back = `/records/${type}/${id}`;
 
-  /** People and records are a short list to choose from; everything else is found by words. */
-  const listed = to === "membership" || to === "record";
-  let choices: Choice[] = [];
-  let unreadable = false;
-  try {
-    if (to === "membership") {
-      const people = await customObjects.peopleToLink(ctx);
-      const words = (q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
-      choices = people.filter((p) => words.every((w) => p.name.toLowerCase().includes(w)))
-        .map((p) => ({ id: p.membershipId, title: p.name, detail: null }));
-    } else if (to === "record") {
-      const page = await customObjects.listRecords(ctx, { type: kind.recordKind ?? "", limit: 50, ...(q ? { q } : {}) });
-      choices = page.data.filter((r) => r.id !== id)
-        .map((r) => ({ id: r.id, title: r.title, detail: r.job?.name || r.customer?.name || null }));
-    } else if (q && q.length >= 2) {
-      if (to === "job") {
-        choices = (await jobs.list(ctx, { q, limit: 20 })).data
-          .map((j) => ({ id: j.id, title: `Job ${j.number}: ${j.summary}`, detail: joined([j.customerName, j.propertyAddress], ", ") || null }));
-      } else if (to === "customer") {
-        choices = (await customers.list(ctx, { q, limit: 20, includeInactive: false })).data
-          .map((c) => ({ id: c.id, title: c.name, detail: c.email ?? c.phone ?? null }));
-      } else if (to === "invoice") {
-        choices = (await billing.list(ctx, { q, limit: 20 })).data
-          .map((i) => ({ id: i.id, title: `Invoice ${i.number}`, detail: i.customerName }));
-      } else if (to === "property") {
-        choices = (await properties.findByStreet(ctx, { q, limit: 20 })).data
-          .map((p) => ({ id: p.id, title: joined([p.line1, p.line2], ", "), detail: joined([p.city, p.state], ", ") || null }));
-      } else {
-        choices = (await equipment.findUnits(ctx, { q, limit: 20 })).data
-          .map((u) => ({
-            id: u.id, title: joined([u.tag ?? u.category, joined([u.manufacturer, u.model])], ": "),
-            detail: joined([u.serialNumber ? `Serial ${u.serialNumber}` : null, u.street ? `at ${u.street}` : null]) || null,
-          }));
-      }
-    }
-  } catch (error) {
-    if (!(error instanceof PermissionError)) throw error;
-    unreadable = true;
-  }
-
-  const hint: Record<rules.Link, string> = {
-    job: "A job number, or words from the job or the customer's name",
-    customer: "Part of the customer's name, email or phone",
-    property: "Part of the street",
-    equipment: "A serial number, or the make or model",
-    invoice: "An invoice number or the customer's name",
-    membership: "Part of their name",
-    record: "Its name or a value",
-  };
+  const listed = listedLink(to);
+  const { choices, unreadable }: { choices: Choice[]; unreadable: boolean } = await choicesFor(ctx, kind, to, q, id);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 lg:px-6">

@@ -93,6 +93,11 @@ export default async function RecordPage({ params }: { params: Promise<{ type: s
               );
             })}
           </ul>
+          {kind.links.length > 1 ? (
+            <p className="mt-2 text-sm">
+              <a href={`/records/${type}/${id}/links`} className="underline underline-offset-4">Change several at once</a>
+            </p>
+          ) : null}
           <h2 id="record-edit" className="mt-8 text-base font-semibold">Change it</h2>
           <ActionForm action={updateRecord} submit="Save" hidden={{ id }} done="Saved.">
             <TextField label={kind.titleLabel} name="title" required maxLength={200} defaultValue={record.title} />

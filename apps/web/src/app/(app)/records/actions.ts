@@ -101,6 +101,32 @@ export async function setRecordLink(_previous: FormState, form: FormData): Promi
   return result;
 }
 
+/**
+ * Several of a record's links changed at once, from the form that offers every
+ * link its kind has: each `link_<name>` is a new one's id, "none" to take it
+ * off, or empty to keep it. One change to the service, so either all of them
+ * are saved or, when one is refused, none is.
+ */
+export async function setRecordLinks(_previous: FormState, form: FormData): Promise<FormState> {
+  const id = String(form.get("id") ?? "");
+  const type = String(form.get("type") ?? "");
+  const changes: Record<string, string | null> = {};
+  for (const [link, key] of Object.entries(LINK_INPUT)) {
+    const value = form.get(`link_${link}`);
+    if (typeof value !== "string" || value === "") continue;
+    changes[key] = value === "none" ? null : value;
+  }
+  if (Object.keys(changes).length === 0) return refused(form, "Choose at least one change, or go back to the record.");
+  let saved = false;
+  const result = await attempt(form, async () => {
+    await customObjects.updateRecord(await ctx(), { id, ...changes });
+    saved = true;
+  });
+  revalidatePath("/records", "layout");
+  if (saved) redirect(`/records/${type}/${id}`);
+  return result;
+}
+
 export async function removeRecord(_previous: FormState, form: FormData): Promise<FormState> {
   const id = String(form.get("id") ?? "");
   const type = String(form.get("type") ?? "");
