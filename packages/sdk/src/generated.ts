@@ -9825,6 +9825,7 @@ export interface GetFieldSnapshotOutput {
       rentalId: string;
       container: string;
       tippedAt: string | null;
+      cameBackEmptyAt?: string;
     } | null;
   }>;
 }

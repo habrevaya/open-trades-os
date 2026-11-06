@@ -639,7 +639,8 @@ export const getFieldSnapshot = defineRoute({
     /**
      * The container hauls on this person's stops, so the driver records the
      * moment a can was put down (`drop`) and the moment a full one was
-     * emptied at the facility (`tip`) with no signal (`haul.time`). A
+     * emptied at the facility, or that it came back empty (`tip`), with no
+     * signal (`haul.time`). A
      * delivery has a drop, a collection a tip, and a swap both once the
      * office has recorded it. Absent from older servers and on an unchanged
      * poll.
@@ -650,7 +651,11 @@ export const getFieldSnapshot = defineRoute({
       drop: z.object({
         rentalId: Uuid, container: z.string(), deliveredAt: z.string().datetime().nullable(), timeKnown: z.boolean(),
       }).nullable(),
-      tip: z.object({ rentalId: Uuid, container: z.string(), tippedAt: z.string().datetime().nullable() }).nullable(),
+      tip: z.object({
+        rentalId: Uuid, container: z.string(), tippedAt: z.string().datetime().nullable(),
+        /** Present when the can is marked as having come back empty, from the office or the driver's phone. */
+        cameBackEmptyAt: z.string().datetime().optional(),
+      }).nullable(),
     })).optional(),
   }),
 });

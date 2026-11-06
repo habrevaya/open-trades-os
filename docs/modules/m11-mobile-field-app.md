@@ -32,7 +32,7 @@ right answer is different for different things.
 ## Key concepts
 
 **Writes are named intents, not row diffs.** Thirty two operation kinds and the
-list is closed (`visit.call_off` is a visit called off from the door and `part.request` a part asked of the office, below; the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down or emptied one, below): a new kind is a schema decision and a conflict decision, not
+list is closed (`visit.call_off` is a visit called off from the door and `part.request` a part asked of the office, below; the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down, emptied one, or found one came back empty, below): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -473,23 +473,34 @@ yesterday and today with the water already read (`trucks`), so the card works
 with no signal and shows a reading the office corrected. The office's side and
 what the figure is are M22 and M21 (fresh water per stop).
 
-### When a container was put down, and when one was emptied
+### When a container was put down, and when one was emptied or came back empty
 
 A driver whose day has container stops (a visit that names a hire as its drop
 off, collection or swap) sees "Container times" on the day, on the phone app
 and on `/my-day`: for a drop off, when the can was put down; for a collection,
-when the full can was emptied at the facility; for a swap, both, the empty
-once the office has recorded the swap. "Now" records the moment it is tapped,
+when the full can was emptied at the facility, or that it came back empty; for
+a swap, both, the empty once the office has recorded the swap. "Now" records the moment it is tapped,
 or a time typed for earlier today ("14:30" or "2:30 pm", in the phone's own
 clock, never one still to come). It goes into the queue as `haul.time` (an
-edit: the subject is the hire and `placed` or `tipped` is the field, so tapping
-again replaces that time and leaves the other alone), shown as waiting to send
-until it lands, and is refused in words for a hire that is not on one of the
+edit: the subject is the hire and `placed`, `tipped` or `empty` is the field, so
+tapping again replaces that time and leaves the others alone), shown as waiting to
+send until it lands, and is refused in words for a hire that is not on one of the
 phone's own person's stops, and with the office's own refusals (a drop on
 another day than the delivery recorded, a tip before the delivery or after the
-can was on its next site). The snapshot carries the hauls on the day's stops
-with the times already recorded (`hauls`), so it works with no signal and
-shows a time the office corrected. What the times are for is M22 and M21
+can was on its next site).
+
+"It came back empty", under a collected can's tip, is for a can the customer put
+nothing in: "Now" or the time it was collected, on the collection's day. It is
+held to exactly the office's rules for `PUT /v1/rentals/{id}/came-back-empty`:
+refused before the collection is recorded, for a haul with a tip time, a scale
+ticket, a weight or a disposal fee on it, for another day than the collection,
+for a time still to come, and after the can was on its next site; on the audit
+log as the phone's. A stop offers the tip time or the empty mark, never both, and
+once a can is marked empty it says so ("came back empty: collected 10:00 AM") and
+offers neither: taking the mark off is the office's, as clearing a tip time is. The snapshot carries the hauls on the day's stops
+with the times already recorded (`hauls`, with `cameBackEmptyAt` on a tip only when
+the can is marked empty), so it works with no signal and shows a time or a mark the
+office recorded. What the times are for is M22 and M21
 (turnaround between pickup and redelivery).
 
 ### Inspections

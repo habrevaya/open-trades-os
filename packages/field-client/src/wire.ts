@@ -435,7 +435,8 @@ export interface FieldHaul {
   visitId: string;
   leg: "delivery" | "pickup" | "swap";
   drop: { rentalId: string; container: string; deliveredAt: string | null; timeKnown: boolean } | null;
-  tip: { rentalId: string; container: string; tippedAt: string | null } | null;
+  /** `cameBackEmptyAt` is present when the can is marked as having come back empty. Absent from older servers. */
+  tip: { rentalId: string; container: string; tippedAt: string | null; cameBackEmptyAt?: string | undefined } | null;
 }
 
 export interface CodeRequestResult {

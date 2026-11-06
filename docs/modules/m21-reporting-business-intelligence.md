@@ -651,8 +651,8 @@ midday. And the exclusions were the can's state today, with no history. Now
   somebody who asked) are periods with a start and an end (`container_hold`).
 - **A can that came back empty.** Nothing was tipped and nothing will be. The
   office marks the haul with the moment it was collected ("Came back empty"
-  on the board, `came_back_empty_at`), and that moment stands where the tip
-  would.
+  on the board, `came_back_empty_at`), or the driver does from the phone ("It
+  came back empty", `haul.time`), and that moment stands where the tip would.
 
 What it counts:
 
@@ -1534,9 +1534,9 @@ recorded: a delivery recorded as a day (every hire from before the time was
 kept among them) and a haul whose tip nobody recorded are counted beside the
 figure, never given an hour, so a company's first months read "Not this window"
 or a figure over only the placements timed since. A can collected empty is
-measured from its collection only once the office marks it so with the time;
-until then, and for every empty can before the mark existed, its next placement
-is counted beside as not known. The driver's phone does not say it.
+measured from its collection only once the office or the driver's phone marks it
+so with the time; until then, and for every empty can before the mark existed, its
+next placement is counted beside as not known.
 A repair or a customer hold running at any moment between a tip and the next
 drop leaves the whole turnaround out rather than the hours it ran; that is the
 conservative reading of "EXCLUDES cans held", and the product owner has not

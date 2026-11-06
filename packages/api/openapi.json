@@ -125540,7 +125540,7 @@
       "put": {
         "operationId": "recordRentalEmpty",
         "summary": "Record that a collected can came back empty",
-        "description": "The customer put nothing in it, so no tip is expected. `at` is the moment it was collected, on the collection's day; null takes the mark off. The turnaround then measures the can's next placement from that moment rather than counting it beside as not known. Refused before the collection is recorded, for a haul with a tip time or a scale ticket (then it was not empty), for a time still to come, and after the can was already on its next site. On the audit log.\n\nRequires a session holding: asset:write.",
+        "description": "The customer put nothing in it, so no tip is expected. `at` is the moment it was collected, on the collection's day; null takes the mark off. The turnaround then measures the can's next placement from that moment rather than counting it beside as not known. Refused before the collection is recorded, for a haul with a tip time or a scale ticket (then it was not empty), for a time still to come, and after the can was already on its next site. The driver records the same from the phone, under the same rules; only the office takes the mark off. On the audit log.\n\nRequires a session holding: asset:write.",
         "tags": [
           "M22"
         ],
@@ -210353,6 +210353,10 @@
                         "string",
                         "null"
                       ],
+                      "format": "date-time"
+                    },
+                    "cameBackEmptyAt": {
+                      "type": "string",
                       "format": "date-time"
                     }
                   },

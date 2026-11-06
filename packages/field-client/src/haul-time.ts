@@ -1,7 +1,7 @@
 import type { FieldQueue } from "./queue";
 
 /**
- * WHEN A CONTAINER WAS PUT DOWN, AND WHEN ONE WAS EMPTIED
+ * WHEN A CONTAINER WAS PUT DOWN, AND WHEN ONE WAS EMPTIED, OR CAME BACK EMPTY
  *
  * The dumpster trade's turnaround is hours from a can emptied at the facility
  * to it placed on the next site, and both moments are the driver's: one at the
@@ -11,7 +11,12 @@ import type { FieldQueue } from "./queue";
  * so tapping again replaces that time and leaves the other alone.
  */
 
-export type HaulMoment = "placed" | "tipped";
+/**
+ * `empty` is a collected can that came back with nothing in it, at the moment
+ * it was collected, so there is no tip to wait for. The server holds it to the
+ * office's rules, and only the office takes the mark off.
+ */
+export type HaulMoment = "placed" | "tipped" | "empty";
 
 /**
  * A clock time typed as "14:30" or "2:30 pm", on a day, as an instant in the
@@ -35,7 +40,7 @@ export function haulClock(typed: string, now: Date = new Date()): { ok: true; at
   return { ok: true, at };
 }
 
-/** Queue the moment a can was put down or emptied. */
+/** Queue the moment a can was put down, emptied, or found to have come back empty. */
 export async function recordHaulTime(queue: FieldQueue, input: {
   rentalId: string; visitId: string; moment: HaulMoment; at: Date;
 }) {
@@ -44,4 +49,17 @@ export async function recordHaulTime(queue: FieldQueue, input: {
     subjectId: input.rentalId,
     payload: { field: input.moment, at: input.at.toISOString(), visitId: input.visitId },
   });
+}
+
+/**
+ * What a collected can's stop offers: the time it was emptied at the facility,
+ * or that it came back empty, and never both, because the server refuses a tip
+ * on a can marked empty and an empty mark on a can with a tip time. Once it is
+ * marked empty neither is offered: taking the mark off is the office's.
+ */
+export function haulTipChoices(tip: { tippedAt: string | null; cameBackEmptyAt?: string | undefined }): {
+  emptyAt: string | null; offerTip: boolean; offerEmpty: boolean;
+} {
+  if (tip.cameBackEmptyAt) return { emptyAt: tip.cameBackEmptyAt, offerTip: false, offerEmpty: false };
+  return { emptyAt: null, offerTip: true, offerEmpty: tip.tippedAt === null };
 }
