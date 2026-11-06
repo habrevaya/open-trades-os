@@ -581,7 +581,9 @@ async function chargesWithin(tx: Database, invoiceId: string): Promise<ChargeVie
    */
   const now = (charge: typeof schema.cardOnFileCharge.$inferSelect, settled: string | null) =>
     charge.status !== "submitted" ? charge.status
-      : settled === "succeeded" ? "paid" : settled === "failed" ? "failed" : "submitted";
+      : settled === "succeeded" ? "paid" : settled === "failed" ? "failed"
+        /** Cancelled at the processor before any money moved. */
+        : settled === "abandoned" ? "cancelled" : "submitted";
   return rows.map(({ charge, card, by, settled, error }) => ({
     id: charge.id,
     trigger: charge.trigger === "autopay" ? "autopay" as const : "office" as const,
@@ -591,7 +593,8 @@ async function chargesWithin(tx: Database, invoiceId: string): Promise<ChargeVie
     amount: charge.amount,
     card: cp.methodLabel(card),
     requestedBy: by ?? null,
-    failureReason: charge.failureReason ?? (now(charge, settled) === "failed" ? error : null),
+    failureReason: charge.failureReason
+      ?? (now(charge, settled) === "failed" || (charge.status === "submitted" && settled === "abandoned") ? error : null),
     retryAt: charge.retryAt?.toISOString() ?? null,
     customerTold: charge.customerTold,
     customerToldNote: charge.customerToldNote,

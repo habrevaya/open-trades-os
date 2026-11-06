@@ -417,10 +417,11 @@ export const payPortalInvoiceWithCard = defineRoute({
   path: "/v1/portal/cards/{cardId}/pay",
   summary: "Pay one invoice with a saved card",
   description:
-    "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. A saved bank account always answers processing: it is pending for a few business days, the invoice cannot be paid again meanwhile, and a failure is told to the office. The invoice shows paid when the processor's signed webhook says the money moved. Not repeatable: the card is charged on the spot, and a second request while the invoice still shows a balance (before the processor's webhook arrives) charges it again, whatever `idempotency-key` it carries. Do not retry it on your own; read the invoice first.",
+    "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. A saved bank account always answers processing: it is pending for a few business days, the invoice cannot be paid again meanwhile, and a failure is told to the office. The invoice shows paid when the processor's signed webhook says the money moved. Never charged twice: until the webhook says the first charge succeeded, failed or was cancelled, a second request for the invoice with the same card, amount and tip gets the first charge back (the same intent id and status; the client secret only when the bank still wants the customer, otherwise empty), and any other card payment of the invoice is refused with 409. A charge still unresolved after three days (one hour when the bank was waiting on the customer) no longer holds the invoice. A repeat with the same `idempotency-key` gets the first answer back at any time, even once the invoice is paid, and the processor is asked with a key made from it, so it too answers a retry with the first charge. When the processor never answered, the answer is 409 and the same request again asks it again with the same key.",
   module: "M13",
   permissions: [],
   authorization: "grant",
+  idempotent: true,
   input: z.object({
     token: Token,
     cardId: Uuid,

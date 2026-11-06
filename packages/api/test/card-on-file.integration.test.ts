@@ -717,3 +717,79 @@ run("an invoice with a bank payment on its way", () => {
     });
   });
 });
+
+/* ============================ one charge at a time, whoever asks for it === */
+
+/**
+ * A saved card's charge holds its invoice until the processor's webhook
+ * resolves it (`payments.CHARGE_HOLD`), whichever path asked: the customer
+ * pressing Pay, the office pressing Charge, or the worker paying it
+ * automatically. A second charge by any of them meanwhile is refused and
+ * never reaches the processor.
+ */
+run("one charge of a saved card at a time on an invoice, whoever asks", () => {
+  let lee = "";
+  let token = "";
+  let cardId = "";
+  let ref = "";
+  /** Lee's charges only: the worker below also looks at every other customer's bills in the company. */
+  const leeCharges = () => stripe.charges.filter((c) => c.paymentMethodRef === ref).length;
+
+  beforeAll(async () => {
+    if (!url) return;
+    stripe = new FakeStripe();
+    lee = await aCustomer(ORG, owner(), "Lee Twice", "lee@onfile.test");
+    token = await signedIn(lee);
+    cardId = (await saveACard(token)).id;
+    await agreed(token, cardId);
+    ref = (await raw<{ external_ref: string }[]>`select external_ref from public.saved_payment_method where id = ${cardId}`)[0]!.external_ref;
+  });
+
+  beforeEach(() => {
+    stripe.answers = ["succeeded"];
+  });
+
+  it("refuses the office's charge while the customer's own payment with the card is unresolved", async () => {
+    const invoiceId = await anInvoice(lee, "140.00");
+    const before = leeCharges();
+    await savedCards.pay(db(), { token, invoiceId, cardId }, undefined, deps());
+    await expect(cardOnFile.charge(owner({ idempotencyKey: `twice-office-${invoiceId}` }), { invoiceId, cardId }, deps()))
+      .rejects.toThrow(/is already going through\. Wait for it to finish before paying again\./);
+    expect(leeCharges() - before).toBe(1);
+    expect((await charges(invoiceId))[0]).toMatchObject({ trigger: "office", status: "cancelled" });
+  });
+
+  it("charges once when the office presses Charge twice in the same instant", async () => {
+    const invoiceId = await anInvoice(lee, "145.00");
+    const before = leeCharges();
+    const plain = stripe.charge.bind(stripe);
+    /** Slow enough that the second press arrives while the first is still with the processor. */
+    stripe.charge = async (request) => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return plain(request);
+    };
+    try {
+      const results = await Promise.allSettled([
+        cardOnFile.charge(owner({ idempotencyKey: `twice-a-${invoiceId}` }), { invoiceId, cardId }, deps()),
+        cardOnFile.charge(owner({ idempotencyKey: `twice-b-${invoiceId}` }), { invoiceId, cardId }, deps()),
+      ]);
+      expect(leeCharges() - before).toBe(1);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect((results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason).toBeInstanceOf(ConflictError);
+    } finally {
+      stripe.charge = plain;
+    }
+  });
+
+  it("does not pay a bill automatically while the customer's own payment of it is unresolved", async () => {
+    await cardOnFile.setAutopay(db(), { token, cardId, on: true, wording: (await wordsFor(token, cardId)).autopay });
+    const invoiceId = await anInvoice(lee, "150.00");
+    const before = leeCharges();
+    await savedCards.pay(db(), { token, invoiceId, cardId }, undefined, deps());
+    await cardOnFile.autopayFor(db(), ORG, { deps: deps() });
+    expect(leeCharges() - before).toBe(1);
+    const [row] = await charges(invoiceId);
+    expect(row).toMatchObject({ trigger: "autopay", status: "cancelled" });
+    await cardOnFile.setAutopay(db(), { token, cardId, on: false });
+  });
+});

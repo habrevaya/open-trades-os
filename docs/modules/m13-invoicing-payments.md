@@ -316,6 +316,31 @@ company takes them (`POST /v1/portal/invoice/pay` and
 came with its payments and who each is for, under **Tips**, and
 `GET /v1/invoices/{id}/tips` is the same list. `POST /v1/payments/{id}/apply` puts held money onto invoices later.
 
+**A saved card is never charged twice for one bill before the webhook.** A
+saved card is charged the moment the customer presses Pay, and the invoice still
+shows the balance until Stripe's webhook says the money moved. In that gap a
+double tap, a retry or a second open tab would be a second charge, so until the
+webhook says the first charge succeeded, failed or was cancelled, the invoice is
+held. The same card, amount and tip pressed again gets the first charge back,
+and the customer sees the same answer. Anything else is refused with "A payment
+for invoice 1042 is already going through. Wait for it to finish before paying
+again.": another card, another amount, the office pressing **Charge**, paying it
+automatically, or starting a card payment of it from its link or the invoice
+screen. The invoice is locked while this is decided, so two presses at the same
+instant are still one charge. A charge that failed or was cancelled frees the
+invoice straight away. A charge that stays unresolved stops holding it after
+three days when Stripe said the money went (Stripe stops retrying a webhook
+after three days), or after one hour when the customer's bank wanted them to
+confirm it and they did not, since no money moves without them. When Stripe
+does not answer at all, the customer is told "We did not hear back from the
+card processor, so we cannot tell yet whether the card was charged. Press Pay
+again in a minute to check. You will not be charged twice.", and pressing Pay
+again asks Stripe again with the same key, which answers with the first charge
+if there was one. An API client sending an `Idempotency-Key` gets the first
+answer back for the same key at any time (M26). Stripe's own cancellation of a
+payment (`payment_intent.canceled`) is read too: nothing is booked or reversed,
+and the charge counts as resolved.
+
 **The office takes a tip too**, when the customer on the phone or at the counter
 adds one. Taking a card on the invoice screen asks "Did the customer add a tip for
 Sam?" with the company's suggested percentages, and the card is charged the balance
@@ -356,7 +381,9 @@ whole; a tip the customer adds in person is recorded on the office's own card
 and cash screens, and one added online is the customer's, on the page. The same panel lists every charge of a saved card on the
 invoice: by whom or by the automatic payment, and what became of it, read
 from the payment attempt, so it says paid as soon as the webhook has said
-so. A second charge is refused while one is still with the processor.
+so. A second charge is refused while one is still with the processor, and so
+is a charge while the customer's own payment with a saved card is going through
+(see **A saved card is never charged twice for one bill before the webhook**).
 `GET /v1/invoices/{id}/cards-on-file` (`payment:read`) is the same read.
 Each card says how it was agreed: in the customer's own account (and by which
 contact), or by the office from a phone call or a signed form, with the day
@@ -778,7 +805,15 @@ time. The monthly run copies one
 person, the one the customer record names, by email and never by text, and copies
 nobody whom the record does not name. An old statement's single copy stays in the
 columns it was written in. A tip is taken from the portal, with cash or a check on site, and by the office with a card
-on the invoice or with cash, a check or a transfer on Record a payment, one invoice at a time. Refunding a
+on the invoice or with cash, a check or a transfer on Record a payment, one invoice at a time. A saved
+card's charge holds its invoice until the webhook resolves it for three days at most (one hour when the
+customer's bank was waiting on them), because a webhook can be lost; after that a fresh payment is allowed,
+and if the first did go through the customer has paid twice and the office refunds one. A charge nobody
+heard back on is asked again only within a day, because Stripe forgets its key after that. A payment the
+customer starts from a pay form and confirms in the browser does not hold the invoice the same way: it is
+not seen as going through until its webhook arrives. A charge the office or paying automatically was
+refused because the customer's own payment was going through is recorded as cancelled with that reason,
+and paying automatically does not try that bill again if the customer's payment then fails. Refunding a
 payment refunds the invoice part and leaves its tip owed to the technicians, because handing a tip back is a
 decision nobody here has made for the company. A tip sent with `POST /v1/payments` alone is booked to Tips
 payable and shared with nobody, as it always was, because whether a tip on a payment brought in from another
