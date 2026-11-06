@@ -21,9 +21,9 @@ const url = process.env.DATABASE_URL;
 if (!url && process.env.CI) throw new Error("DATABASE_URL is not set. These tests must run in CI, not skip.");
 const run = url ? describe : describe.skip;
 
-const ORG = fixtureId("record-links:org");
-const USER = fixtureId("record-links:user");
-const OTHER = fixtureId("record-links:other");
+const ORG = fixtureId("record-links-at-once:org");
+const USER = fixtureId("record-links-at-once:user");
+const OTHER = fixtureId("record-links-at-once:other");
 
 let raw: postgres.Sql;
 const db = () => testDb(url!);
@@ -49,8 +49,8 @@ async function aJob(ctx: ServiceContext = owner()) {
 beforeAll(async () => {
   if (!url) return;
   raw = postgres(url, { max: 1, onnotice: () => {} });
-  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Many Links Co", slug: "record-links-co" });
-  await seedOrg(raw, { organizationId: OTHER, userId: USER, name: "Other Links Co", slug: "record-links-other" });
+  await seedOrg(raw, { organizationId: ORG, userId: USER, name: "Many Links Co", slug: "record-links-at-once-co" });
+  await seedOrg(raw, { organizationId: OTHER, userId: USER, name: "Other Links Co", slug: "record-links-at-once-other" });
   await objects.defineKind(owner(), {
     key: "permit", label: "Permit", pluralLabel: "Permits", titleLabel: "Permit number", links: ["customer", "property", "job"],
   });
@@ -68,9 +68,9 @@ run("several of a record's links at once", () => {
     await objects.updateRecord(owner(), { id: permit.id, customerId: second.customer, propertyId: second.property, jobId: second.job });
     const moved = await objects.getRecord(owner(), { id: permit.id });
     expect([moved.customer?.id, moved.property?.id, moved.job?.id]).toEqual([second.customer, second.property, second.job]);
-    const [{ count }] = await raw<{ count: string }[]>`select count(*)::text as count from public.audit_log
+    const [counted] = await raw<{ count: string }[]>`select count(*)::text as count from public.audit_log
       where organization_id = ${ORG} and entity_id = ${permit.id} and action like '%updated'`;
-    expect(count).toBe("1");
+    expect(counted!.count).toBe("1");
 
     /** Two taken off and one kept. */
     await objects.updateRecord(owner(), { id: permit.id, customerId: null, jobId: null });
