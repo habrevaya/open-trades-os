@@ -2,6 +2,7 @@ import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { dashboards } from "@opentradesos/api/services";
 import { officePdf } from "@/lib/pdf-response";
+import { choiceOf } from "../../DashboardDates";
 
 /**
  * A dashboard that ships, as one PDF of every tile the reader may see, drawn
@@ -9,8 +10,13 @@ import { officePdf } from "@/lib/pdf-response";
  */
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const user = await requireSetupUser();
   const { slug } = await params;
-  return officePdf(() => dashboards.dashboardPdf({ actor: user.actor, db: getDb() }, { builtInDashboard: slug }));
+  const ctx = { actor: user.actor, db: getDb() };
+  /** The days chosen on the screen travel in the address, so the file is the page that was being looked at. */
+  return officePdf(async () => {
+    const dates = await dashboards.chosenDates(ctx, choiceOf(Object.fromEntries(new URL(request.url).searchParams)));
+    return dashboards.dashboardPdf(ctx, { builtInDashboard: slug }, { dates });
+  });
 }

@@ -99,7 +99,7 @@ function fit(text: string, characters: number): string {
 
 export function ReportChart({
   result, measure, second, dimension, prefer, split, arrange, additive, drill, title, toggle, pick, splitHref, arrangeHref, withTable, bare,
-  baseline, baselineHref,
+  baseline, baselineHref, alsoHref,
 }: {
   result: ReportResult;
   /** Which measure to draw. The first, when not said. */
@@ -133,6 +133,12 @@ export function ReportChart({
   toggle?: ((kind: "line" | "columns") => string) | undefined;
   /** Where drawing a different measure goes, when the report counts more than one. */
   pick?: ((measure: string) => string) | undefined;
+  /**
+   * Where drawing a second measure beside the first goes, or null for none,
+   * on a report screen: offered when the report counts more than one and the
+   * chart is not cut by a second grouping, which has no room for it.
+   */
+  alsoHref?: ((measure: string | null) => string) | undefined;
   /** Where cutting by another grouping goes, or null for adding it up again. */
   splitHref?: ((dimension: string | null) => string) | undefined;
   /** Where stacking and setting side by side go, for a chart that is cut. */
@@ -202,6 +208,20 @@ export function ReportChart({
           </span>
         ) : null}
       </figcaption>
+
+      {alsoHref && measures.length > 1 && !plan.split ? (
+        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm print:hidden" aria-label="A second measure">
+          <span className="text-ink-500">Also draw</span>
+          {measures.filter((m) => m.key !== plan.measure.key).map((m) => (
+            plan.secondary?.measure.key === m.key
+              ? <span key={m.key} className="font-medium text-ink-900">{m.label}</span>
+              : <a key={m.key} href={alsoHref(m.key)} className="text-ink-700 underline underline-offset-4">{m.label}</a>
+          ))}
+          {plan.secondary
+            ? <a href={alsoHref(null)} className="text-ink-700 underline underline-offset-4">Nothing else</a>
+            : <span className="font-medium text-ink-900">Nothing else</span>}
+        </p>
+      ) : null}
 
       {splitHref && cuts.length > 0 ? (
         <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm print:hidden">

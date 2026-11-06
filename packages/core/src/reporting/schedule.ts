@@ -198,12 +198,18 @@ const show = (date: string) => DAY.format(new Date(`${date}T12:00:00Z`));
  * the label says the last day that is IN the range rather than the first one
  * that is not, because that is what a person reading a subject line means.
  */
+/**
+ * Two days somebody chose, both kept, as a range: `to` is the day after the
+ * last, as every report range's is, and the label says the last day in it.
+ */
+export function rangeOf(from: string, lastDay: string): PeriodRange {
+  const to = shiftDays(lastDay, 1);
+  return { from, to, label: from === lastDay ? show(from) : `${show(from)} to ${show(lastDay)}` };
+}
+
 export function periodFor(period: Period, at: Date, timeZone: string): PeriodRange {
   const today = dateIn(at, timeZone);
-  const span = (from: string, to: string): PeriodRange => ({
-    from, to,
-    label: from === shiftDays(to, -1) ? show(from) : `${show(from)} to ${show(shiftDays(to, -1))}`,
-  });
+  const span = (from: string, to: string): PeriodRange => rangeOf(from, shiftDays(to, -1));
 
   switch (period) {
     case "yesterday": return span(shiftDays(today, -1), today);

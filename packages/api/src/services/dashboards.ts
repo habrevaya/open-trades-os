@@ -124,6 +124,55 @@ export interface DashboardDates {
   label: string;
 }
 
+/** What somebody chose on a dashboard's own screen: one of a schedule's periods, or two days of their own. */
+export interface DatesChoice {
+  /** `yesterday`, `last_7_days`, `last_month` or `month_to_date`; absent, empty or `now` for no dates. */
+  period?: string | undefined;
+  /** The first day, `YYYY-MM-DD`, kept. With `to`, in place of a period. */
+  from?: string | undefined;
+  /** The last day, kept. */
+  to?: string | undefined;
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const realDay = (value: string) => {
+  const at = Date.parse(`${value}T12:00:00Z`);
+  return DAY.test(value) && !Number.isNaN(at) && new Date(at).toISOString().slice(0, 10) === value;
+};
+
+/**
+ * THE DAYS A DASHBOARD IS LOOKED AT OVER, from its own screen or its PDF.
+ *
+ * One of the four periods a schedule offers, worked out on the company's own
+ * day as a delivery's are (`reporting.periodFor`), or two days somebody typed,
+ * both kept (`reporting.rangeOf`). Nothing chosen is no dates: the dashboard
+ * as it stands now. Two days the wrong way round, half a range, a day that is
+ * not one or a period that is not offered are refused in words. The dates
+ * then reach only the tiles that follow them, exactly as a delivery's do.
+ */
+export async function chosenDates(ctx: ServiceContext, choice: DatesChoice): Promise<DashboardDates | undefined> {
+  assertCan(ctx.actor, "report:read");
+  const from = choice.from?.trim() || undefined;
+  const to = choice.to?.trim() || undefined;
+  if (from || to) {
+    if (!from || !to) throw new ConflictError("Give the first day and the last day, or choose one of the periods.");
+    if (!realDay(from) || !realDay(to)) throw new ConflictError("Give the days as dates.");
+    if (to < from) {
+      const first = reporting.rangeOf(from, from).label;
+      const last = reporting.rangeOf(to, to).label;
+      throw new ConflictError(`The last day, ${last}, is before the first, ${first}. Swap them.`);
+    }
+    const range = reporting.rangeOf(from, to);
+    return { from: range.from!, to: range.to!, label: range.label };
+  }
+  const period = choice.period?.trim() || "now";
+  if (period === "now" || period === "all") return undefined;
+  if (!reporting.isPeriod(period)) throw new ConflictError("Choose one of the periods offered.");
+  const timezone = await inTenant(ctx, (tx) => timezoneOf(tx, ctx.actor.organizationId));
+  const range = reporting.periodFor(period, new Date(), timezone);
+  return range.from && range.to ? { from: range.from, to: range.to, label: range.label } : undefined;
+}
+
 async function drawAll(
   ctx: ServiceContext, entries: dashboard.TileDecision[], options: DrawOptions,
 ): Promise<TileResult[]> {
@@ -763,14 +812,18 @@ export function dashboardFile(input: {
 /**
  * THE DASHBOARD AS ONE PDF, for the person looking at it.
  *
- * Every tile they may see, drawn as they see it on the screen; the tiles they
- * may not see named at the end of the file and never drawn. `report:read`,
+ * Every tile they may see, drawn as they see it on the screen, over the days
+ * chosen there when some were (`chosenDates`); the tiles they may not see
+ * named at the end of the file and never drawn. `report:read`,
  * because a dashboard is a page of reports and the dashboards list asks for
  * it; each tile then asks for what its own report needs, as on the screen.
  */
-export async function dashboardPdf(ctx: ServiceContext, source: DashboardSource): Promise<PdfFile> {
+export async function dashboardPdf(
+  ctx: ServiceContext, source: DashboardSource, options: { dates?: DashboardDates | undefined } = {},
+): Promise<PdfFile> {
   assertCan(ctx.actor, "report:read");
-  const drawn = await drawDashboard(ctx, source);
+  /** The days chosen on the screen, so the file is the page that was being looked at. */
+  const drawn = await drawDashboard(ctx, source, options.dates ? { dates: options.dates } : {});
   return inTenant(ctx, async (tx) => {
     const timezone = await timezoneOf(tx, ctx.actor.organizationId);
     const company = await companyOf(tx, ctx.actor.organizationId);

@@ -1205,12 +1205,22 @@ the report does not select, the same measure twice, a number tile (one value), a
 a tile that is broken down (the colours would stand for two different things) are
 each refused. The emailed PDF draws it the same way, from the same plan, with the
 legend in words (`Invoiced, columns, left scale`, `Invoices, amber line, right
-scale`), and the table under it has both columns. A report's own chart screen
-still draws one measure; the second measure is a dashboard tile's.
+scale`), and the table under it has both columns.
+
+**A report's own chart takes a second measure too.** On a report screen (one
+that ships, a saved one, or the builder) that counts more than one thing,
+"Also draw" under the chart offers the others and "Nothing else" takes it off,
+with the same plan, the same scales and the same legend a tile draws. The choice
+lives in the address (`second=count`), so a link sent to somebody and "Print or
+save as PDF" draw the same chart. It is not offered on a chart broken down by a
+second grouping, and breaking a chart down drops it, because the colours would
+stand for two different things; choosing the second measure as the one to draw
+drops it too. A line drawn "Around the data" goes back to starting at zero when
+a second measure is drawn, as a tile's does.
 
 The emailed PDF of a report draws the chart as the screen draws it before anybody
-breaks it down: a breakdown is a choice made on the screen, and is on the printed
-page and not in the schedule.
+breaks it down or adds a second measure: both are choices made on the screen, and
+are on the printed page and not in the schedule.
 
 ### Print it, or save it as a PDF
 
@@ -1368,6 +1378,25 @@ words at the save, and again on the day if the last one was turned off since
 (the delivery fails and sends nothing), because it would change nothing and read
 as though it had. That is the conservative reading, and the product owner has not
 been asked for another.
+
+**Days chosen on the dashboard's own screen.** A dashboard with a tile that
+follows dates has a box under its title ("Days"): "As it stands now", the four
+periods a schedule offers, or "Between two dates" with a first and a last day,
+both kept. The days are worked out on the company's own day, as a delivery's
+are, and reach only the tiles that follow dates, exactly as a schedule's do;
+the page says "Showing Mar 1, 2001 to Mar 31, 2001 on the tiles that follow the
+dashboard's dates. These keep their own dates: Outstanding." The days live in
+the address, so "Download as PDF" carries them (`/dashboards/money/pdf?dates=between&from=2001-03-01&to=2001-03-31`)
+and prints the same page with "Dates" under its title, and a number opened for
+its records comes back to the same days. Two days the wrong way round ("The last
+day, Mar 1, 2001, is before the first, Mar 31, 2001. Swap them."), half a range,
+a day that is not one or a period that is not offered is refused in words on the
+screen, which then shows the dashboard as it stands, and the PDF answers the
+same sentence. A dashboard none of whose tiles follow dates has no box, and says
+so ("This dashboard shows things as they stand now. None of its tiles follow
+dates"), with how to turn one on for somebody who can change it. The service is
+`dashboards.chosenDates` and the PDF's `dates` option; there is still no API
+route that draws a dashboard, on the screen or as a PDF (see below).
 
 ### Email a report from an automation
 
@@ -1651,28 +1680,28 @@ accents print as the plain letter where there is one and as "?" where there is
 not. An emailed report appears as a
 thread in the inbox like every other email this product sends, and "send now"
 queues it for the worker's next pass rather than sending it in the request.
-Nothing is emailed until an email provider is connected. A report's own chart draws one
-measure at a time (a dashboard tile can draw a second beside the first, above). A tile is cut by one of its report's two groupings and drawn
+Nothing is emailed until an email provider is connected. A report's chart, on a
+tile or its own screen, draws two measures at most, and never two on a chart that
+is broken down. A tile is cut by one of its report's two groupings and drawn
 along the other: a report grouped by three things is still refused on a tile,
 because the third would be added up out of sight, and the cut is chosen on the
 tile once it is added ("Add a tile" always starts on the second).
 A dashboard is printed and emailed whole (above), on a schedule or from an
 automation's "Run and email a report" step, and never to a customer: there is no
-narrowing of a dashboard to one customer's records. The dashboard's screen takes no dates of its own: dates come only from a schedule or an
-automation step, and a dashboard printed from its screen is as it stands. A dashboard's
+narrowing of a dashboard to one customer's records. A dashboard is drawn on its
+screen and printed only in the web app: the API has no route that draws one, so
+the days chosen on its screen are the screen's and its PDF's. A dashboard's
 PDF prints the screen's chart with the usual scale, never "Around the data". A tile that
-draws a second measure cannot also be broken down, and a report's own chart screen has
-no second measure. A second measure is added to a tile after the tile is added ("Also
+draws a second measure cannot also be broken down. A second measure is added to a tile after the tile is added ("Also
 draw" under it), not on the "Add a tile" form, it is one measure and not several, and a
 bars tile draws it as a second bar with its own value written beside it rather than on a
 shared axis, because a horizontal bar chart has no second scale to read it against.
 Whether a tile follows a dashboard's dates is set on each tile by a person and is off for
 every tile saved before this existed; nothing works it out from the report, because a
 guess turns a figure about how things stand into one about a week. A tile that follows
-dates has its report's own dates replaced for that delivery, not narrowed by them. The
-dashboard's own screen and its "Download as PDF" have no date box: the days come only from
-a schedule or an automation step, so a dashboard looked at is always as it stands now.
-The days are the schedule's five (the day before, the seven days before, the month
-before, this month so far, or none) and not a range typed in.
+dates has its report's own dates replaced for that delivery or that look, not narrowed by
+them. A schedule's days are its five (the day before, the seven days before, the month
+before, this month so far, or none) and not a range typed in; two days of somebody's own
+are for the dashboard's screen and the PDF made from it.
 No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.

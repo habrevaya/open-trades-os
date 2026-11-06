@@ -48,6 +48,7 @@ export default async function NewReportPage({
   const view = {
     chart: typeof params.chart === "string" ? params.chart : undefined,
     measure: typeof params.measure === "string" ? params.measure : undefined,
+    second: typeof params.second === "string" ? params.second : undefined,
     split: typeof params.split === "string" ? params.split : undefined,
     arrange: typeof params.arrange === "string" ? params.arrange : undefined,
     scale: typeof params.scale === "string" ? params.scale : undefined,

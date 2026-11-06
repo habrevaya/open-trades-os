@@ -122,7 +122,10 @@ export function checkCrewWeekdayHours(hours: readonly CrewWeekdayHours[]): CrewH
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const realDate = (date: string) => DATE.test(date) && new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) === date;
+const realDate = (date: string) => {
+  const at = Date.parse(`${date}T12:00:00Z`);
+  return DATE.test(date) && !Number.isNaN(at) && new Date(at).toISOString().slice(0, 10) === date;
+};
 
 /** The most dates a crew keeps entries for. Old ones can be cleared. */
 export const MAX_CREW_DATES = 400;

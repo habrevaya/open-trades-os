@@ -51,6 +51,8 @@ describe("checking a crew's dates and days off", () => {
       .toEqual({ ok: false, message: `${FRI} is given twice. Give each date once.` });
     expect(checkCrewDateHours([{ date: "2027-02-30", off: true }]))
       .toEqual({ ok: false, message: "2027-02-30 is not a date. Use YYYY-MM-DD." });
+    expect(checkCrewDateHours([{ date: "2027-02-32", off: true }]))
+      .toEqual({ ok: false, message: "2027-02-32 is not a date. Use YYYY-MM-DD." });
     expect(checkCrewDateHours([{ date: FRI, startsAt: "06:00" }]))
       .toEqual({ ok: false, message: `Give ${FRI} a start and a finish, or mark the crew off that day.` });
     expect(checkCrewDateHours([{ date: FRI, startsAt: "10:00", endsAt: "06:00" }]))

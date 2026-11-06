@@ -9,6 +9,8 @@ export interface ChartView {
   chart?: string | undefined;
   /** Which measure the chart draws. */
   measure?: string | undefined;
+  /** A second measure drawn beside the first, on a chart that is not cut. */
+  second?: string | undefined;
   /** The second grouping the chart is cut by. */
   split?: string | undefined;
   /** `stacked` or `grouped`, for a chart that is cut. */
@@ -71,6 +73,7 @@ export async function RunView({
   const current = withParams(here ?? back, {
     ...(view.chart ? { chart: view.chart } : {}),
     ...(view.measure ? { measure: view.measure } : {}),
+    ...(view.second ? { second: view.second } : {}),
     ...(view.split ? { split: view.split } : {}),
     ...(view.arrange ? { arrange: view.arrange } : {}),
     ...(view.scale ? { scale: view.scale } : {}),
@@ -120,6 +123,8 @@ export async function RunView({
             </label>
           ) : null}
           {view.chart ? <input type="hidden" name="chart" value={view.chart} /> : null}
+          {view.measure ? <input type="hidden" name="measure" value={view.measure} /> : null}
+          {view.second ? <input type="hidden" name="second" value={view.second} /> : null}
           {view.split ? <input type="hidden" name="split" value={view.split} /> : null}
           {view.arrange ? <input type="hidden" name="arrange" value={view.arrange} /> : null}
           {view.scale ? <input type="hidden" name="scale" value={view.scale} /> : null}
@@ -147,6 +152,7 @@ export async function RunView({
             <ReportChart
               result={result!}
               measure={view.measure}
+              second={view.split ? undefined : view.second}
               prefer={prefer}
               baseline={view.scale === "data" ? "data" : undefined}
               baselineHref={(choice) => choice === "data" ? withParams(current, { scale: "data" }) : withoutParams(current, ["scale"])}
@@ -156,8 +162,9 @@ export async function RunView({
               drill={(row, pin) => drillHref(definition, row, { title, back }, pin)}
               title={title}
               toggle={toggle}
-              pick={(key) => withParams(current, { measure: key })}
-              splitHref={(dimension) => dimension === null ? withoutParams(current, ["split", "arrange"]) : withParams(current, { split: dimension })}
+              pick={(key) => withoutParams(withParams(current, { measure: key }), key === view.second ? ["second"] : [])}
+              alsoHref={(key) => key === null ? withoutParams(current, ["second"]) : withoutParams(withParams(current, { second: key }), ["scale"])}
+              splitHref={(dimension) => dimension === null ? withoutParams(current, ["split", "arrange"]) : withoutParams(withParams(current, { split: dimension }), ["second"])}
               arrangeHref={(arrangement) => withParams(current, { arrange: arrangement })}
             />
           ) : null}
@@ -201,6 +208,7 @@ export function printHref(query: string, title: string, view: ChartView = {}, ba
   if (back) params.set("back", back);
   if (view.chart) params.set("chart", view.chart);
   if (view.measure) params.set("measure", view.measure);
+  if (view.second && !view.split) params.set("second", view.second);
   if (view.split) params.set("split", view.split);
   if (view.arrange) params.set("arrange", view.arrange);
   if (view.scale) params.set("scale", view.scale);
