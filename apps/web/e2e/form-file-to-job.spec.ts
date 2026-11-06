@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { createClient } from "@opentradesos/db";
 import { sql } from "drizzle-orm";
@@ -29,9 +30,11 @@ test("the office puts a photo a lead sent onto the customer's job, and it stays 
   const db = createClient();
   try {
     const key = `form-${run}-${crypto.randomUUID()}.png`;
+    /** Its real checksum, so a copy of the company taken after this test is not read as damaged. */
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     await db.execute(sql`
       insert into public.stored_file (organization_id, storage_key, content_type, sha256, size_bytes, bytes, "references")
-      select organization_id, ${key}, 'image/png', ${crypto.randomUUID()}, 4, ${Buffer.from("\x89PNG")}, 1
+      select organization_id, ${key}, 'image/png', ${createHash("sha256").update(png).digest("hex")}, 4, ${png}, 1
       from public.customer where id = ${customerId}::uuid`);
     await db.execute(sql`
       insert into public.attachment (organization_id, entity_type, entity_id, kind, storage_key, file_name, content_type, size_bytes)

@@ -26,7 +26,7 @@ const dayBefore = (day: string) => {
 
 test("a driver says a collected can came back empty, and it reaches the hire", async ({ tech, owner }) => {
   test.setTimeout(180_000);
-  const identifier = `E${run.slice(-6)}`;
+  const identifier = `ED${run.slice(-6)}`;
   const db = createClient();
   let assetId = "";
   try {
