@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, MoneyString, Address, Timestamps } from "./common";
 import { Estimate } from "./estimates";
+import { PublicDepositTerms } from "./booking";
 
 /**
  * THE CUSTOMER SIDE
@@ -29,6 +30,12 @@ export const PortalSession = z.object({
   customerName: z.string(),
   scope: PortalScope,
   expiresAt: z.string().datetime(),
+  /**
+   * For a booking link only: the booked service's deposit in words, while the
+   * company shows deposits on the booking page and the service asks for one.
+   * Null otherwise.
+   */
+  bookingDeposit: PublicDepositTerms.nullable(),
 });
 
 /**

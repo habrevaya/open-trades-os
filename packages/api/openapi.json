@@ -16058,6 +16058,217 @@
         ]
       }
     },
+    "/v1/booking/page-settings": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getBookingPageSettings",
+        "summary": "What the public booking page says about deposits",
+        "description": "Requires a session holding: booking:read.",
+        "tags": [
+          "M05"
+        ],
+        "responses": {
+          "200": {
+            "description": "What the public booking page says about deposits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetBookingPageSettingsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:read"
+        ]
+      },
+      "put": {
+        "operationId": "setBookingPageSettings",
+        "summary": "Choose whether the public booking page shows deposits",
+        "description": "With `showDeposits` on, a service with deposit terms says so on the booking page before the customer books, with the amount worked out (a percent of the price shown, or the percent and that the amount will be told when it is asked for when there is no price), and again on the confirmation. Off, nothing about deposits shows and the public services list carries no deposit terms. The page takes no money either way.\n\nRequires a session holding: booking:configure.",
+        "tags": [
+          "M05"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBookingPageSettingsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Choose whether the public booking page shows deposits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetBookingPageSettingsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "booking:configure"
+        ]
+      }
+    },
     "/v1/booking/seasons": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -121032,7 +121243,7 @@
       "get": {
         "operationId": "listBookableServices",
         "summary": "What this company lets the public book",
-        "description": "Open to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
+        "description": "A service's deposit terms (`depositAmount`, `depositPercent` and `deposit`, the terms in words) are here only when the company shows deposits on the booking page; otherwise all three are null.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M05"
         ],
@@ -179235,6 +179446,40 @@
             ],
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           },
+          "deposit": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "percent": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "nextStep": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "amount",
+              "percent",
+              "summary",
+              "nextStep"
+            ]
+          },
           "paymentUrl": {
             "type": [
               "string",
@@ -179247,6 +179492,7 @@
           "request",
           "trackingUrl",
           "depositDue",
+          "deposit",
           "paymentUrl"
         ]
       },
@@ -202796,6 +203042,17 @@
         },
         "required": [
           "destination"
+        ]
+      },
+      "GetBookingPageSettingsOutput": {
+        "type": "object",
+        "properties": {
+          "showDeposits": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "showDeposits"
         ]
       },
       "GetBranchNumberingOutput": {
@@ -243370,6 +243627,40 @@
                       "required"
                     ]
                   }
+                },
+                "deposit": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "amount": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "percent": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "nextStep": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "amount",
+                    "percent",
+                    "summary",
+                    "nextStep"
+                  ]
                 }
               },
               "required": [
@@ -243382,7 +243673,8 @@
                 "depositPercent",
                 "minNoticeHours",
                 "maxAdvanceDays",
-                "intakeFields"
+                "intakeFields",
+                "deposit"
               ]
             }
           }
@@ -274788,6 +275080,40 @@
           "expiresAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "bookingDeposit": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "percent": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,6})?$"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "nextStep": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "amount",
+              "percent",
+              "summary",
+              "nextStep"
+            ]
           }
         },
         "required": [
@@ -274795,7 +275121,8 @@
           "organizationLogoUrl",
           "customerName",
           "scope",
-          "expiresAt"
+          "expiresAt",
+          "bookingDeposit"
         ]
       },
       "OpenPortalRecordInput": {
@@ -303522,6 +303849,28 @@
           "id",
           "label",
           "truckKindId"
+        ]
+      },
+      "SetBookingPageSettingsInput": {
+        "type": "object",
+        "properties": {
+          "showDeposits": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "showDeposits"
+        ]
+      },
+      "SetBookingPageSettingsOutput": {
+        "type": "object",
+        "properties": {
+          "showDeposits": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "showDeposits"
         ]
       },
       "SetBranchNumberingInput": {

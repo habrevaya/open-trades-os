@@ -39,6 +39,14 @@ export default async function BookingTrackPage({ params }: { params: Promise<{ t
           will show your appointment and who is coming.
         </p>
       </div>
+
+      {/* Only while the company shows deposits on its booking page and this service asks for one. */}
+      {session.bookingDeposit && (
+        <div data-testid="deposit-tracking" className="rounded-md border border-steel-200 bg-canvas p-5 text-sm text-ink-700">
+          <p className="font-medium text-ink-900">{session.bookingDeposit.summary}</p>
+          <p className="mt-1">{session.bookingDeposit.nextStep}</p>
+        </div>
+      )}
     </div>
   );
 }

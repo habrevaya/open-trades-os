@@ -5,7 +5,7 @@ import { configureBookableService } from "@opentradesos/api/contracts";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { booking, businessHours, ConflictError, NotFoundError } from "@opentradesos/api/services";
+import { booking, bookingPage, businessHours, ConflictError, NotFoundError } from "@opentradesos/api/services";
 
 /**
  * `requireUser`, not the setup gate: the setup wizard draws these same forms
@@ -170,6 +170,17 @@ export async function saveMemberHold(_previous: unknown, form: FormData): Promis
   return caught(form, (context) => booking.setMemberHold(context, {
     reservePercent: Number(form.get("reservePercent") ?? 0),
     releaseHours: Number(form.get("releaseHours") ?? 48),
+  }));
+}
+
+/**
+ * WHETHER THE BOOKING PAGE SHOWS DEPOSITS: `PUT /v1/booking/page-settings`
+ * (`booking:configure`, checked by the service, which writes the audit row).
+ * The page takes no money either way.
+ */
+export async function saveBookingPage(_previous: unknown, form: FormData): Promise<Result> {
+  return caught(form, (context) => bookingPage.setBookingPageSettings(context, {
+    showDeposits: form.get("showDeposits") === "on",
   }));
 }
 

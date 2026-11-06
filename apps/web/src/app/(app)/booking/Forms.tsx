@@ -2,7 +2,7 @@
 
 import { useKeptAction } from "@/lib/use-kept-action";
 import { useState, type ReactNode } from "react";
-import { offerService, saveWindows, saveHours, saveMemberHold, addSeason, changeSeason } from "./actions";
+import { offerService, saveWindows, saveHours, saveMemberHold, saveBookingPage, addSeason, changeSeason } from "./actions";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -387,6 +387,36 @@ export function MemberHold({ current, plansWithPriority, plans = [] }: {
           and a member gets into as much of it as their own plan holds.
         </p>
       ) : null}
+      <Note state={state} />
+    </form>
+  );
+}
+
+/**
+ * SHOW DEPOSITS ON THE BOOKING PAGE
+ *
+ * Off until the company turns it on. On, a service with a deposit says so on
+ * the booking page before the customer books, and again once they have. The
+ * page takes no money either way: the office confirms the booking, then asks
+ * for the deposit.
+ */
+export function BookingPageDeposits({ showDeposits }: { showDeposits: boolean }) {
+  const [state, actionForm, pending] = useKeptAction(saveBookingPage, {});
+  return (
+    <form {...actionForm} className="mt-4 max-w-prose rounded-md border border-steel-200 p-3" aria-label="Deposits on the booking page">
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" name="showDeposits" defaultChecked={showDeposits} className="mt-1" />
+        <span>
+          Show deposits on the booking page
+          <span className="block text-xs text-ink-500">
+            When this is on, a service with a deposit tells the customer how much before they book, and again
+            after. The booking page never takes money. You confirm the booking, then ask for the deposit.
+          </span>
+        </span>
+      </label>
+      <button type="submit" disabled={pending} className="mt-3 h-10 rounded bg-ink-900 px-4 text-sm font-medium text-white disabled:opacity-60">
+        {pending ? "Saving" : "Save"}
+      </button>
       <Note state={state} />
     </form>
   );

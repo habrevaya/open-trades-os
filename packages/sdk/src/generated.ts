@@ -3283,6 +3283,12 @@ export interface CreateBookingRequestOutput {
   };
   trackingUrl: string;
   depositDue: string | null;
+  deposit: {
+    amount: string | null;
+    percent: string | null;
+    summary: string;
+    nextStep: string;
+  } | null;
   paymentUrl: string | null;
 }
 
@@ -7835,6 +7841,10 @@ export interface GetBackupDestinationOutput {
     lastCheckedAt: string | null;
     lastCheckError: string | null;
   } | null;
+}
+
+export interface GetBookingPageSettingsOutput {
+  showDeposits: boolean;
 }
 
 export interface GetBranchNumberingOutput {
@@ -15511,6 +15521,12 @@ export interface ListBookableServicesOutput {
       required: boolean;
       options?: string[];
     }>;
+    deposit: {
+      amount: string | null;
+      percent: string | null;
+      summary: string;
+      nextStep: string;
+    } | null;
   }>;
 }
 
@@ -21456,6 +21472,12 @@ export interface OpenPortalLinkOutput {
   customerName: string;
   scope: "estimate" | "job" | "invoice" | "customer" | "booking" | "deposit" | "change_order" | "payer" | "statement";
   expiresAt: string;
+  bookingDeposit: {
+    amount: string | null;
+    percent: string | null;
+    summary: string;
+    nextStep: string;
+  } | null;
 }
 
 export interface OpenPortalRecordInput {
@@ -27291,6 +27313,14 @@ export interface SetAssetTruckKindOutput {
   id: string;
   label: string;
   truckKindId: string | null;
+}
+
+export interface SetBookingPageSettingsInput {
+  showDeposits: boolean;
+}
+
+export interface SetBookingPageSettingsOutput {
+  showDeposits: boolean;
 }
 
 export interface SetBranchNumberingInput {
@@ -34768,6 +34798,8 @@ export interface GetAvailabilityInput {
 
 export type GetBackupDestinationInput = Record<string, never>;
 
+export type GetBookingPageSettingsInput = Record<string, never>;
+
 export type GetBranchNumberingInput = Record<string, never>;
 
 export type GetBranchOverviewInput = Record<string, never>;
@@ -38491,6 +38523,7 @@ export interface OperationTypes {
   getAssignmentSuggestions: { input: GetAssignmentSuggestionsInput; output: GetAssignmentSuggestionsOutput };
   getAvailability: { input: GetAvailabilityInput; output: GetAvailabilityOutput };
   getBackupDestination: { input: GetBackupDestinationInput; output: GetBackupDestinationOutput };
+  getBookingPageSettings: { input: GetBookingPageSettingsInput; output: GetBookingPageSettingsOutput };
   getBranchNumbering: { input: GetBranchNumberingInput; output: GetBranchNumberingOutput };
   getBranchOverview: { input: GetBranchOverviewInput; output: GetBranchOverviewOutput };
   getBudgetReport: { input: GetBudgetReportInput; output: GetBudgetReportOutput };
@@ -39256,6 +39289,7 @@ export interface OperationTypes {
   setAssetMaintenancePlan: { input: SetAssetMaintenancePlanParams & SetAssetMaintenancePlanInput; output: SetAssetMaintenancePlanOutput };
   setAssetObligation: { input: SetAssetObligationParams & SetAssetObligationInput; output: SetAssetObligationOutput };
   setAssetTruckKind: { input: SetAssetTruckKindParams & SetAssetTruckKindInput; output: SetAssetTruckKindOutput };
+  setBookingPageSettings: { input: SetBookingPageSettingsInput; output: SetBookingPageSettingsOutput };
   setBranchNumbering: { input: SetBranchNumberingInput; output: SetBranchNumberingOutput };
   setBudgetForecastMethod: { input: SetBudgetForecastMethodParams & SetBudgetForecastMethodInput; output: SetBudgetForecastMethodOutput };
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
@@ -39812,6 +39846,7 @@ export const OPERATIONS = {
   getAssignmentSuggestions: { method: "GET", path: "/v1/dispatch/suggestions", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getAvailability: { method: "GET", path: "/v1/public/availability", pathParams: [], queryParams: ["organizationSlug","bookableServiceId","from","days","postalCode"], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   getBackupDestination: { method: "GET", path: "/v1/backups/destination", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:export"] },
+  getBookingPageSettings: { method: "GET", path: "/v1/booking/page-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:read"] },
   getBranchNumbering: { method: "GET", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBranchOverview: { method: "GET", path: "/v1/branch-overview", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: ["businessUnitId","jobTypeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
@@ -40577,6 +40612,7 @@ export const OPERATIONS = {
   setAssetMaintenancePlan: { method: "POST", path: "/v1/assets/{assetId}/maintenance-plans", pathParams: ["assetId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setAssetObligation: { method: "PUT", path: "/v1/assets/{assetId}/obligations/{kind}", pathParams: ["assetId","kind"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   setAssetTruckKind: { method: "PUT", path: "/v1/assets/{assetId}/truck-kind", pathParams: ["assetId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
+  setBookingPageSettings: { method: "PUT", path: "/v1/booking/page-settings", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setBranchNumbering: { method: "PUT", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setBudgetForecastMethod: { method: "PUT", path: "/v1/budgets/{year}/forecast", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
@@ -43500,6 +43536,15 @@ export abstract class GeneratedOperations {
    */
   getBackupDestination(input: GetBackupDestinationInput = {} as GetBackupDestinationInput, options?: CallOptions): Promise<GetBackupDestinationOutput> {
     return this.call("getBackupDestination", input, options);
+  }
+
+  /**
+   * What the public booking page says about deposits.
+   *
+   * GET /v1/booking/page-settings. Needs booking:read.
+   */
+  getBookingPageSettings(input: GetBookingPageSettingsInput = {} as GetBookingPageSettingsInput, options?: CallOptions): Promise<GetBookingPageSettingsOutput> {
+    return this.call("getBookingPageSettings", input, options);
   }
 
   /**
@@ -50385,6 +50430,15 @@ export abstract class GeneratedOperations {
    */
   setAssetTruckKind(input: SetAssetTruckKindParams & SetAssetTruckKindInput, options?: CallOptions): Promise<SetAssetTruckKindOutput> {
     return this.call("setAssetTruckKind", input, options);
+  }
+
+  /**
+   * Choose whether the public booking page shows deposits.
+   *
+   * PUT /v1/booking/page-settings. Needs booking:configure.
+   */
+  setBookingPageSettings(input: SetBookingPageSettingsInput, options?: CallOptions): Promise<SetBookingPageSettingsOutput> {
+    return this.call("setBookingPageSettings", input, options);
   }
 
   /**
