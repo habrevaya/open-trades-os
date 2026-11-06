@@ -1303,6 +1303,13 @@
       "when": 1793924251759,
       "tag": "0185_public_black_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1793928494311,
+      "tag": "0186_moaning_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }

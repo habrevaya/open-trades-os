@@ -15,7 +15,7 @@ const RESULT: Record<string, string> = {
   partial: "Not finished: some checkpoints were not answered", not_tested: "Not tested", not_accessible: "Could not get to it",
 };
 const VERDICT: Record<string, string> = {
-  pass: "Pass", borderline: "In range, near the limit", finding: "Finding",
+  pass: "Pass", borderline: "In range, near the limit", finding: "Finding", recorded: "Recorded",
   not_applicable: "Not applicable", not_answered: "Not answered",
 };
 
@@ -87,10 +87,20 @@ export default async function InspectionReportPage({ params }: { params: Promise
           </tr>
         </thead>
         <tbody>
-          {report.items.map((item) => (
+          {report.items.flatMap((item, i) => [
+            /** A section heading where the heading changes, as the checkpoints were asked. */
+            ...(item.section && item.section !== report.items[i - 1]?.section
+              ? [(
+                <tr key={`section-${item.key}`} className="border-b border-ink-900">
+                  <th colSpan={4} scope="colgroup" className="pt-3 pb-1 text-left font-semibold">{item.section}</th>
+                </tr>
+              )]
+              : []),
             <tr key={item.key} className="border-b border-steel-200 align-top">
               <td className="py-1.5 pr-2">
                 {item.prompt}
+                {item.optional && <span className="text-ink-500"> (optional)</span>}
+                {item.codeReference && <span className="block text-ink-500">Code: {item.codeReference}</span>}
                 {item.note && <span className="block text-ink-500">{item.note}</span>}
                 {item.photos.length > 0 && (
                   <span className="mt-1 flex flex-wrap gap-1">
@@ -103,10 +113,11 @@ export default async function InspectionReportPage({ params }: { params: Promise
               <td className="py-1.5 pr-2">{item.answer ?? ""}</td>
               <td className="py-1.5 pr-2 text-ink-700">{item.range ?? (item.kind === "pass_fail" ? "Pass" : "")}</td>
               <td className={`py-1.5 ${item.verdict === "finding" ? "font-semibold text-red-600" : ""}`}>
-                {VERDICT[item.verdict] ?? item.verdict}{item.severity && item.verdict !== "pass" ? `: ${item.severity}` : ""}
+                {item.verdict === "not_answered" && item.optional ? "Optional, not checked" : VERDICT[item.verdict] ?? item.verdict}
+                {item.severity && item.verdict !== "pass" ? `: ${item.severity}` : ""}
               </td>
-            </tr>
-          ))}
+            </tr>,
+          ])}
         </tbody>
       </table>
 

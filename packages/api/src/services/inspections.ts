@@ -54,6 +54,47 @@ const FROM_CORE: Record<insp.Severity, "critical" | "major" | "minor" | "advisor
 };
 
 /**
+ * ONE CHECKPOINT AS IT IS SENT AND STORED: the trade pack's shape, with the
+ * answer kinds, sections, optional checkpoints and code references a company
+ * may add. Every field past the first eight is optional, so a checkpoint
+ * written before they existed is read exactly as it was.
+ */
+export interface CheckpointInput {
+  key: string; label: string; assetCategory?: string | undefined;
+  requiresReading?: boolean | undefined; unit?: string | undefined;
+  range?: { min: number | null; max: number | null; borderlineWithin?: number | undefined } | undefined;
+  remedies?: { priceBookItemKey: string; label: string; quantity: number; rationale: string }[] | undefined;
+  failIsDeficiency?: boolean | undefined;
+  severityOnFail?: "critical" | "major" | "minor" | "advisory" | undefined;
+  answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count" | undefined;
+  expectedAtLeast?: number | undefined;
+  optional?: boolean | undefined;
+  section?: string | undefined;
+  codeReference?: string | undefined;
+}
+
+/**
+ * The kind of answer a checkpoint takes. `answerKind` when it says one;
+ * otherwise a reading or a pass or fail, which is all a checkpoint could say
+ * before it, so every stored version keeps the kind it was published with.
+ */
+export function kindOf(checkpoint: CheckpointInput): insp.AnswerKind {
+  return checkpoint.answerKind ?? (checkpoint.requiresReading ? "reading" : "pass_fail");
+}
+
+/**
+ * Whether a fail at this checkpoint can be a finding. A photo and a note are
+ * evidence and never are, so they are not asked how serious a fail is.
+ */
+export const canFail = (checkpoint: CheckpointInput): boolean => {
+  const kind = kindOf(checkpoint);
+  return kind === "pass_fail" || kind === "reading" || kind === "count";
+};
+
+/** The heading a checkpoint sits under, or the empty string for none. */
+const sectionOf = (checkpoint: CheckpointInput) => checkpoint.section?.trim() ?? "";
+
+/**
  * The checkpoint list a trade pack ships, lifted into the template core
  * validates.
  *
@@ -64,53 +105,91 @@ const FROM_CORE: Record<insp.Severity, "critical" | "major" | "minor" | "advisor
  * lift into a valid template is refused when the programme is SAVED rather
  * than discovered when somebody tries to inspect with it.
  *
- * One section, because a flat checkpoint list has no sections in it and
- * inventing them would be this function guessing at structure the author did
- * not write.
+ * SECTIONS come from the checkpoints themselves: the ones next to each other
+ * under one heading are one section, in the order they were written. A list
+ * with no headings is one section, as it always was, so nothing here guesses
+ * at structure the author did not write.
  */
 export function templateFor(program: {
   name: string;
   standard: string | null;
-  checkpoints: {
-    key: string; label: string; assetCategory?: string | undefined;
-    requiresReading?: boolean | undefined; unit?: string | undefined;
-    range?: { min: number | null; max: number | null; borderlineWithin?: number | undefined } | undefined;
-    remedies?: { priceBookItemKey: string; label: string; quantity: number; rationale: string }[] | undefined;
-    failIsDeficiency?: boolean | undefined;
-    severityOnFail?: "critical" | "major" | "minor" | "advisory" | undefined;
-  }[];
+  checkpoints: CheckpointInput[];
 }): insp.InspectionTemplate {
+  const runs: { title: string; checkpoints: CheckpointInput[] }[] = [];
+  for (const checkpoint of program.checkpoints) {
+    const title = sectionOf(checkpoint);
+    const last = runs[runs.length - 1];
+    if (last && last.title === title) last.checkpoints.push(checkpoint);
+    else runs.push({ title, checkpoints: [checkpoint] });
+  }
+  if (runs.length === 0) runs.push({ title: "", checkpoints: [] });
+  const flat = runs.length === 1 && runs[0]!.title === "";
   return {
     key: "program",
     title: program.name,
     discipline: program.standard ?? "general",
-    sections: [{
-      key: "checkpoints",
-      title: program.name,
-      items: program.checkpoints.map((checkpoint) => ({
+    sections: runs.map((run, index) => ({
+      key: flat ? "checkpoints" : `section-${index + 1}`,
+      title: run.title || program.name,
+      items: run.checkpoints.map((checkpoint) => ({
         key: checkpoint.key,
         prompt: checkpoint.label,
-        answer: checkpoint.requiresReading
-          ? {
-              kind: "reading" as const,
-              unit: checkpoint.unit ?? "",
-              ...(checkpoint.range ? { range: checkpoint.range } : {}),
-            }
-          : { kind: "pass_fail" as const },
+        answer: answerSpecOf(checkpoint),
         /**
          * Only an item that CAN fail carries a failure severity, and core
          * refuses one that can fail without it. `failIsDeficiency: false`
          * is a checkpoint recorded for the record rather than judged, and
          * giving it a severity would manufacture a finding out of an
-         * observation.
+         * observation. A photo or a note never fails at all.
          */
         ...(checkpoint.remedies ? { remedies: checkpoint.remedies } : {}),
-        ...(checkpoint.failIsDeficiency === false
+        ...(checkpoint.failIsDeficiency === false || !canFail(checkpoint)
           ? {}
           : { failureSeverity: TO_CORE[checkpoint.severityOnFail ?? "minor"]! }),
+        ...(checkpoint.optional ? { optional: true } : {}),
+        ...(checkpoint.codeReference?.trim() ? { codeReference: checkpoint.codeReference.trim() } : {}),
       })),
-    }],
+    })),
   };
+}
+
+function answerSpecOf(checkpoint: CheckpointInput): insp.AnswerSpec {
+  switch (kindOf(checkpoint)) {
+    case "reading":
+      return {
+        kind: "reading",
+        unit: checkpoint.unit ?? "",
+        ...(checkpoint.range ? { range: checkpoint.range } : {}),
+      };
+    case "count":
+      return {
+        kind: "count",
+        ...(checkpoint.expectedAtLeast !== undefined ? { expectedAtLeast: checkpoint.expectedAtLeast } : {}),
+      };
+    case "photo": return { kind: "photo" };
+    case "note": return { kind: "note" };
+    case "pass_fail": return { kind: "pass_fail" };
+  }
+}
+
+/**
+ * A heading split in two: the same section title on checkpoints that are not
+ * next to each other. On the phone it reads as two sections with one name,
+ * and the technician who finishes the first believes they finished it.
+ */
+function splitSections(checkpoints: CheckpointInput[]): string[] {
+  const seen = new Set<string>();
+  const split = new Set<string>();
+  let previous: string | null = null;
+  for (const checkpoint of checkpoints) {
+    const title = sectionOf(checkpoint);
+    if (title !== previous) {
+      if (title !== "" && seen.has(title)) split.add(title);
+      seen.add(title);
+      previous = title;
+    }
+  }
+  return [...split].map((title) => `The section "${title}" is in two places. Put its checkpoints next to each other.`);
 }
 
 /* ------------------------------------------------------------- programmes */
@@ -123,14 +202,7 @@ export interface ProgramInput {
   reportAudience?: "customer" | "authority" | "both" | undefined;
   authorityName?: string | null | undefined;
   frequencyMonths?: number | null | undefined;
-  checkpoints: {
-    key: string; label: string; assetCategory?: string | undefined;
-    requiresReading?: boolean | undefined; unit?: string | undefined;
-    range?: { min: number | null; max: number | null; borderlineWithin?: number | undefined } | undefined;
-    remedies?: { priceBookItemKey: string; label: string; quantity: number; rationale: string }[] | undefined;
-    failIsDeficiency?: boolean | undefined;
-    severityOnFail?: "critical" | "major" | "minor" | "advisory" | undefined;
-  }[];
+  checkpoints: CheckpointInput[];
 }
 
 /** Where a company's own programme starts from: a trade pack's programme, or another of its own. */
@@ -172,12 +244,37 @@ function cleaned(input: ProgramInput): ProgramContent {
     checkpoints: input.checkpoints.map((checkpoint) => {
       const assetCategory = checkpoint.assetCategory?.trim();
       const unit = checkpoint.unit?.trim();
+      const section = checkpoint.section?.trim();
+      const codeReference = checkpoint.codeReference?.trim();
+      /**
+       * ONE STORED FORM PER KIND. A pass or fail and a reading are stored as
+       * they always were (`requiresReading`), so a revision that changes
+       * nothing publishes nothing and an older reader still reads them; only
+       * a photo, a note or a count carries `answerKind`. A count's minimum
+       * goes only on a count.
+       */
+      const kind = kindOf(checkpoint);
+      const evidenceOrCount = kind === "photo" || kind === "note" || kind === "count";
       return {
         ...checkpoint,
         key: checkpoint.key.trim(),
         label: checkpoint.label.trim(),
         ...(assetCategory ? { assetCategory } : { assetCategory: undefined }),
         ...(unit ? { unit } : { unit: undefined }),
+        /**
+         * With no `answerKind` sent, everything else is kept exactly as it was
+         * sent, which is how a checkpoint was stored before kinds existed.
+         */
+        ...(checkpoint.answerKind === undefined ? {} : {
+          answerKind: evidenceOrCount ? kind : undefined,
+          requiresReading: kind === "reading" ? true : undefined,
+          ...(kind === "reading" ? {} : { range: undefined }),
+          ...(kind === "reading" ? {} : { unit: undefined }),
+        }),
+        expectedAtLeast: kind === "count" ? checkpoint.expectedAtLeast : undefined,
+        optional: checkpoint.optional ? true : undefined,
+        section: section || undefined,
+        codeReference: codeReference || undefined,
       };
     }).map((checkpoint) => Object.fromEntries(
       Object.entries(checkpoint).filter(([, value]) => value !== undefined),
@@ -204,10 +301,11 @@ export function problemsOf(input: ProgramInput): string[] {
     return problems;
   }
   for (const checkpoint of input.checkpoints) {
-    if (checkpoint.failIsDeficiency !== false && checkpoint.severityOnFail === undefined) {
+    if (canFail(checkpoint) && checkpoint.failIsDeficiency !== false && checkpoint.severityOnFail === undefined) {
       problems.push(`"${checkpoint.label || checkpoint.key}" does not say how serious a fail is.`);
     }
   }
+  problems.push(...splitSections(input.checkpoints));
   const verdict = insp.validateTemplate(templateFor({
     name: input.name.trim(),
     standard: input.standard?.trim() ?? null,
@@ -233,13 +331,15 @@ function assertValid(input: ProgramInput) {
       "A programme with no checkpoints inspects nothing and would report every visit as a pass.",
     );
   }
-  const unstated = input.checkpoints.filter((c) => c.failIsDeficiency !== false && c.severityOnFail === undefined);
+  const unstated = input.checkpoints.filter((c) => canFail(c) && c.failIsDeficiency !== false && c.severityOnFail === undefined);
   if (unstated.length > 0) {
     throw new ConflictError(
       `${unstated.map((c) => `"${c.label || c.key}"`).join(", ")} ${unstated.length === 1 ? "does" : "do"} not say how `
       + "serious a fail is. Pick one, or say a fail there is not a finding.",
     );
   }
+  const split = splitSections(input.checkpoints);
+  if (split.length > 0) throw new ConflictError(split.join(" "));
   const verdict = insp.validateTemplate(templateFor({
     name: input.name.trim(),
     standard: input.standard?.trim() ?? null,
@@ -326,12 +426,16 @@ const personOf = (ctx: ServiceContext) => (isSystem(ctx.actor) ? null : ctx.acto
  */
 export async function defineProgram(
   ctx: ServiceContext,
-  input: ProgramInput & { copiedFrom?: CopySource | undefined; replaces?: string | undefined; note?: string | null | undefined },
+  input: ProgramInput & {
+    copiedFrom?: CopySource | undefined; replaces?: string | undefined; note?: string | null | undefined;
+    draft?: boolean | undefined;
+  },
 ) {
   return guardedWrite(ctx, "compliance:write", async (tx) => {
     /** A retry under the same idempotency key gets the programme the first one wrote, not a second. */
     const again = await replayed<{ id: string }>(tx, ctx, "inspection_program");
     if (again) return loadProgram(tx, ctx.actor.organizationId, again.id);
+    if (input.draft) return saveNewDraft(tx, ctx, input);
     assertValid(input);
     const content = cleaned(input);
 
@@ -367,7 +471,124 @@ async function sourceOf(tx: Database, organizationId: string, source: CopySource
     return { kind: "trade_pack", packId: pack.id, packVersion: pack.version, code: program.code, name: program.name };
   }
   const program = await loadProgram(tx, organizationId, source.programId);
+  assertPublished(program, "it is copied, or keep working on the draft itself");
   return { kind: "program", programId: program.id, version: program.version, name: program.name };
+}
+
+/* ----------------------------------------------------------------- drafts */
+
+/**
+ * A DRAFT IS SAVED WORK, NOT A PROGRAMME ANYBODY CAN USE.
+ *
+ * The usual reason for one is a copy of a trade pack's programme whose ranges
+ * the company has still to find out: core will not judge a reading against
+ * nothing, so the copy cannot be published, and a page that could only save a
+ * finished programme lost the work the moment it was closed. A draft is kept
+ * as it was typed, checked for nothing beyond its shape, never offered to
+ * technicians, has no version kept, and nothing can be filed against it.
+ * Publishing it is the moment every check a programme saved whole goes
+ * through is applied.
+ */
+async function saveNewDraft(
+  tx: Database, ctx: ServiceContext,
+  input: ProgramInput & { copiedFrom?: CopySource | undefined; replaces?: string | undefined },
+) {
+  if (input.replaces) {
+    throw new ConflictError("A draft takes the place of nothing yet. Choose what it replaces when you publish it.");
+  }
+  const content = cleaned(input);
+  const copiedFrom = input.copiedFrom ? await sourceOf(tx, ctx.actor.organizationId, input.copiedFrom) : null;
+  const [row] = await tx.insert(schema.inspectionProgram).values({
+    organizationId: ctx.actor.organizationId,
+    ...content,
+    copiedFrom,
+    draft: true,
+    active: false,
+  }).returning();
+  await audit(tx, ctx, "inspection_program.drafted", "inspection_program", row!.id, null, row!);
+  await remember(tx, ctx, "inspection_program", row!.id, { id: row!.id });
+  return row!;
+}
+
+/** A programme that has to be a draft for what is being asked, locked for the change. */
+async function loadDraft(tx: Database, organizationId: string, id: string) {
+  const row = await loadProgram(tx, organizationId, id, { lock: true });
+  if (!row.draft) {
+    throw new ConflictError(
+      `${row.name} is published, not a draft. It changes by publishing a new version, and is kept with every version.`,
+    );
+  }
+  return row;
+}
+
+/** Save a draft again, the whole of it written over the last save. Still a draft, still not offered. */
+export async function saveDraft(
+  ctx: ServiceContext, input: ProgramInput & { id: string },
+) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const before = await loadDraft(tx, ctx.actor.organizationId, input.id);
+    const content = cleaned(input);
+    const [after] = await tx.update(schema.inspectionProgram).set({ ...content, updatedAt: new Date() })
+      .where(eq(schema.inspectionProgram.id, before.id)).returning();
+    await audit(tx, ctx, "inspection_program.draft_saved", "inspection_program", before.id, before, after!);
+    return after!;
+  });
+}
+
+/**
+ * PUBLISH A DRAFT: version 1, offered at once, under exactly the checks a
+ * programme saved whole goes through, so a draft is never a way round them.
+ */
+export async function publishDraft(
+  ctx: ServiceContext, input: { id: string; replaces?: string | undefined; note?: string | null | undefined },
+) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const again = await replayed<{ id: string }>(tx, ctx, "inspection_program_publish");
+    if (again) return loadProgram(tx, ctx.actor.organizationId, again.id);
+    const before = await loadDraft(tx, ctx.actor.organizationId, input.id);
+    assertValid(before as ProgramInput);
+    const replaced = input.replaces ? await loadProgram(tx, ctx.actor.organizationId, input.replaces, { lock: true }) : null;
+    if (replaced?.draft) throw new ConflictError(`${replaced.name} is a draft, so it is not offered and nothing needs replacing.`);
+    if (replaced && replaced.id === before.id) throw new ConflictError("A programme cannot take its own place.");
+    await assertNameFree(tx, ctx.actor.organizationId, before.name, [before.id, ...(replaced ? [replaced.id] : [])]);
+
+    const now = new Date();
+    const [after] = await tx.update(schema.inspectionProgram).set({
+      draft: false, active: true, version: 1, updatedAt: now,
+    }).where(eq(schema.inspectionProgram.id, before.id)).returning();
+    await keepVersion(tx, after!, { userId: personOf(ctx), note: input.note ?? null, at: now });
+
+    if (replaced && replaced.active) {
+      await tx.update(schema.inspectionProgram).set({ active: false, updatedAt: now })
+        .where(eq(schema.inspectionProgram.id, replaced.id));
+      await audit(tx, ctx, "inspection_program.withdrawn", "inspection_program", replaced.id,
+        { active: true }, { active: false, replacedBy: before.id });
+    }
+    await audit(tx, ctx, "inspection_program.published", "inspection_program", before.id,
+      { draft: true, active: false }, { draft: false, active: true, version: 1 });
+    await remember(tx, ctx, "inspection_program_publish", before.id, { id: before.id });
+    return after!;
+  });
+}
+
+/** Throw a draft away. Nothing was filed against it, so nothing points at it. */
+export async function discardDraft(ctx: ServiceContext, input: { id: string }) {
+  return guardedWrite(ctx, "compliance:write", async (tx) => {
+    const again = await replayed<{ id: string }>(tx, ctx, "inspection_program_discard");
+    if (again) return { id: again.id, discarded: true };
+    const before = await loadDraft(tx, ctx.actor.organizationId, input.id);
+    await tx.delete(schema.inspectionProgram).where(eq(schema.inspectionProgram.id, before.id));
+    await audit(tx, ctx, "inspection_program.draft_discarded", "inspection_program", before.id, before, null);
+    await remember(tx, ctx, "inspection_program_discard", before.id, { id: before.id });
+    return { id: before.id, discarded: true };
+  });
+}
+
+/** Refused, in words, for anything that would use a draft as if it were published. */
+function assertPublished(row: { draft: boolean; name: string }, doing: string) {
+  if (row.draft) {
+    throw new ConflictError(`${row.name} is a draft. Publish it before ${doing}.`);
+  }
 }
 
 /**
@@ -400,6 +621,7 @@ export async function reviseProgram(
     const again = await replayed<{ id: string }>(tx, ctx, "inspection_program_version");
     if (again) return loadProgram(tx, ctx.actor.organizationId, again.id);
     const before = await loadProgram(tx, ctx.actor.organizationId, input.id, { lock: true });
+    assertPublished(before, "a version of it is published: save the draft, or publish it as it is");
     if (input.baseVersion !== undefined && input.baseVersion !== before.version) {
       throw new ConflictError(
         `Somebody published version ${before.version} of ${before.name} while this was open at version `
@@ -461,6 +683,8 @@ export async function reviseProgram(
 export async function setOffered(ctx: ServiceContext, input: { id: string; offered: boolean }) {
   return guardedWrite(ctx, "compliance:write", async (tx) => {
     const before = await loadProgram(tx, ctx.actor.organizationId, input.id, { lock: true });
+    if (before.draft && !input.offered) return before;
+    assertPublished(before, "it is offered to technicians");
     if (before.active === input.offered) return before;
     if (input.offered) {
       const problems = problemsOf(before as ProgramInput);
@@ -492,6 +716,7 @@ function summaryOfProgram(row: typeof schema.inspectionProgram.$inferSelect) {
     active: row.active,
     tradePackId: row.tradePackId,
     copiedFrom: row.copiedFrom ?? null,
+    draft: row.draft,
     /** Whether an inspection can be filed against it, and what stops one when it cannot. */
     ready: problems.length === 0,
     problems,
@@ -535,7 +760,7 @@ export async function program(ctx: ServiceContext, input: { id: string }) {
       version: v.version, name: v.name, changed: v.changed, note: v.note, tradePackId: v.tradePackId,
       publishedAt: v.publishedAt, publishedBy: v.publishedBy ?? v.publishedByEmail ?? null,
     }));
-    if (!versions.some((v) => v.version === row.version)) {
+    if (!row.draft && !versions.some((v) => v.version === row.version)) {
       versions.unshift({
         version: row.version, name: row.name, changed: [], note: null, tradePackId: row.tradePackId,
         publishedAt: row.updatedAt, publishedBy: null,
@@ -555,7 +780,8 @@ export async function program(ctx: ServiceContext, input: { id: string }) {
 export async function programVersion(ctx: ServiceContext, input: { id: string; version: number }) {
   return guardedRead(ctx, "compliance:read", async (tx) => {
     const row = await loadProgram(tx, ctx.actor.organizationId, input.id);
-    const content = await contentAt(tx, row, input.version);
+    /** A draft has no published version to show: it is shown as the draft. */
+    const content = row.draft ? null : await contentAt(tx, row, input.version);
     if (!content) throw new NotFoundError(`Version ${input.version} of ${row.name}`);
     return {
       id: row.id, current: input.version === row.version, ...content,
@@ -751,6 +977,7 @@ export async function recordIn(tx: Database, ctx: ServiceContext, input: RecordI
       if (existing) return summaryOf(tx, existing);
     }
     const current = await loadProgram(tx, ctx.actor.organizationId, input.programId);
+    assertPublished(current, "an inspection is filed against it");
     /**
      * The version the answers were given against. One that was never kept
      * (asked for by a phone that held a programme from before versions were
@@ -1217,9 +1444,15 @@ export async function proposal(ctx: ServiceContext, input: { propertyId: string 
 export interface ReportItem {
   key: string;
   prompt: string;
-  kind: "pass_fail" | "reading";
+  kind: insp.AnswerKind;
+  /** The heading it sat under, as it was asked. Null for none. */
+  section: string | null;
+  /** The code clause the company wrote on the checkpoint, printed as written. */
+  codeReference: string | null;
+  /** Could be left unanswered without leaving the inspection not finished. */
+  optional: boolean;
   unit: string | null;
-  /** "350 to 450 psi", for a reading. */
+  /** "350 to 450 psi", for a reading; "at least 4", for a count. */
   range: string | null;
   /** What was recorded, as words: "Pass", "412 psi", "Not applicable: no meter on site". */
   answer: string | null;
@@ -1227,7 +1460,7 @@ export interface ReportItem {
    * What it came to. `finding` carries a severity; `borderline` is a reading
    * inside its range and near the edge of it, which is NOT a failure.
    */
-  verdict: "pass" | "borderline" | "finding" | "not_applicable" | "not_answered";
+  verdict: "pass" | "borderline" | "finding" | "recorded" | "not_applicable" | "not_answered";
   severity: string | null;
   note: string | null;
   by: string | null;
@@ -1337,7 +1570,8 @@ export async function report(ctx: ServiceContext, input: { id: string }): Promis
 
     const items: ReportItem[] = checkpoints.map((checkpoint) => {
       const answer = byKey.get(checkpoint.key);
-      const reading = checkpoint.requiresReading === true;
+      const kind = kindOf(checkpoint);
+      const reading = kind === "reading";
       const finding = findings.get(checkpoint.key) as insp.Deficiency | undefined;
       const value = answer?.value;
       let verdict: ReportItem["verdict"] = "pass";
@@ -1346,12 +1580,19 @@ export async function report(ctx: ServiceContext, input: { id: string }): Promis
       else if (finding && insp.SEVERITY[finding.severity].failsInspection) verdict = "finding";
       else if (finding && reading) verdict = "borderline";
       else if (finding) verdict = "finding";
+      /** A photo or a note is evidence: it is recorded, never passed. */
+      else if (kind === "photo" || kind === "note") verdict = "recorded";
       return {
         key: checkpoint.key,
         prompt: checkpoint.label,
-        kind: reading ? "reading" : "pass_fail",
+        kind,
+        section: checkpoint.section?.trim() || null,
+        codeReference: checkpoint.codeReference?.trim() || null,
+        optional: checkpoint.optional === true,
         unit: checkpoint.unit ?? null,
-        range: reading && checkpoint.range ? insp.describeRange(checkpoint.range, checkpoint.unit ?? "") : null,
+        range: reading && checkpoint.range
+          ? insp.describeRange(checkpoint.range, checkpoint.unit ?? "")
+          : kind === "count" && checkpoint.expectedAtLeast !== undefined ? `at least ${checkpoint.expectedAtLeast}` : null,
         answer: value ? describeAnswer(value, checkpoint.unit ?? null) : null,
         verdict,
         severity: finding ? insp.SEVERITY[finding.severity].label : null,
@@ -1651,6 +1892,17 @@ export const handlers = {
     });
     return (await program(ctx, { id: row.id })).program;
   },
+  saveInspectionProgramDraft: async (ctx: ServiceContext, input: ProgramInput & { id: string }) => {
+    const row = await saveDraft(ctx, input);
+    return (await program(ctx, { id: row.id })).program;
+  },
+  publishInspectionProgramDraft: async (
+    ctx: ServiceContext, input: { id: string; replaces?: string | undefined; note?: string | null | undefined },
+  ) => {
+    const row = await publishDraft(ctx, input);
+    return (await program(ctx, { id: row.id })).program;
+  },
+  discardInspectionProgramDraft: (ctx: ServiceContext, input: { id: string }) => discardDraft(ctx, input),
   setInspectionProgramOffered: async (ctx: ServiceContext, input: { id: string; offered: boolean }) => {
     const row = await setOffered(ctx, input);
     return { id: row.id, offered: row.active, version: row.version };

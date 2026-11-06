@@ -335,6 +335,19 @@ export interface FieldInspectionProgram {
     unit: string | null;
     min: number | null;
     max: number | null;
+    /**
+     * A photo, a note or a count. Absent for a pass or fail and a reading,
+     * which `requiresReading` tells, and from older servers.
+     */
+    kind?: "pass_fail" | "reading" | "photo" | "note" | "count" | undefined;
+    /** A count only: fewer than this many is a finding. Absent from older servers. */
+    expectedAtLeast?: number | null | undefined;
+    /** May be left unanswered without leaving the inspection not finished. Absent from older servers. */
+    optional?: boolean | undefined;
+    /** The heading it sits under. Absent from older servers. */
+    section?: string | null | undefined;
+    /** The code clause the company wrote on it. Absent from older servers. */
+    codeReference?: string | null | undefined;
   }>;
 }
 
@@ -372,7 +385,13 @@ export interface PriceBookEntry {
    * the unit its cost is per and its EPA number, which an application chosen
    * from the book carries. Absent from older servers and null for the rest.
    */
-  chemical?: { unit: string; epaRegistrationNumber: string | null } | null | undefined;
+  /**
+   * `units` when it is bought in one unit and used in another, so an
+   * application can be recorded in either. Absent from older servers.
+   */
+  chemical?: {
+    unit: string; epaRegistrationNumber: string | null; units?: { buy: string; use: string } | undefined;
+  } | null | undefined;
 }
 
 /**
@@ -422,7 +441,8 @@ export interface FieldHaul {
   visitId: string;
   leg: "delivery" | "pickup" | "swap";
   drop: { rentalId: string; container: string; deliveredAt: string | null; timeKnown: boolean } | null;
-  tip: { rentalId: string; container: string; tippedAt: string | null } | null;
+  /** `cameBackEmptyAt` is present when the can is marked as having come back empty. Absent from older servers. */
+  tip: { rentalId: string; container: string; tippedAt: string | null; cameBackEmptyAt?: string | undefined } | null;
 }
 
 export interface CodeRequestResult {

@@ -10,8 +10,8 @@ import { Uuid } from "./common";
  * on a site, and the periods a can was out for repair or held because a
  * customer asked. The dumpster pack's turnaround is hours from the first to
  * the second, leaving out a can that spent any of them in the third. The
- * driver records the first two on the phone (`haul.time`); the office records
- * or corrects them here.
+ * driver records the first two, and that a can came back empty, on the phone
+ * (`haul.time`); the office records or corrects them here.
  */
 
 export const ContainerHold = z.object({
@@ -46,7 +46,7 @@ export const recordRentalEmpty = defineRoute({
   path: "/v1/rentals/{id}/came-back-empty",
   summary: "Record that a collected can came back empty",
   description:
-    "The customer put nothing in it, so no tip is expected. `at` is the moment it was collected, on the collection's day; null takes the mark off. The turnaround then measures the can's next placement from that moment rather than counting it beside as not known. Refused before the collection is recorded, for a haul with a tip time or a scale ticket (then it was not empty), for a time still to come, and after the can was already on its next site. On the audit log.",
+    "The customer put nothing in it, so no tip is expected. `at` is the moment it was collected, on the collection's day; null takes the mark off. The turnaround then measures the can's next placement from that moment rather than counting it beside as not known. Refused before the collection is recorded, for a haul with a tip time or a scale ticket (then it was not empty), for a time still to come, and after the can was already on its next site. The driver records the same from the phone, under the same rules; only the office takes the mark off. On the audit log.",
   module: "M22",
   permissions: ["asset:write"],
   idempotent: true,

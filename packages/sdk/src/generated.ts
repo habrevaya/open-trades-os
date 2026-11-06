@@ -6124,6 +6124,11 @@ export interface DefineInspectionProgramInput {
     }>;
     failIsDeficiency?: boolean;
     severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+    expectedAtLeast?: number;
+    optional?: boolean;
+    section?: string;
+    codeReference?: string;
   }>;
   note?: string | null;
   copiedFrom?: {
@@ -6135,6 +6140,7 @@ export interface DefineInspectionProgramInput {
     programId: string;
   };
   replaces?: string;
+  draft?: boolean;
 }
 
 export interface DefineInspectionProgramOutput {
@@ -6160,6 +6166,7 @@ export interface DefineInspectionProgramOutput {
     version: number;
     name: string;
   } | null;
+  draft: boolean;
   ready: boolean;
   problems: string[];
   checkpoints: Array<{
@@ -6181,6 +6188,11 @@ export interface DefineInspectionProgramOutput {
     }>;
     failIsDeficiency?: boolean;
     severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+    expectedAtLeast?: number;
+    optional?: boolean;
+    section?: string;
+    codeReference?: string;
   }>;
 }
 
@@ -6512,6 +6524,13 @@ export interface DescribeUnsubscribeOutput {
   company: string | null;
   done: boolean;
   message: string;
+}
+
+export type DiscardInspectionProgramDraftInput = Record<string, unknown>;
+
+export interface DiscardInspectionProgramDraftOutput {
+  id: string;
+  discarded: boolean;
 }
 
 export type DiscardRevisionInput = Record<string, unknown>;
@@ -9687,6 +9706,10 @@ export interface GetFieldSnapshotOutput {
     chemical?: {
       unit: string;
       epaRegistrationNumber: string | null;
+      units?: {
+        buy: string;
+        use: string;
+      };
     } | null;
   }>;
   openTimeEntry: {
@@ -9707,6 +9730,11 @@ export interface GetFieldSnapshotOutput {
       unit: string | null;
       min: number | null;
       max: number | null;
+      kind?: "photo" | "note" | "count";
+      expectedAtLeast?: number;
+      optional?: boolean;
+      section?: string;
+      codeReference?: string;
     }>;
   }>;
   locationSharing: {
@@ -9801,6 +9829,7 @@ export interface GetFieldSnapshotOutput {
       rentalId: string;
       container: string;
       tippedAt: string | null;
+      cameBackEmptyAt?: string;
     } | null;
   }>;
 }
@@ -10131,6 +10160,7 @@ export interface GetInspectionProgramOutput {
       version: number;
       name: string;
     } | null;
+    draft: boolean;
     ready: boolean;
     problems: string[];
     checkpoints: Array<{
@@ -10152,6 +10182,11 @@ export interface GetInspectionProgramOutput {
       }>;
       failIsDeficiency?: boolean;
       severityOnFail?: "critical" | "major" | "minor" | "advisory";
+      answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+      expectedAtLeast?: number;
+      optional?: boolean;
+      section?: string;
+      codeReference?: string;
     }>;
   };
   versions: Array<{
@@ -10194,6 +10229,11 @@ export interface GetInspectionProgramVersionOutput {
     }>;
     failIsDeficiency?: boolean;
     severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+    expectedAtLeast?: number;
+    optional?: boolean;
+    section?: string;
+    codeReference?: string;
   }>;
   problems: string[];
 }
@@ -10228,11 +10268,14 @@ export interface GetInspectionReportOutput {
   items: Array<{
     key: string;
     prompt: string;
-    kind: "pass_fail" | "reading";
+    kind: "pass_fail" | "reading" | "photo" | "note" | "count";
+    section: string | null;
+    codeReference: string | null;
+    optional: boolean;
     unit: string | null;
     range: string | null;
     answer: string | null;
-    verdict: "pass" | "borderline" | "finding" | "not_applicable" | "not_answered";
+    verdict: "pass" | "borderline" | "finding" | "recorded" | "not_applicable" | "not_answered";
     severity: string | null;
     note: string | null;
     by: string | null;
@@ -16939,6 +16982,7 @@ export interface ListInspectionProgramsOutput {
       version: number;
       name: string;
     } | null;
+    draft: boolean;
     ready: boolean;
     problems: string[];
   }>;
@@ -19734,6 +19778,11 @@ export interface ListTradePackInspectionProgramsOutput {
       }>;
       failIsDeficiency?: boolean;
       severityOnFail?: "critical" | "major" | "minor" | "advisory";
+      answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+      expectedAtLeast?: number;
+      optional?: boolean;
+      section?: string;
+      codeReference?: string;
     }>;
     problems: string[];
     inCompany: {
@@ -21950,6 +21999,64 @@ export interface ProposeVisitChangeTimeOutput {
   answeredAt: string | null;
   answer: string | null;
   createdAt: string;
+}
+
+export interface PublishInspectionProgramDraftInput {
+  replaces?: string;
+  note?: string | null;
+}
+
+export interface PublishInspectionProgramDraftOutput {
+  id: string;
+  name: string;
+  standard: string | null;
+  reportAudience: string;
+  authorityName: string | null;
+  frequencyMonths: number | null;
+  version: number;
+  checkpointCount: number;
+  active: boolean;
+  tradePackId: string | null;
+  copiedFrom: {
+    kind: "trade_pack";
+    packId: string;
+    packVersion: number;
+    code: string;
+    name: string;
+  } | {
+    kind: "program";
+    programId: string;
+    version: number;
+    name: string;
+  } | null;
+  draft: boolean;
+  ready: boolean;
+  problems: string[];
+  checkpoints: Array<{
+    key: string;
+    label: string;
+    assetCategory?: string;
+    requiresReading?: boolean;
+    unit?: string;
+    range?: {
+      min: number | null;
+      max: number | null;
+      borderlineWithin?: number;
+    };
+    remedies?: Array<{
+      priceBookItemKey: string;
+      label: string;
+      quantity: number;
+      rationale: string;
+    }>;
+    failIsDeficiency?: boolean;
+    severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+    expectedAtLeast?: number;
+    optional?: boolean;
+    section?: string;
+    codeReference?: string;
+  }>;
 }
 
 export interface PublishRegulatoryConstantInput {
@@ -25349,6 +25456,11 @@ export interface ReviseInspectionProgramInput {
     }>;
     failIsDeficiency?: boolean;
     severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+    expectedAtLeast?: number;
+    optional?: boolean;
+    section?: string;
+    codeReference?: string;
   }>;
   note?: string | null;
 }
@@ -25376,6 +25488,7 @@ export interface ReviseInspectionProgramOutput {
     version: number;
     name: string;
   } | null;
+  draft: boolean;
   ready: boolean;
   problems: string[];
   checkpoints: Array<{
@@ -25397,6 +25510,11 @@ export interface ReviseInspectionProgramOutput {
     }>;
     failIsDeficiency?: boolean;
     severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+    expectedAtLeast?: number;
+    optional?: boolean;
+    section?: string;
+    codeReference?: string;
   }>;
 }
 
@@ -25841,6 +25959,93 @@ export interface SaveFormOutput {
   title: string;
   source: string;
   publicKey: string;
+}
+
+export interface SaveInspectionProgramDraftInput {
+  name: string;
+  standard?: string | null;
+  reportAudience?: "customer" | "authority" | "both";
+  authorityName?: string | null;
+  frequencyMonths?: number | null;
+  checkpoints: Array<{
+    key: string;
+    label: string;
+    assetCategory?: string;
+    requiresReading?: boolean;
+    unit?: string;
+    range?: {
+      min: number | null;
+      max: number | null;
+      borderlineWithin?: number;
+    };
+    remedies?: Array<{
+      priceBookItemKey: string;
+      label: string;
+      quantity: number;
+      rationale: string;
+    }>;
+    failIsDeficiency?: boolean;
+    severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+    expectedAtLeast?: number;
+    optional?: boolean;
+    section?: string;
+    codeReference?: string;
+  }>;
+  note?: string | null;
+}
+
+export interface SaveInspectionProgramDraftOutput {
+  id: string;
+  name: string;
+  standard: string | null;
+  reportAudience: string;
+  authorityName: string | null;
+  frequencyMonths: number | null;
+  version: number;
+  checkpointCount: number;
+  active: boolean;
+  tradePackId: string | null;
+  copiedFrom: {
+    kind: "trade_pack";
+    packId: string;
+    packVersion: number;
+    code: string;
+    name: string;
+  } | {
+    kind: "program";
+    programId: string;
+    version: number;
+    name: string;
+  } | null;
+  draft: boolean;
+  ready: boolean;
+  problems: string[];
+  checkpoints: Array<{
+    key: string;
+    label: string;
+    assetCategory?: string;
+    requiresReading?: boolean;
+    unit?: string;
+    range?: {
+      min: number | null;
+      max: number | null;
+      borderlineWithin?: number;
+    };
+    remedies?: Array<{
+      priceBookItemKey: string;
+      label: string;
+      quantity: number;
+      rationale: string;
+    }>;
+    failIsDeficiency?: boolean;
+    severityOnFail?: "critical" | "major" | "minor" | "advisory";
+    answerKind?: "pass_fail" | "reading" | "photo" | "note" | "count";
+    expectedAtLeast?: number;
+    optional?: boolean;
+    section?: string;
+    codeReference?: string;
+  }>;
 }
 
 export interface SayInChatInput {
@@ -33632,6 +33837,10 @@ export interface DescribeUnsubscribeInput {
   token: string;
 }
 
+export interface DiscardInspectionProgramDraftParams {
+  id: string;
+}
+
 export interface DiscardRevisionParams {
   versionId: string;
 }
@@ -35872,6 +36081,10 @@ export interface ProposeVisitChangeTimeParams {
   id: string;
 }
 
+export interface PublishInspectionProgramDraftParams {
+  id: string;
+}
+
 export interface PublishRevisionParams {
   versionId: string;
 }
@@ -36407,6 +36620,10 @@ export interface SatisfyObligationParams {
 
 export interface SaveFormParams {
   slug: string;
+}
+
+export interface SaveInspectionProgramDraftParams {
+  id: string;
 }
 
 export interface ScheduleVisitParams {
@@ -37411,6 +37628,7 @@ export interface OperationTypes {
   deliverAgreementVisit: { input: DeliverAgreementVisitParams & DeliverAgreementVisitInput; output: DeliverAgreementVisitOutput };
   deliverRental: { input: DeliverRentalInput; output: DeliverRentalOutput };
   describeUnsubscribe: { input: DescribeUnsubscribeInput; output: DescribeUnsubscribeOutput };
+  discardInspectionProgramDraft: { input: DiscardInspectionProgramDraftParams & DiscardInspectionProgramDraftInput; output: DiscardInspectionProgramDraftOutput };
   discardRevision: { input: DiscardRevisionParams & DiscardRevisionInput; output: DiscardRevisionOutput };
   discardSandbox: { input: DiscardSandboxInput; output: DiscardSandboxOutput };
   disconnectAiProvider: { input: DisconnectAiProviderParams & DisconnectAiProviderInput; output: DisconnectAiProviderOutput };
@@ -38005,6 +38223,7 @@ export interface OperationTypes {
   previewTradePackUpgrade: { input: PreviewTradePackUpgradeInput; output: PreviewTradePackUpgradeOutput };
   previewVendorCatalogue: { input: PreviewVendorCatalogueInput; output: PreviewVendorCatalogueOutput };
   proposeVisitChangeTime: { input: ProposeVisitChangeTimeParams & ProposeVisitChangeTimeInput; output: ProposeVisitChangeTimeOutput };
+  publishInspectionProgramDraft: { input: PublishInspectionProgramDraftParams & PublishInspectionProgramDraftInput; output: PublishInspectionProgramDraftOutput };
   publishRegulatoryConstant: { input: PublishRegulatoryConstantInput; output: PublishRegulatoryConstantOutput };
   publishRevision: { input: PublishRevisionParams & PublishRevisionInput; output: PublishRevisionOutput };
   publishServiceReport: { input: PublishServiceReportParams & PublishServiceReportInput; output: PublishServiceReportOutput };
@@ -38188,6 +38407,7 @@ export interface OperationTypes {
   runRetentionPurge: { input: RunRetentionPurgeInput; output: RunRetentionPurgeOutput };
   satisfyObligation: { input: SatisfyObligationParams & SatisfyObligationInput; output: SatisfyObligationOutput };
   saveForm: { input: SaveFormParams & SaveFormInput; output: SaveFormOutput };
+  saveInspectionProgramDraft: { input: SaveInspectionProgramDraftParams & SaveInspectionProgramDraftInput; output: SaveInspectionProgramDraftOutput };
   sayInChat: { input: SayInChatInput; output: SayInChatOutput };
   sayInPortalChat: { input: SayInPortalChatInput; output: SayInPortalChatOutput };
   scheduleOnCall: { input: ScheduleOnCallInput; output: ScheduleOnCallOutput };
@@ -38709,6 +38929,7 @@ export const OPERATIONS = {
   deliverAgreementVisit: { method: "POST", path: "/v1/agreement-visits/{id}/deliver", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
   deliverRental: { method: "POST", path: "/v1/rentals", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   describeUnsubscribe: { method: "GET", path: "/v1/public/unsubscribe/{token}", pathParams: ["token"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
+  discardInspectionProgramDraft: { method: "DELETE", path: "/v1/inspection-programs/{id}/draft", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   discardRevision: { method: "POST", path: "/v1/pricebook/scheduled/{versionId}/discard", pathParams: ["versionId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:publish"] },
   discardSandbox: { method: "DELETE", path: "/v1/sandbox", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["sandbox:manage"] },
   disconnectAiProvider: { method: "DELETE", path: "/v1/ai/connections/{provider}", pathParams: ["provider"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
@@ -39303,6 +39524,7 @@ export const OPERATIONS = {
   previewTradePackUpgrade: { method: "GET", path: "/v1/trade-packs/{id}/upgrade", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   previewVendorCatalogue: { method: "POST", path: "/v1/vendor-catalogue/preview", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["vendor:write","pricebook:write"] },
   proposeVisitChangeTime: { method: "POST", path: "/v1/visit-change-requests/{id}/propose", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:reschedule"] },
+  publishInspectionProgramDraft: { method: "POST", path: "/v1/inspection-programs/{id}/publish", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   publishRegulatoryConstant: { method: "POST", path: "/v1/compliance/constants", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   publishRevision: { method: "POST", path: "/v1/pricebook/scheduled/{versionId}/publish", pathParams: ["versionId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:publish"] },
   publishServiceReport: { method: "POST", path: "/v1/service-reports/{id}/publish", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["servicereport:publish"] },
@@ -39486,6 +39708,7 @@ export const OPERATIONS = {
   runRetentionPurge: { method: "POST", path: "/v1/compliance/retention/purges", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   satisfyObligation: { method: "POST", path: "/v1/obligations/{id}/satisfy", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   saveForm: { method: "PUT", path: "/v1/marketing/forms/{slug}", pathParams: ["slug"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
+  saveInspectionProgramDraft: { method: "PUT", path: "/v1/inspection-programs/{id}/draft", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   sayInChat: { method: "POST", path: "/v1/public/chat/messages", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
   sayInPortalChat: { method: "POST", path: "/v1/portal/chat/messages", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   scheduleOnCall: { method: "POST", path: "/v1/on-call/rotations", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
@@ -41894,6 +42117,15 @@ export abstract class GeneratedOperations {
    */
   describeUnsubscribe(input: DescribeUnsubscribeInput, options?: CallOptions): Promise<DescribeUnsubscribeOutput> {
     return this.call("describeUnsubscribe", input, options);
+  }
+
+  /**
+   * Throw a draft programme away.
+   *
+   * DELETE /v1/inspection-programs/{id}/draft. Needs compliance:write.
+   */
+  discardInspectionProgramDraft(input: DiscardInspectionProgramDraftParams & DiscardInspectionProgramDraftInput, options?: CallOptions): Promise<DiscardInspectionProgramDraftOutput> {
+    return this.call("discardInspectionProgramDraft", input, options);
   }
 
   /**
@@ -47243,6 +47475,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Publish a draft programme.
+   *
+   * POST /v1/inspection-programs/{id}/publish. Needs compliance:write.
+   */
+  publishInspectionProgramDraft(input: PublishInspectionProgramDraftParams & PublishInspectionProgramDraftInput, options?: CallOptions): Promise<PublishInspectionProgramDraftOutput> {
+    return this.call("publishInspectionProgramDraft", input, options);
+  }
+
+  /**
    * Publish the value of a figure that changes on a date.
    *
    * POST /v1/compliance/constants. Needs compliance:write.
@@ -48887,6 +49128,15 @@ export abstract class GeneratedOperations {
    */
   saveForm(input: SaveFormParams & SaveFormInput, options?: CallOptions): Promise<SaveFormOutput> {
     return this.call("saveForm", input, options);
+  }
+
+  /**
+   * Save a draft programme again.
+   *
+   * PUT /v1/inspection-programs/{id}/draft. Needs compliance:write.
+   */
+  saveInspectionProgramDraft(input: SaveInspectionProgramDraftParams & SaveInspectionProgramDraftInput, options?: CallOptions): Promise<SaveInspectionProgramDraftOutput> {
+    return this.call("saveInspectionProgramDraft", input, options);
   }
 
   /**

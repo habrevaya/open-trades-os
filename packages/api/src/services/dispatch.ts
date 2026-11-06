@@ -10,7 +10,7 @@ import { crews as crewsInView, dispatchPeople } from "./people-scope";
 import { companyDayOf } from "./company-day";
 import { shopOfPeople } from "./visit-shop";
 import { announce, sideOf } from "./visit-notices";
-import { chemicalOf, inForceAt } from "./pricebook";
+import { chemicalOf, inForceAt, unitsOf } from "./pricebook";
 import { renderWithin } from "./message-templates";
 import { can, money as m, routing, time, work } from "@opentradesos/core";
 import { sendTransactional } from "./comms-send";
@@ -32,6 +32,7 @@ import * as files from "./files";
 import * as partRequests from "./part-requests";
 import * as customerNotes from "./customer-notes";
 import * as plugins from "./plugins";
+import * as inspections from "./inspections";
 import { hoursOnDay } from "./business-hours";
 
 
@@ -1038,6 +1039,9 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
       components: schema.priceBookItemVersion.components,
       chemicalUnit: schema.priceBookItem.chemicalUnit,
       epaRegistrationNumber: schema.priceBookItem.epaRegistrationNumber,
+      buyUnit: schema.priceBookItemVersion.buyUnit,
+      useUnit: schema.priceBookItemVersion.useUnit,
+      usePerBuy: schema.priceBookItemVersion.usePerBuy,
     })
       .from(schema.priceBookItemVersion)
       .innerJoin(schema.priceBookItem, eq(schema.priceBookItem.id, schema.priceBookItemVersion.itemId))
@@ -1059,11 +1063,21 @@ export async function snapshot(ctx: ServiceContext, input: z.infer<typeof getFie
      * covers, so each one carries its parts by name.
      */
     const bookNames = new Map(book.map((item) => [item.id, item.name]));
-    const priceBook = book.map(({ components, chemicalUnit, epaRegistrationNumber, ...item }) => ({
-      ...item,
-      components: components.map((c) => ({ name: bookNames.get(c.itemId) ?? "A part", quantity: c.quantity })),
-      chemical: chemicalOf({ chemicalUnit, epaRegistrationNumber }),
-    }));
+    const priceBook = book.map(({ components, chemicalUnit, epaRegistrationNumber, buyUnit, useUnit, usePerBuy, ...item }) => {
+      const chemical = chemicalOf({ chemicalUnit, epaRegistrationNumber });
+      /**
+       * A chemical bought in one unit and used in another (by the gallon, by
+       * the ounce) carries both, so the phone can record an application in
+       * either, as the office's visit page can. Only the two names, never the
+       * ratio: the server values each application from the book.
+       */
+      const units = chemical ? unitsOf({ buyUnit, useUnit, usePerBuy }) : null;
+      return {
+        ...item,
+        components: components.map((c) => ({ name: bookNames.get(c.itemId) ?? "A part", quantity: c.quantity })),
+        chemical: chemical && units ? { ...chemical, units: { buy: units.buy, use: units.use } } : chemical,
+      };
+    });
 
     // Somebody always forgets to clock out, and the phone needs to know it is
     // still on the clock before it offers to punch in again.
@@ -1174,6 +1188,8 @@ async function programsForField(tx: Database, ctx: ServiceContext) {
     .where(and(
       eq(schema.inspectionProgram.organizationId, ctx.actor.organizationId),
       eq(schema.inspectionProgram.active, true),
+      /** A draft is never offered; it is not active either, and this says so twice on purpose. */
+      eq(schema.inspectionProgram.draft, false),
     ))
     .orderBy(asc(schema.inspectionProgram.name));
   return rows.map((row) => ({
@@ -1181,14 +1197,28 @@ async function programsForField(tx: Database, ctx: ServiceContext) {
     name: row.name,
     standard: row.standard,
     version: row.version,
-    checkpoints: row.checkpoints.map((c) => ({
-      key: c.key,
-      label: c.label,
-      requiresReading: c.requiresReading === true,
-      unit: c.unit ?? null,
-      min: c.range?.min ?? null,
-      max: c.range?.max ?? null,
-    })),
+    checkpoints: row.checkpoints.map((c) => {
+      const kind = inspections.kindOf(c);
+      return {
+        key: c.key,
+        label: c.label,
+        /** Kept for a phone app older than answer kinds, which reads only this. */
+        requiresReading: kind === "reading",
+        unit: c.unit ?? null,
+        min: c.range?.min ?? null,
+        max: c.range?.max ?? null,
+        /**
+         * Each of these only when it says something, as the stored checkpoint
+         * does: a pass or fail or a reading is told by `requiresReading`, and a
+         * programme written before kinds existed reaches the phone unchanged.
+         */
+        ...(kind === "photo" || kind === "note" || kind === "count" ? { kind } : {}),
+        ...(kind === "count" && c.expectedAtLeast !== undefined ? { expectedAtLeast: c.expectedAtLeast } : {}),
+        ...(c.optional ? { optional: true } : {}),
+        ...(c.section?.trim() ? { section: c.section.trim() } : {}),
+        ...(c.codeReference?.trim() ? { codeReference: c.codeReference.trim() } : {}),
+      };
+    }),
   }));
 }
 

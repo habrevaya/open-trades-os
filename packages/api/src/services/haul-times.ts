@@ -230,7 +230,7 @@ export function recordTip(ctx: ServiceContext, input: { id: string; tippedAt: st
  * site is still a hire.
  */
 export async function recordEmptyWithin(
-  tx: Database, ctx: ServiceContext, input: { id: string; at: Date | null },
+  tx: Database, ctx: ServiceContext, input: { id: string; at: Date | null; source?: "office" | "phone" | undefined },
 ) {
   const hire = await hireWithin(tx, ctx, input.id);
   const zone = await timezoneOf(tx, ctx.actor.organizationId);
@@ -278,14 +278,17 @@ export async function recordEmptyWithin(
     .set({ cameBackEmptyAt: input.at, updatedAt: new Date() })
     .where(eq(schema.rental.id, hire.id)).returning();
   await audit(tx, ctx, "rental.came_back_empty", "rental", hire.id,
-    { cameBackEmptyAt: hire.cameBackEmptyAt }, { cameBackEmptyAt: row!.cameBackEmptyAt });
+    { cameBackEmptyAt: hire.cameBackEmptyAt },
+    { cameBackEmptyAt: row!.cameBackEmptyAt, ...(input.source ? { source: input.source } : {}) });
   return row!;
 }
 
 /** The office marks a collected can as having come back empty, or takes the mark off. `asset:write`. */
 export function recordEmpty(ctx: ServiceContext, input: { id: string; at: string | null }) {
   return guardedWrite(ctx, "asset:write", async (tx) => {
-    const row = await recordEmptyWithin(tx, ctx, { id: input.id, at: input.at === null ? null : instant(input.at, "That time") });
+    const row = await recordEmptyWithin(tx, ctx, {
+      id: input.id, at: input.at === null ? null : instant(input.at, "That time"), source: "office",
+    });
     return { id: row.id, cameBackEmptyAt: row.cameBackEmptyAt?.toISOString() ?? null };
   });
 }
@@ -573,7 +576,9 @@ export async function haulTimeOperation(
   if (!technicianId) return "This phone is not registered to a driver, so there is nobody to record the haul for.";
   if (!op.subjectId || !UUID.test(op.subjectId)) return "That time names no container.";
   const which = op.payload["field"];
-  if (which !== "placed" && which !== "tipped") return "Say whether the can was dropped or emptied.";
+  if (which !== "placed" && which !== "tipped" && which !== "empty") {
+    return "Say whether the can was dropped, emptied, or came back empty.";
+  }
   const raw = typeof op.payload["at"] === "string" ? op.payload["at"] : op.occurredAt.toISOString();
   const at = new Date(raw);
   if (Number.isNaN(at.getTime())) return "That is not a time.";
@@ -592,6 +597,14 @@ export async function haulTimeOperation(
       )).limit(1);
     if (!mine) return "That haul is not on one of your stops, so its time cannot be recorded from your phone. Ask the office to record it.";
     if (which === "tipped") await recordTipWithin(sp, ctx, { id: hire.id, tippedAt: at, source: "phone" });
+    /**
+     * Came back empty, under exactly the office's rules: after the collection
+     * is recorded and on its day, never with a tip time or a scale ticket on
+     * the haul, not still to come, and not after the can was on its next site.
+     * The phone only sets the mark; taking it off is the office's, as a tip
+     * time is.
+     */
+    else if (which === "empty") await recordEmptyWithin(sp, ctx, { id: hire.id, at, source: "phone" });
     else await recordPlacementWithin(sp, ctx, { id: hire.id, deliveredAt: at, source: "phone" });
     return null;
   });
@@ -603,8 +616,12 @@ export interface FieldHaul {
   leg: "delivery" | "pickup" | "swap";
   /** The can put down on this stop, when there is one: a delivery's, or the empty a swap left. */
   drop: { rentalId: string; container: string; deliveredAt: string | null; timeKnown: boolean } | null;
-  /** The can taken to the facility from this stop, when there is one: a collection's, or the full can a swap took. */
-  tip: { rentalId: string; container: string; tippedAt: string | null } | null;
+  /**
+   * The can taken to the facility from this stop, when there is one: a
+   * collection's, or the full can a swap took. `cameBackEmptyAt` only when it
+   * is marked as having come back empty, so there is nothing to tip.
+   */
+  tip: { rentalId: string; container: string; tippedAt: string | null; cameBackEmptyAt?: string } | null;
 }
 
 /**
@@ -640,7 +657,10 @@ export async function haulsForField(
         rentalId: placed.rental.id, container: name(placed),
         deliveredAt: placed.rental.deliveredAt?.toISOString() ?? null, timeKnown: placed.rental.deliveredTimeKnown,
       } : null,
-      tip: leg === "delivery" ? null : { rentalId: own.rental.id, container: name(own), tippedAt: own.rental.tippedAt?.toISOString() ?? null },
+      tip: leg === "delivery" ? null : {
+        rentalId: own.rental.id, container: name(own), tippedAt: own.rental.tippedAt?.toISOString() ?? null,
+        ...(own.rental.cameBackEmptyAt ? { cameBackEmptyAt: own.rental.cameBackEmptyAt.toISOString() } : {}),
+      },
     });
   }
   return out;

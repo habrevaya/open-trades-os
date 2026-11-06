@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
-  arrivalWindow, checkGallons, clockWords, dateOf, haulClock, mobilisationPunch, statusLabel, todayIn, addressOf,
-  type DayHaul, type DayTruck, type DayVisit,
+  arrivalWindow, checkGallons, clockWords, dateOf, haulClock, mobilisationPunch, statusLabel, haulTipChoices, todayIn, addressOf,
+  type DayHaul, type DayTruck, type DayVisit, type HaulMoment as HaulMomentKind,
 } from "@opentradesos/field-client";
 import { useField } from "../state/FieldProvider";
 import { syncLine } from "../lib/status";
@@ -237,18 +237,53 @@ function Haul({ haul, zone, stop }: { haul: DayHaul; zone: string; stop: DayVisi
                     recorded={haul.drop.timeKnown ? haul.drop.deliveredAt : null} waiting={haul.drop.waiting}
                     rentalId={haul.drop.rentalId} visitId={haul.visitId} moment="placed" />
       ) : null}
-      {haul.tip ? (
-        <HaulMoment label={`Container ${haul.tip.container} emptied at the facility`} zone={zone}
-                    recorded={haul.tip.tippedAt} waiting={haul.tip.waiting}
-                    rentalId={haul.tip.rentalId} visitId={haul.visitId} moment="tipped" />
-      ) : null}
+      {haul.tip ? <TipMoments haul={haul} zone={zone} /> : null}
     </Card>
   );
 }
 
-function HaulMoment({ label, zone, recorded, waiting, rentalId, visitId, moment }: {
+const clock = (at: string, zone: string) =>
+  new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: zone });
+
+/**
+ * The tip, or that the can came back empty: one or the other, never both, as
+ * on /my-day. The server holds the empty mark to the office's rules, and only
+ * the office takes it off.
+ */
+function TipMoments({ haul, zone }: { haul: DayHaul; zone: string }) {
+  const tip = haul.tip!;
+  const choices = haulTipChoices(tip);
+  if (choices.emptyAt) {
+    return (
+      <View style={{ marginTop: space.sm }}>
+        <Text style={type.body}>
+          Container {tip.container} came back empty: collected {clock(choices.emptyAt, zone)}{tip.waiting ? ", waiting to send" : ""}.
+        </Text>
+        <Text style={type.soft}>If it was full after all, ask the office to take that off.</Text>
+      </View>
+    );
+  }
+  return (
+    <>
+      <HaulMoment label={`Container ${tip.container} emptied at the facility`} zone={zone}
+                  recorded={tip.tippedAt} waiting={tip.waiting}
+                  rentalId={tip.rentalId} visitId={haul.visitId} moment="tipped" />
+      {choices.offerEmpty ? (
+        <HaulMoment label={`Container ${tip.container} came back empty`} zone={zone} recorded={null} waiting={false}
+                    rentalId={tip.rentalId} visitId={haul.visitId} moment="empty"
+                    intro="Nothing in it, so nothing to tip? Say so instead, with the time you collected it."
+                    timeLabel="Time you collected it, if not now" button="It came back empty" />
+      ) : null}
+    </>
+  );
+}
+
+function HaulMoment({
+  label, zone, recorded, waiting, rentalId, visitId, moment, intro, timeLabel = "Time, if not now", button = "Now",
+}: {
   label: string; zone: string; recorded: string | null; waiting: boolean;
-  rentalId: string; visitId: string; moment: "placed" | "tipped";
+  rentalId: string; visitId: string; moment: HaulMomentKind;
+  intro?: string | undefined; timeLabel?: string | undefined; button?: string | undefined;
 }) {
   const field = useField();
   const [typed, setTyped] = useState("");
@@ -263,15 +298,12 @@ function HaulMoment({ label, zone, recorded, waiting, rentalId, visitId, moment 
   return (
     <View style={{ marginTop: space.sm }}>
       <Text style={type.body}>
-        {label}:{" "}
-        {recorded
-          ? `${new Date(recorded).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: zone })}${waiting ? ", waiting to send" : ""}`
-          : "not recorded yet"}
+        {intro ?? `${label}: ${recorded ? `${clock(recorded, zone)}${waiting ? ", waiting to send" : ""}` : "not recorded yet"}`}
       </Text>
-      <Field label="Time, if not now" value={typed} onChangeText={setTyped} placeholder="14:30" />
+      <Field label={timeLabel} value={typed} onChangeText={setTyped} placeholder="14:30" />
       {problem ? <Notice tone="red">{problem}</Notice> : null}
       <View style={{ marginTop: space.sm }}>
-        <Button label={typed.trim() ? "Save this time" : "Now"} onPress={() => void save()} />
+        <Button label={typed.trim() ? "Save this time" : button} onPress={() => void save()} />
       </View>
     </View>
   );

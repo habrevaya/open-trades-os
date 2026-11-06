@@ -107,6 +107,21 @@ export const Checkpoint = z.object({
   failIsDeficiency: z.boolean().optional(),
   /** How serious a fail is, which sets the finding's deadline: critical today, major 30 days, minor 180, advisory none. */
   severityOnFail: Severity.optional(),
+  /**
+   * A photo, a note or a count rather than a pass or fail or a reading. Left
+   * out for those two (a reading is `requiresReading`), so a checkpoint
+   * written before this existed means what it meant. A photo and a note are
+   * evidence and never a finding; a count is a finding below `expectedAtLeast`.
+   */
+  answerKind: z.enum(["pass_fail", "reading", "photo", "note", "count"]).optional(),
+  /** A count only: fewer than this many is a finding. */
+  expectedAtLeast: z.number().int().min(0).optional(),
+  /** May be left unanswered without leaving the inspection not finished. */
+  optional: z.boolean().optional(),
+  /** The heading it sits under. Checkpoints next to each other with one heading are one section. */
+  section: z.string().max(120).optional(),
+  /** The clause of a code that applies, as you type it, such as "NFPA 25 5.2.1". Printed, and never read as a rule. */
+  codeReference: z.string().max(200).optional(),
 });
 
 const ReportAudience = z.enum(["customer", "authority", "both"]);
@@ -131,7 +146,9 @@ const ProgramSummary = z.object({
   tradePackId: z.string().nullable(),
   /** What the company's own programme was copied from, when it was. */
   copiedFrom: CopiedFrom.nullable(),
-  /** Whether an inspection can be filed against it. */
+  /** Saved and not published: never offered, no version kept, nothing can be filed against it. */
+  draft: z.boolean(),
+  /** Whether an inspection can be filed against it. For a draft, whether it could be published as it stands. */
   ready: z.boolean(),
   /** What stops one being filed, in words. Empty when it is ready. */
   problems: z.array(z.string()),
@@ -241,7 +258,7 @@ export const defineInspectionProgram = defineRoute({
   path: "/v1/inspection-programs",
   summary: "Write a programme of your own",
   description:
-    "From nothing, or from a copy of a trade pack's programme or one of your own, named in `copiedFrom` and kept with it. Refused, in words, when an inspection could not be filed against it: no checkpoints, a reading with no unit or no range, a checkpoint whose fail is a finding that does not say how serious it is. Refused when technicians are already offered a programme of the same name, unless `replaces` names that one, which then stops being offered in the same step. Version 1, offered to technicians at once.",
+    "From nothing, or from a copy of a trade pack's programme or one of your own, named in `copiedFrom` and kept with it. Refused, in words, when an inspection could not be filed against it: no checkpoints, a reading with no unit or no range, a checkpoint whose fail is a finding that does not say how serious it is. Refused when technicians are already offered a programme of the same name, unless `replaces` names that one, which then stops being offered in the same step. Version 1, offered to technicians at once. With `draft`, kept as a draft instead: not checked, not offered, and published later with `POST /v1/inspection-programs/{id}/publish`.",
   module: "M33",
   permissions: ["compliance:write"],
   idempotent: true,
@@ -253,8 +270,59 @@ export const defineInspectionProgram = defineRoute({
     ]).optional(),
     /** A programme this one takes the place of: it stops being offered as this one starts. */
     replaces: Uuid.optional(),
+    /**
+     * Save it as a draft: kept, never offered, and nothing can be filed
+     * against it until it is published. A draft is not checked for whether it
+     * could be filed, so it can be saved while a range or a code is still to
+     * be found out. `replaces` goes with publishing it, not here.
+     */
+    draft: z.boolean().optional(),
   }),
   output: ProgramSummary.extend({ checkpoints: z.array(Checkpoint) }),
+});
+
+export const saveInspectionProgramDraft = defineRoute({
+  method: "put",
+  path: "/v1/inspection-programs/{id}/draft",
+  summary: "Save a draft programme again",
+  description:
+    "The whole draft as it should now read, written over the last save. Not checked for whether it could be filed, and still not offered. Refused for a programme that is not a draft: a published one changes by publishing a new version.",
+  module: "M33",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, ...ProgramDefinition }),
+  output: ProgramSummary.extend({ checkpoints: z.array(Checkpoint) }),
+});
+
+export const publishInspectionProgramDraft = defineRoute({
+  method: "post",
+  path: "/v1/inspection-programs/{id}/publish",
+  summary: "Publish a draft programme",
+  description:
+    "Makes version 1 and offers it to technicians at once, under the same checks as a programme saved whole: refused, in words, when an inspection could not be filed against it, or when technicians are already offered a programme of that name unless `replaces` names that one, which then stops being offered in the same step. Refused for a programme that is not a draft.",
+  module: "M33",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    replaces: Uuid.optional(),
+    /** Kept with version 1. */
+    note: z.string().max(1000).nullish(),
+  }),
+  output: ProgramSummary.extend({ checkpoints: z.array(Checkpoint) }),
+});
+
+export const discardInspectionProgramDraft = defineRoute({
+  method: "delete",
+  path: "/v1/inspection-programs/{id}/draft",
+  summary: "Throw a draft programme away",
+  description:
+    "Only a draft: nothing was ever filed against it, so nothing points at it. A published programme is kept, with every version, and is stopped being offered instead.",
+  module: "M33",
+  permissions: ["compliance:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid }),
+  output: z.object({ id: Uuid, discarded: z.boolean() }),
 });
 
 export const reviseInspectionProgram = defineRoute({
@@ -447,11 +515,19 @@ export const getInspectionReport = defineRoute({
     items: z.array(z.object({
       key: z.string(),
       prompt: z.string(),
-      kind: z.enum(["pass_fail", "reading"]),
+      kind: z.enum(["pass_fail", "reading", "photo", "note", "count"]),
+      /** The heading it sat under, as it was asked. Null for none. */
+      section: z.string().nullable(),
+      /** The code clause the company wrote on the checkpoint. Printed as written. */
+      codeReference: z.string().nullable(),
+      /** Could be left unanswered without leaving the inspection not finished. */
+      optional: z.boolean(),
       unit: z.string().nullable(),
+      /** "350 to 450 psi" for a reading, "at least 4" for a count. */
       range: z.string().nullable(),
       answer: z.string().nullable(),
-      verdict: z.enum(["pass", "borderline", "finding", "not_applicable", "not_answered"]),
+      /** `recorded` is a photo or a note: evidence, never a pass or a finding. */
+      verdict: z.enum(["pass", "borderline", "finding", "recorded", "not_applicable", "not_answered"]),
       severity: z.string().nullable(),
       note: z.string().nullable(),
       by: z.string().nullable(),
@@ -504,6 +580,7 @@ export const quoteDeficiency = defineRoute({
 
 export const inspectionRoutes = {
   listInspectionPrograms, getInspectionProgram, getInspectionProgramVersion, listTradePackInspectionPrograms,
-  defineInspectionProgram, reviseInspectionProgram, setInspectionProgramOffered, recordInspection, listDeficiencies, setDeficiencyStatus,
+  defineInspectionProgram, saveInspectionProgramDraft, publishInspectionProgramDraft, discardInspectionProgramDraft,
+  reviseInspectionProgram, setInspectionProgramOffered, recordInspection, listDeficiencies, setDeficiencyStatus,
   listInspections, getInspectionReport, quoteDeficiency,
 } as const;

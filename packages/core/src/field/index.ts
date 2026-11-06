@@ -242,10 +242,11 @@ export const CONFLICT_RULES: Record<OperationKind, ConflictRule> = {
   "truck.water": "edit",
 
   /**
-   * The moment a can was put down or emptied sets one time on the hire, so the
-   * most recent tap by occurrence time wins. The payload names which of the
-   * two as its `field` (`placed` or `tipped`), because the drop and the tip of
-   * one hire are two values, not one edited twice.
+   * The moment a can was put down, emptied, or found to have come back empty
+   * sets one time on the hire, so the most recent tap by occurrence time wins.
+   * The payload names which as its `field` (`placed`, `tipped` or `empty`),
+   * because the drop, the tip and the empty mark of one hire are three values,
+   * not one edited three times.
    */
   "haul.time": "edit",
 

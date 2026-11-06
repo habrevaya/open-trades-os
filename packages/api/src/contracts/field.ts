@@ -440,6 +440,20 @@ export const InspectionProgramForField = z.object({
     unit: z.string().nullable(),
     min: z.number().nullable(),
     max: z.number().nullable(),
+    /**
+     * A photo, a note or a count. Absent for a pass or fail and a reading,
+     * which `requiresReading` tells, so a phone older than this reads them as
+     * it always did.
+     */
+    kind: z.enum(["photo", "note", "count"]).optional(),
+    /** A count only: fewer than this many is a finding. */
+    expectedAtLeast: z.number().int().optional(),
+    /** Present, and true, when it may be left unanswered without leaving the inspection not finished. */
+    optional: z.boolean().optional(),
+    /** The heading it sits under. Absent for none. */
+    section: z.string().optional(),
+    /** The code clause the company wrote on it, shown to the technician as written. */
+    codeReference: z.string().optional(),
   })),
 });
 
@@ -489,7 +503,16 @@ export const getFieldSnapshot = defineRoute({
        * and its EPA registration number, carried onto an application chosen
        * from the book. Null for anything else; absent from older servers.
        */
-      chemical: z.object({ unit: z.string(), epaRegistrationNumber: z.string().nullable() }).nullable().optional(),
+      chemical: z.object({
+        unit: z.string(),
+        epaRegistrationNumber: z.string().nullable(),
+        /**
+         * The units its version in force is bought and used in, when it has
+         * both: an application can be recorded in either, as on the office's
+         * visit page. Absent when it has one unit, and from older servers.
+         */
+        units: z.object({ buy: z.string(), use: z.string() }).optional(),
+      }).nullable().optional(),
     })),
     openTimeEntry: z.object({
       id: Uuid,
@@ -625,7 +648,8 @@ export const getFieldSnapshot = defineRoute({
     /**
      * The container hauls on this person's stops, so the driver records the
      * moment a can was put down (`drop`) and the moment a full one was
-     * emptied at the facility (`tip`) with no signal (`haul.time`). A
+     * emptied at the facility, or that it came back empty (`tip`), with no
+     * signal (`haul.time`). A
      * delivery has a drop, a collection a tip, and a swap both once the
      * office has recorded it. Absent from older servers and on an unchanged
      * poll.
@@ -636,7 +660,11 @@ export const getFieldSnapshot = defineRoute({
       drop: z.object({
         rentalId: Uuid, container: z.string(), deliveredAt: z.string().datetime().nullable(), timeKnown: z.boolean(),
       }).nullable(),
-      tip: z.object({ rentalId: Uuid, container: z.string(), tippedAt: z.string().datetime().nullable() }).nullable(),
+      tip: z.object({
+        rentalId: Uuid, container: z.string(), tippedAt: z.string().datetime().nullable(),
+        /** Present when the can is marked as having come back empty, from the office or the driver's phone. */
+        cameBackEmptyAt: z.string().datetime().optional(),
+      }).nullable(),
     })).optional(),
   }),
 });

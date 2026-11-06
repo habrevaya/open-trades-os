@@ -288,7 +288,8 @@ export interface DayHaul {
   visitId: string;
   leg: "delivery" | "pickup" | "swap";
   drop: { rentalId: string; container: string; deliveredAt: string | null; timeKnown: boolean; waiting: boolean } | null;
-  tip: { rentalId: string; container: string; tippedAt: string | null; waiting: boolean } | null;
+  /** `cameBackEmptyAt` when the can is marked as having come back empty, from the office or this phone. */
+  tip: { rentalId: string; container: string; tippedAt: string | null; cameBackEmptyAt?: string | undefined; waiting: boolean } | null;
 }
 
 export interface DayTruck {
@@ -458,6 +459,9 @@ export function projectDay(input: {
         }
         if (op.payload["field"] === "tipped" && tip && tip.rentalId === op.subjectId) {
           haul.tip = { ...tip, tippedAt: at, waiting };
+        }
+        if (op.payload["field"] === "empty" && tip && tip.rentalId === op.subjectId) {
+          haul.tip = { ...tip, cameBackEmptyAt: at, waiting };
         }
       }
       continue;

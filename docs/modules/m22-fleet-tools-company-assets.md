@@ -182,7 +182,10 @@ not empty" takes the mark off (`at: null`). The row then says "Came back
 empty" where it would say "No ticket". Refused in words: a can still on its
 site, a haul with a tip time, a scale ticket, a weight or a disposal fee on it
 (then it was not empty), a time still to come, another day than the
-collection, and a time after the can was already on its next site. A tip time
+collection, and a time after the can was already on its next site. The driver
+says the same from the phone app or `/my-day` ("It came back empty" under the
+can's tip, `haul.time` with `empty`), under exactly these rules and only on their
+own stops; only the office takes the mark off. A tip time
 on a haul marked empty is refused the same way, a delivery before the can came
 back is refused as one before its tip is, a facility's ticket file does not
 match a haul marked empty, and the disposal fee it would pass on says there is
@@ -761,8 +764,8 @@ this product's own board first.
   counted beside the figure until somebody says when the can was put down, on
   its row or from the phone; nothing reads a visit's completion as the drop. A
   can collected empty counts from the time the office gives with "Came back
-  empty"; the driver's phone does not say it yet, so until the office does, the
-  next placement is counted beside as not known. The
+  empty" or the driver gives from the phone; until somebody does, the next
+  placement is counted beside as not known. The
   phone times a stop's haul only once the office has recorded the hire on it
   (a drop off booked before the can was chosen shows nothing to time), and a
   time typed on the phone is the phone's own clock. A customer hold names the

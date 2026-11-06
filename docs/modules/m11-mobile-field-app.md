@@ -32,7 +32,7 @@ right answer is different for different things.
 ## Key concepts
 
 **Writes are named intents, not row diffs.** Thirty two operation kinds and the
-list is closed (`visit.call_off` is a visit called off from the door and `part.request` a part asked of the office, below; the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down or emptied one, below): a new kind is a schema decision and a conflict decision, not
+list is closed (`visit.call_off` is a visit called off from the door and `part.request` a part asked of the office, below; the sixteenth, `payment.collect`, is money taken on site, the seventeenth, `inspection.record`, is an inspection filed whole, the next seven are selling and closing on site, below, `expense.record` is what the technician paid for the company, `notice.read` is a notice opened on the phone, `truck.water` is the fresh water a truck used on a day, and the last, `haul.time`, is the moment a driver put a container down, emptied one, or found one came back empty, below): a new kind is a schema decision and a conflict decision, not
 something a client invents.
 
 **The conflict rule is per kind.** Four rules, and which one applies is the
@@ -473,36 +473,57 @@ yesterday and today with the water already read (`trucks`), so the card works
 with no signal and shows a reading the office corrected. The office's side and
 what the figure is are M22 and M21 (fresh water per stop).
 
-### When a container was put down, and when one was emptied
+### When a container was put down, and when one was emptied or came back empty
 
 A driver whose day has container stops (a visit that names a hire as its drop
 off, collection or swap) sees "Container times" on the day, on the phone app
 and on `/my-day`: for a drop off, when the can was put down; for a collection,
-when the full can was emptied at the facility; for a swap, both, the empty
-once the office has recorded the swap. "Now" records the moment it is tapped,
+when the full can was emptied at the facility, or that it came back empty; for
+a swap, both, the empty once the office has recorded the swap. "Now" records the moment it is tapped,
 or a time typed for earlier today ("14:30" or "2:30 pm", in the phone's own
 clock, never one still to come). It goes into the queue as `haul.time` (an
-edit: the subject is the hire and `placed` or `tipped` is the field, so tapping
-again replaces that time and leaves the other alone), shown as waiting to send
-until it lands, and is refused in words for a hire that is not on one of the
+edit: the subject is the hire and `placed`, `tipped` or `empty` is the field, so
+tapping again replaces that time and leaves the others alone), shown as waiting to
+send until it lands, and is refused in words for a hire that is not on one of the
 phone's own person's stops, and with the office's own refusals (a drop on
 another day than the delivery recorded, a tip before the delivery or after the
-can was on its next site). The snapshot carries the hauls on the day's stops
-with the times already recorded (`hauls`), so it works with no signal and
-shows a time the office corrected. What the times are for is M22 and M21
+can was on its next site).
+
+"It came back empty", under a collected can's tip, is for a can the customer put
+nothing in: "Now" or the time it was collected, on the collection's day. It is
+held to exactly the office's rules for `PUT /v1/rentals/{id}/came-back-empty`:
+refused before the collection is recorded, for a haul with a tip time, a scale
+ticket, a weight or a disposal fee on it, for another day than the collection,
+for a time still to come, and after the can was on its next site; on the audit
+log as the phone's. A stop offers the tip time or the empty mark, never both, and
+once a can is marked empty it says so ("came back empty: collected 10:00 AM") and
+offers neither: taking the mark off is the office's, as clearing a tip time is. The snapshot carries the hauls on the day's stops
+with the times already recorded (`hauls`, with `cameBackEmptyAt` on a tip only when
+the can is marked empty), so it works with no signal and shows a time or a mark the
+office recorded. What the times are for is M22 and M21
 (turnaround between pickup and redelivery).
 
 ### Inspections
 
 A technician the company lets file inspections (`compliance:write`, which the
 technician preset does not hold) is sent the inspection programmes with the day,
-and runs one against a visit: pass or fail, readings with the range beside them,
-not applicable with a reason, a photo per checkpoint and a signature. The whole
+and runs one against a visit: the checkpoints under their section headings, each
+with the code reference the company wrote on it, pass or fail, readings with the
+range beside them, counts with the fewest there should be beside them (short, or
+not a whole number, is said before saving), a photo to take or a note to write as
+the answer, optional checkpoints that may be left blank, not applicable with a
+reason, a photo per checkpoint and a signature. The answers are built by
+`buildInspection` in the field client, the same code `/my-day` uses. The whole
 inspection is one `inspection.record` operation, an append that always applies,
-with an id the phone made so a retry files it once. The server files it through
-the same service the office uses, against the visit's own customer and address,
-and draws the verdict itself; the phone never sends one. `/my-day` runs the same
-inspection with a typed signature.
+with an id the phone made so a retry files it once; photos, notes and counts go in
+it exactly as readings do, so they sync the same way offline. The server files it
+through the same service the office uses, against the visit's own customer and
+address, and draws the verdict itself; the phone never sends one. `/my-day` runs
+the same inspection with a drawn or typed signature. A draft programme is never
+sent. The snapshot carries `kind`, `expectedAtLeast`, `optional`, `section` and
+`codeReference` on a checkpoint only when they say something, so a phone older than
+them reads a pass or fail and a reading as before; such a phone cannot run a photo,
+note or count checkpoint, and the server refuses that filing in words.
 
 ### Notices about the day
 
@@ -792,7 +813,15 @@ adds one the technician missed, chosen from the book onto the visit's report
 (`servicereport:read`) and `POST /v1/visits/{id}/products-applied`
 (`servicereport:write`, audited, refused for a published report). For a product
 bought in one unit and used in another, "In what" records it in either unit
-(`unit`); anything else is recorded in the chemical's own unit. The licence
+(`unit`); anything else is recorded in the chemical's own unit. The phone app and
+`/my-day` offer the same choice: the day's price book carries a chemical's buy and
+use units when its version in force has both (`chemical.units`, only the two names,
+never the ratio), the product picker offers the chemical's own unit first and then
+the other ("In what unit" on `/my-day`, a choice under the amount on the phone), and
+the amount goes as typed in the unit picked, never converted on the phone
+(`applicationUnit` on `service_report.set_field`). The server keeps it when it is the
+buy or the use unit, spelt as the book spells it, exactly as for the office, and the
+chemical cost per stop values it at the cost or the cost over the ratio. The licence
 and the target pest are kept as before. Pest control's chemical cost per stop
 (M21) values only what was chosen from the book.
 

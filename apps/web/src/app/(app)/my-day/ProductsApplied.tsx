@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import {
-  applicationFromBook, checkApplied, type ChemicalChoice, type DayReportField,
+  applicationFromBook, applicationUnits, checkApplied, type ChemicalChoice, type DayReportField,
 } from "@opentradesos/field-client";
 
 /**
@@ -10,7 +10,10 @@ import {
  *
  * The report's product questions, answered the way the phone app answers
  * them: the product picked from the chemicals the company marks in its price
- * book, and how much, in the unit its cost is per. The book's name, EPA
+ * book, and how much, in the unit its cost is per or, for one bought in one
+ * unit and used in another, in either, as on the office's visit page. The
+ * amount is recorded as typed in the unit picked, and the server values it
+ * from the book as it does for the office. The book's name, EPA
  * number and unit go on the record, so nothing regulated is typed twice and
  * the office can cost what was applied. A product the book does not hold is
  * typed, under "Not in the price book", and kept as typed.
@@ -49,6 +52,8 @@ function Question({ question, chemicals, locked, onSave }: {
 }) {
   const [chosen, setChosen] = useState("");
   const [amount, setAmount] = useState("");
+  /** The unit picked for the amount; the chemical's own until another is chosen. */
+  const [unit, setUnit] = useState("");
   const [typed, setTyped] = useState({ product: "", epa: "", unit: "", amount: "" });
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -62,6 +67,7 @@ function Question({ question, chemicals, locked, onSave }: {
       setProblem(null);
       setChosen("");
       setAmount("");
+      setUnit("");
       setTyped({ product: "", epa: "", unit: "", amount: "" });
     } finally {
       setBusy(false);
@@ -72,7 +78,7 @@ function Question({ question, chemicals, locked, onSave }: {
     if (!chemical) { setProblem("Choose the product applied."); return; }
     const checked = checkApplied(amount);
     if (!checked.ok) { setProblem(checked.problem); return; }
-    await send(applicationFromBook(question, chemical, checked.quantity));
+    await send(applicationFromBook(question, chemical, checked.quantity, unit || undefined));
   }
 
   async function saveTyped() {
@@ -101,17 +107,26 @@ function Question({ question, chemicals, locked, onSave }: {
             <div className="mt-2 grid grid-cols-3 gap-2">
               <label className="col-span-2 block min-w-0">
                 <span className="text-sm text-ink-700">Product</span>
-                <select className={`mt-1 ${input}`} value={chosen} onChange={(e) => setChosen(e.target.value)}
+                <select className={`mt-1 ${input}`} value={chosen} onChange={(e) => { setChosen(e.target.value); setUnit(""); }}
                         aria-label={`${question.label}: product`}>
                   <option value="">Choose the product</option>
                   {chemicals.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </label>
               <label className="block">
-                <span className="text-sm text-ink-700">How much{chemical ? `, ${chemical.unit}` : ""}</span>
+                <span className="text-sm text-ink-700">How much{chemical ? `, ${unit || chemical.unit}` : ""}</span>
                 <input className={`mt-1 ${input}`} inputMode="decimal" value={amount}
                        aria-label={`${question.label}: how much`} onChange={(e) => setAmount(e.target.value)} />
               </label>
+              {chemical && applicationUnits(chemical).length > 1 ? (
+                <label className="col-span-3 block">
+                  <span className="text-sm text-ink-700">In what unit</span>
+                  <select className={`mt-1 ${input}`} value={unit || chemical.unit} onChange={(e) => setUnit(e.target.value)}
+                          aria-label={`${question.label}: in what unit`}>
+                    {applicationUnits(chemical).map((u) => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </label>
+              ) : null}
               {chemical?.epaRegistrationNumber ? (
                 <p className="col-span-3 text-sm text-ink-500">EPA {chemical.epaRegistrationNumber}</p>
               ) : null}
