@@ -20,6 +20,7 @@ import type {
 import { portalBase } from "../lib/portal-base";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 import { companyFor } from "./website-tracking";
+import { bookingPageSettingsOf, publicDepositTerms, type PublicDepositTerms } from "./booking-page";
 
 /**
  * THE CUSTOMER SIDE
@@ -322,11 +323,36 @@ export async function openLink(db: Database, input: z.infer<typeof openPortalLin
       logoUrl: schema.organization.logoUrl,
     }).from(schema.organization).where(eq(schema.organization.id, grant.organizationId)).limit(1);
 
-    const [customer] = await tx.select({ name: schema.customer.name })
-      .from(schema.customer).where(eq(schema.customer.id, grant.customerId ?? "")).limit(1);
+    /**
+     * A booking link has no customer until the office confirms it. Looking
+     * one up by an empty id was a database error, so the "follow along here"
+     * link the booking page hands out opened nothing until somebody confirmed.
+     */
+    const [customer] = grant.customerId
+      ? await tx.select({ name: schema.customer.name })
+        .from(schema.customer).where(eq(schema.customer.id, grant.customerId)).limit(1)
+      : [];
 
     const [row] = await tx.select({ expiresAt: schema.portalGrant.expiresAt })
       .from(schema.portalGrant).where(eq(schema.portalGrant.id, grant.grantId)).limit(1);
+
+    /**
+     * A booking link's page says the deposit again, as the booking page and
+     * its confirmation did, and only while the company shows deposits there.
+     * The service's terms as they are now, which are what the office will
+     * ask for.
+     */
+    let bookingDeposit: PublicDepositTerms | null = null;
+    if (grant.scope === "booking" && grant.subjectId) {
+      const [booked] = await tx.select({
+        depositAmount: schema.bookableService.depositAmount,
+        depositPercent: schema.bookableService.depositPercent,
+        displayPrice: schema.bookableService.displayPrice,
+      }).from(schema.bookingRequest)
+        .innerJoin(schema.bookableService, eq(schema.bookableService.id, schema.bookingRequest.bookableServiceId))
+        .where(eq(schema.bookingRequest.id, grant.subjectId)).limit(1);
+      if (booked) bookingDeposit = publicDepositTerms(await bookingPageSettingsOf(tx, grant.organizationId), booked);
+    }
 
     return {
       organizationName: org?.name ?? "",
@@ -334,6 +360,7 @@ export async function openLink(db: Database, input: z.infer<typeof openPortalLin
       customerName: customer?.name ?? "",
       scope: grant.scope,
       expiresAt: (row?.expiresAt ?? new Date()).toISOString(),
+      bookingDeposit,
     };
   });
 }

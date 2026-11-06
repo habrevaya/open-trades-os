@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { loadSlots, submitBooking, type Slot, type Arrival } from "./actions";
+import { loadSlots, submitBooking, type Slot, type Arrival, type DepositTerms } from "./actions";
 
 type Service = {
   id: string;
@@ -9,7 +9,23 @@ type Service = {
   publicDescription: string | null;
   displayPrice: string | null;
   minNoticeHours: number;
+  /** Only when the company shows deposits on the booking page and this service asks for one. */
+  deposit: DepositTerms | null;
 };
+
+/**
+ * A service's deposit, said before the customer books and again once they
+ * have. Nothing here takes money: the words say so, and say what really
+ * happens next (the office confirms, then asks for the deposit).
+ */
+function DepositNote({ deposit, testId }: { deposit: DepositTerms; testId: string }) {
+  return (
+    <div data-testid={testId} className="rounded border border-steel-200 bg-canvas px-3 py-2 text-sm text-ink-700">
+      <p className="font-medium text-ink-900">{deposit.summary}</p>
+      <p className="mt-1">{deposit.nextStep}</p>
+    </div>
+  );
+}
 
 const dollars = (v: string) =>
   Number(v).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -33,7 +49,7 @@ export function BookingFlow({ slug, services }: { slug: string; services: Servic
   );
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
-  const [done, setDone] = useState<string | null>(null);
+  const [done, setDone] = useState<{ trackingUrl: string; deposit: DepositTerms | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const arrival = useRef<Arrival>({});
@@ -93,11 +109,16 @@ export function BookingFlow({ slug, services }: { slug: string; services: Servic
           We will confirm shortly. You can follow along here:
         </p>
         <a
-          href={done}
+          href={done.trackingUrl}
           className="mt-4 inline-block break-all text-sm text-ink-900 underline underline-offset-4"
         >
-          {done}
+          {done.trackingUrl}
         </a>
+        {done.deposit && (
+          <div className="mx-auto mt-4 max-w-sm text-left">
+            <DepositNote deposit={done.deposit} testId="deposit-booked" />
+          </div>
+        )}
       </div>
     );
   }
@@ -121,6 +142,9 @@ export function BookingFlow({ slug, services }: { slug: string; services: Servic
                 <span className="font-medium">{s.publicName}</span>
                 {s.publicDescription && (
                   <span className="mt-1 block text-sm text-ink-700">{s.publicDescription}</span>
+                )}
+                {s.deposit && (
+                  <span className="mt-1 block text-sm text-ink-700" data-testid="deposit-on-service">{s.deposit.summary}</span>
                 )}
               </span>
               <span className="shrink-0 font-mono tabular-nums">
@@ -148,6 +172,11 @@ export function BookingFlow({ slug, services }: { slug: string; services: Servic
 
       {service && slot && (
         <Step n={3} title="Where are we going?">
+          {service.deposit && (
+            <div className="mb-3">
+              <DepositNote deposit={service.deposit} testId="deposit-before-booking" />
+            </div>
+          )}
           <DetailsForm
             error={error}
             onSubmit={(details) =>
@@ -161,7 +190,7 @@ export function BookingFlow({ slug, services }: { slug: string; services: Servic
                   ...details,
                 });
                 if (result.ok) {
-                  setDone(result.trackingUrl);
+                  setDone({ trackingUrl: result.trackingUrl, deposit: result.deposit });
                   return;
                 }
                 setError(result.message);

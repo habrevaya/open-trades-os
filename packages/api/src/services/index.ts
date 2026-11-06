@@ -22,6 +22,7 @@ export * as knowledge from "./knowledge";
 export * as push from "./push";
 export * as dispatch from "./dispatch";
 export * as booking from "./booking";
+export * as bookingPage from "./booking-page";
 export * as tradePacks from "./trade-pack";
 export * as properties from "./properties";
 export * as priceBook from "./pricebook";

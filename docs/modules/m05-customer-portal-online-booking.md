@@ -197,10 +197,22 @@ amount, or a percent of the price shown), and **On the booking page**, which
 takes it off the public page without losing its terms and touches no booking
 already made. A deposit is an amount or a percent, never both, an amount above
 nothing and a percent above 0 and at most 100, refused in words otherwise, the
-same rule as offering one. The screen says the booking page takes no money: the
-deposit is what a website booking through the API is told is due
-(`depositDue`) and what the office asks for once it confirms the booking. Every
-change writes an audit row with the service as it was.
+same rule as offering one. The screen says the booking page takes no money, and
+whether the booking page shows this deposit to the customer (it does only when
+**Show deposits on the booking page** is on, below). The deposit is also what a
+website booking through the API is told is due (`depositDue`) and what the
+office asks for once it confirms the booking. Every change writes an audit row
+with the service as it was.
+
+**Show deposits on the booking page** sits under the services on `/booking`
+(and on the setup wizard's hours step, which draws the same sections). It is
+one choice for the whole company, off until somebody turns it on, kept in the
+company's settings beside the member hold. Reading it is
+`GET /v1/booking/page-settings` (`booking:read`); changing it is
+`PUT /v1/booking/page-settings` with `showDeposits` (`booking:configure`, the
+permission that edits booking services), and every change writes an audit row
+(`booking.page_settings_set`) with what it was and what it became. What it
+changes is in "What the booking page says about a deposit", below.
 
 `/settings/portal` shows the address customers sign in at (`/portal/{slug}`),
 turns tipping on and sets the suggested percentages, turns bank payments on,
@@ -978,6 +990,50 @@ one, so the visits on the company's site and the booking join. A link carrying
 a customer's referral code (`ref`) credits the booking to that customer's
 referral, and confirming it records who referred the new customer.
 
+### What the booking page says about a deposit
+
+Only when the company has turned on **Show deposits on the booking page**, and
+only for a service with deposit terms. Off, or for a service with no deposit,
+nothing about deposits shows anywhere on the page, exactly as before.
+
+On, the service's card on `/book/{slug}` says the deposit, and says it again,
+with what happens next, above **Book it**, before the customer books. The
+amount is worked out the way `depositDue` works it out, to the cent:
+
+| The service's terms | What the customer reads |
+|---|---|
+| A set amount of $50 | This service needs a deposit of $50.00. |
+| 10 percent, price shown $189 | This service needs a deposit of $18.90, which is 10% of $189.00. |
+| 10 percent, no price shown | This service needs a deposit of 10% of the price. We will tell you the amount when we ask for it. |
+
+Then, the same for every service: "You pay nothing on this page. After we
+confirm your booking, we will ask you for the deposit." That is what the
+product does. The booking page takes no money, and confirming a booking does
+not ask for a deposit on its own: confirming makes the customer and the job,
+and somebody in the office asks for the deposit afterwards (`POST /v1/deposits`
+for the job, `deposit:collect`, and a `deposit` link to pay it, which opens
+`/pay/{token}`). The words promise no more than that: not a link, not a time,
+not a way to pay.
+
+After **Book it**, the confirmation ("You are booked.") says the deposit and
+the next step again. No email or text goes to the customer when they book; the
+confirmation they keep is the tracking link the screen shows, and the page it
+opens (`/b/{token}`, "Request received") says the deposit and the next step a
+third time, from the service's terms as they are when it is opened, until the
+office confirms and the link becomes the job's page.
+
+Over the API, the choice decides what the public is told. Off,
+`GET /v1/public/services` returns `depositAmount`, `depositPercent` and
+`deposit` as null for every service, so a company that has not chosen to show
+deposits tells the public nothing about them. On, a service with terms carries
+them, and `deposit` holds the amount (null for a percent with no price), the
+percent, and the two sentences above (`summary`, `nextStep`), so a company's own
+website can say exactly what the booking page says. `POST /v1/public/bookings`
+returns the same `deposit` beside the request when the choice is on, and
+`GET /v1/portal/session` returns it as `bookingDeposit` for a booking link.
+`depositDue` on the booking response is unchanged: a website booking through the
+API was told the figure before this choice existed, and still is.
+
 ### A customer's referral link
 
 The account page (`/c/{token}`) shows the customer their own referral link and
@@ -1079,6 +1135,8 @@ in from, and which codes failed, are the office's business.
 | `GET /v1/bookings` | `booking:read` |
 | `POST /v1/bookings/{id}/confirm` | `booking:decide`, `job:write` |
 | `PUT /v1/booking/hours` | `booking:configure` |
+| `GET /v1/booking/page-settings` | `booking:read` |
+| `PUT /v1/booking/page-settings` | `booking:configure` |
 
 ## Common questions
 
@@ -1091,7 +1149,13 @@ balance and tells them to reply to arrange payment, because there is no other
 way to pay from it and pretending otherwise wastes their time.
 
 **Does a booking request hold a deposit?** No. There is no customer yet to hold
-one for.
+one for. When the company shows deposits on the booking page, the customer is
+told the deposit before they book and that the office will ask for it after it
+confirms; nothing is taken.
+
+**Why does the booking page not show my deposit?** Either **Show deposits on the
+booking page** is off on `/booking` (it starts off), or the service has no
+deposit set. Each service's **Edit** says which.
 
 **A customer says the code never arrived.** Open them and look under
 **Portal sign ins**, or `/settings/portal/sign-ins`: each code asked for says
@@ -1112,10 +1176,17 @@ so this is not a wider door, and it is said here rather than hidden.
 
 ## What is not built
 
-The public booking page does not show a service's deposit or take one; the
-deposit set on a service is told to a website booking through the API and is
-asked for by the office after it confirms, because what the page itself tells a
-customer about money up front is a decision nobody has made. A service is
+The public booking page tells a customer about a service's deposit only when
+the company turns that on, and never takes one: taking a deposit online at
+booking is not built, because nobody has decided it should be (there is no
+customer yet to hold it for, and what happens to the money when the office
+declines the booking is not settled). The deposit is asked for by the office
+after it confirms, by hand: confirming asks for nothing on its own. The choice
+to show deposits is one for the whole company, not per service (a service with
+no deposit simply shows none). No email or text is sent to a customer when they
+book, so the deposit is said on the page, its confirmation and the tracking
+link's page, and nowhere else. The words are the product's and the company
+cannot edit them. A service is
 offered for one job type and cannot be moved to another; a different job type is
 a new service, and a service that is no longer wanted is switched off rather
 than removed.

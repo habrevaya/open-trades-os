@@ -21,6 +21,7 @@ import { portalBase } from "../lib/portal-base";
 import { qualifyDaysForWork } from "./qualification";
 import { loadHolidays } from "./holidays";
 import * as businessHours from "./business-hours";
+import { bookingPageSettingsOf, publicDepositTerms } from "./booking-page";
 
 
 /**
@@ -77,6 +78,16 @@ export async function listServices(db: Database, input: z.infer<typeof listBooka
     ))
     .orderBy(schema.bookableService.publicName);
 
+  /**
+   * DEPOSIT TERMS ONLY WHEN THE COMPANY CHOSE TO SHOW THEM.
+   *
+   * The raw terms went out on this list for every company, so they sat in
+   * the booking page's own data even though the page said nothing about
+   * them. A company that has not turned on "Show deposits on the booking
+   * page" now tells the public nothing about deposits here; one that has
+   * gets the terms and the words the page says.
+   */
+  const settings = await bookingPageSettingsOf(db, org.id);
   return {
     organizationName: org.name,
     services: rows.map((r) => ({
@@ -85,8 +96,9 @@ export async function listServices(db: Database, input: z.infer<typeof listBooka
       publicDescription: r.publicDescription,
       displayPrice: r.displayPrice,
       currency: r.currency,
-      depositAmount: r.depositAmount,
-      depositPercent: r.depositPercent,
+      depositAmount: settings.showDeposits ? r.depositAmount : null,
+      depositPercent: settings.showDeposits ? r.depositPercent : null,
+      deposit: publicDepositTerms(settings, r),
       minNoticeHours: r.minNoticeHours,
       maxAdvanceDays: r.maxAdvanceDays,
       intakeFields: r.intakeFields,
@@ -1306,6 +1318,7 @@ export async function createRequest(
            */
           trackingUrl: await issueTrackingUrl(tx, org.id, prior.id),
           depositDue: priorDeposit,
+          deposit: publicDepositTerms(await bookingPageSettingsOf(tx, org.id), service),
           paymentUrl: null,
         };
       }
@@ -1476,6 +1489,13 @@ export async function createRequest(
       // when a customer most wants to see that something happened.
       trackingUrl: await issueTrackingUrl(tx, org.id, row!.id),
       depositDue: deposit,
+      /**
+       * The deposit in words for the confirmation, only when the company
+       * shows deposits on the booking page. `depositDue` above is unchanged:
+       * a website booking through the API was told the figure before this
+       * choice existed, and still is.
+       */
+      deposit: publicDepositTerms(await bookingPageSettingsOf(tx, org.id), service),
       /**
        * No link, rather than a link to nothing. This used to be
        * `/pay/booking/{request id}`, which had no page behind it and was an

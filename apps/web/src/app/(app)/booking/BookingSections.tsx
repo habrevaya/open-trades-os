@@ -2,7 +2,8 @@ import { inTenant, type ServiceContext } from "@opentradesos/api/services";
 import { schema } from "@opentradesos/db";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { Table, Th, Td } from "@/components/Table";
-import { OfferService, Windows, Hours } from "./Forms";
+import { OfferService, Windows, Hours, BookingPageDeposits } from "./Forms";
+import { bookingPage } from "@opentradesos/api/services";
 import { EditService } from "./EditService";
 
 /**
@@ -39,6 +40,7 @@ export async function BookingSections({ ctx }: { ctx: ServiceContext }) {
       .orderBy(asc(schema.businessHours.dayOfWeek)),
     branches: await tx.select({ id: schema.businessUnit.id }).from(schema.businessUnit)
       .where(eq(schema.businessUnit.active, true)),
+    page: await bookingPage.bookingPageSettingsOf(tx, ctx.actor.organizationId),
   }));
 
   const offered = new Set(data.services.map((s) => s.jobTypeId));
@@ -87,9 +89,10 @@ export async function BookingSections({ ctx }: { ctx: ServiceContext }) {
       )}
       {data.services.length > 0 && (
         <div className="mt-3 space-y-2" aria-label="Edit a service">
-          {data.services.map((service) => <EditService key={service.id} service={service} />)}
+          {data.services.map((service) => <EditService key={service.id} service={service} showDeposits={data.page.showDeposits} />)}
         </div>
       )}
+      <BookingPageDeposits showDeposits={data.page.showDeposits} />
       <OfferService jobTypes={available} />
 
       <h2 className="mt-10 font-medium text-ink-900">When somebody can arrive</h2>

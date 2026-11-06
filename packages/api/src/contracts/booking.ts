@@ -48,10 +48,35 @@ export const BookableService = z.object({
   })),
 });
 
+/**
+ * A service's deposit as the public booking page tells it, before anybody
+ * books. Only when the company turned on "Show deposits on the booking page"
+ * (`PUT /v1/booking/page-settings`); otherwise null, and the raw terms on the
+ * service are null too, so a company that has not chosen to show deposits
+ * tells the public nothing about them. The page takes no money.
+ */
+export const PublicDepositTerms = z.object({
+  /** The dollars asked for: the set amount, or the percent of the price shown, to the cent. Null for a percent of a service with no price shown. */
+  amount: MoneyString.nullable(),
+  /** The percent asked for, as a rate (0.1 is 10 per cent). Null for a set amount. */
+  percent: RateString.nullable(),
+  /** The deposit in words, as the page says it: "This service needs a deposit of $50.00." */
+  summary: z.string(),
+  /** What happens next, as the page says it: the office confirms the booking, then asks for the deposit. */
+  nextStep: z.string(),
+});
+
+export const PublicBookableService = BookableService.extend({
+  /** Null unless the company shows deposits on the booking page and this service asks for one. */
+  deposit: PublicDepositTerms.nullable(),
+});
+
 export const listBookableServices = defineRoute({
   method: "get",
   path: "/v1/public/services",
   summary: "What this company lets the public book",
+  description:
+    "A service's deposit terms (`depositAmount`, `depositPercent` and `deposit`, the terms in words) are here only when the company shows deposits on the booking page; otherwise all three are null.",
   module: "M05",
   permissions: [],
   authorization: "public",
@@ -62,7 +87,7 @@ export const listBookableServices = defineRoute({
   }),
   output: z.object({
     organizationName: z.string(),
-    services: z.array(BookableService),
+    services: z.array(PublicBookableService),
   }),
 });
 
@@ -174,6 +199,12 @@ export const createBookingRequest = defineRoute({
     trackingUrl: z.string().url(),
     /** Set when the service collects money to hold the slot. */
     depositDue: MoneyString.nullable(),
+    /**
+     * The deposit in words, for the confirmation the booker sees. Null unless
+     * the company shows deposits on the booking page and the service asks
+     * for one.
+     */
+    deposit: PublicDepositTerms.nullable(),
     /**
      * Always null for a booking request today. There is no customer yet to
      * hold a deposit for; the office requests it after confirming and issues
@@ -541,10 +572,45 @@ export const setMemberHold = defineRoute({
   }),
 });
 
+/**
+ * WHAT THE BOOKING PAGE SAYS
+ *
+ * One company wide choice for now: whether the public booking page tells a
+ * customer about a service's deposit before they book. Off until the company
+ * turns it on. The page never takes money either way.
+ */
+const BookingPageSettings = z.object({
+  /** The public booking page tells customers about a service's deposit before they book, and on the confirmation. */
+  showDeposits: z.boolean(),
+});
+
+export const getBookingPageSettings = defineRoute({
+  method: "get",
+  path: "/v1/booking/page-settings",
+  summary: "What the public booking page says about deposits",
+  module: "M05",
+  permissions: ["booking:read"],
+  input: z.object({}),
+  output: BookingPageSettings,
+});
+
+export const setBookingPageSettings = defineRoute({
+  method: "put",
+  path: "/v1/booking/page-settings",
+  summary: "Choose whether the public booking page shows deposits",
+  description:
+    "With `showDeposits` on, a service with deposit terms says so on the booking page before the customer books, with the amount worked out (a percent of the price shown, or the percent and that the amount will be told when it is asked for when there is no price), and again on the confirmation. Off, nothing about deposits shows and the public services list carries no deposit terms. The page takes no money either way.",
+  module: "M05",
+  permissions: ["booking:configure"],
+  input: BookingPageSettings,
+  output: BookingPageSettings,
+});
+
 export const bookingRoutes = {
   createBookableService, setArrivalWindows, setBusinessHours, listBusinessHours, clearBranchHours,
   listHoursSeasons, addHoursSeason, changeHoursSeason, removeHoursSeason,
   listBookableServices, getAvailability, createBookingRequest,
   listBookingRequests, confirmBookingRequest, declineBookingRequest,
   configureBookableService, getMemberHold, setMemberHold,
+  getBookingPageSettings, setBookingPageSettings,
 } as const;

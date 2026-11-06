@@ -14,6 +14,14 @@ export type Slot = {
   remaining: number;
 };
 
+/** A service's deposit in words, as the booking page says it. Only there when the company shows deposits. */
+export type DepositTerms = {
+  amount: string | null;
+  percent: string | null;
+  summary: string;
+  nextStep: string;
+};
+
 export async function loadSlots(input: {
   slug: string;
   serviceId: string;
@@ -53,7 +61,7 @@ export async function submitBooking(input: {
   postalCode: string;
   notes?: string;
 }): Promise<
-  | { ok: true; trackingUrl: string }
+  | { ok: true; trackingUrl: string; deposit: DepositTerms | null }
   | { ok: false; message: string; retry: boolean }
 > {
   try {
@@ -77,7 +85,7 @@ export async function submitBooking(input: {
       ...(clip(input.arrival?.sourceUrl, 2000) ? { sourceUrl: clip(input.arrival?.sourceUrl, 2000)! } : {}),
       ...(clip(input.arrival?.visitorId, 200) ? { visitorId: clip(input.arrival?.visitorId, 200)! } : {}),
     });
-    return { ok: true, trackingUrl: result.trackingUrl };
+    return { ok: true, trackingUrl: result.trackingUrl, deposit: result.deposit };
   } catch (error) {
     /**
      * The slot going in the gap between rendering and submitting is the

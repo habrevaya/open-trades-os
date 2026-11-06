@@ -4,7 +4,7 @@ import type { RouteDefinition, AuthOf } from "../lib/define";
 import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
-  customers, jobs, jobHolds, billing, estimates, estimateExpiry, estimateExtendedNotice, deposits, portal, booking,
+  customers, jobs, jobHolds, billing, estimates, estimateExpiry, estimateExtendedNotice, deposits, portal, booking, bookingPage,
   fieldOps, fieldDevices, fieldPayments, knowledge, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
   roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting, accountingBranches,
@@ -417,6 +417,8 @@ export const handlers = {
   configureBookableService: booking.configureService,
   getMemberHold: (ctx: ServiceContext) => booking.memberHold(ctx),
   setMemberHold: (ctx: ServiceContext, input: { reservePercent: number; releaseHours: number }) => booking.setMemberHold(ctx, input),
+  getBookingPageSettings: (ctx: ServiceContext) => bookingPage.bookingPageSettings(ctx),
+  setBookingPageSettings: bookingPage.setBookingPageSettings,
   createBookableService: booking.createService,
   setArrivalWindows: booking.setWindows,
   setBusinessHours: booking.setHours,

@@ -25,9 +25,10 @@ const percent = (v: string | null) => (v === null ? "" : String(Number((Number(v
  * switch that takes it off the booking page without losing its terms. Each
  * deposit choice says what it does, because the booking page itself takes
  * no money: the figure is what a website booking through the API is told is
- * due, and what the office asks for once it confirms the booking.
+ * due, what the office asks for once it confirms the booking, and, when the
+ * company shows deposits on the booking page, what the customer reads there.
  */
-export function EditService({ service }: { service: OfferedService }) {
+export function EditService({ service, showDeposits = false }: { service: OfferedService; showDeposits?: boolean }) {
   const deposit = service.depositAmount ? "amount" : service.depositPercent ? "percent" : "none";
   return (
     <details data-testid="edit-service" className="rounded-md border border-steel-200 p-3">
@@ -52,10 +53,13 @@ export function EditService({ service }: { service: OfferedService }) {
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium text-ink-700">Deposit</legend>
-          <p className="text-xs text-ink-500">
-            The booking page does not take money. A deposit here is the figure a website that books through the
-            API is told is due, and what you ask the customer for after you confirm the booking. Nothing is charged
-            on its own.
+          <p className="text-xs text-ink-500" data-testid="deposit-note">
+            The booking page does not take money.{" "}
+            {showDeposits
+              ? "It shows this deposit to the customer before they book, because Show deposits on the booking page is on. "
+              : "It does not show this deposit either. Turn on Show deposits on the booking page, below, to show it. "}
+            A deposit here is also the figure a website that books through the API is told is due, and what you ask
+            the customer for after you confirm the booking. Nothing is charged on its own.
           </p>
           <label className="flex items-center gap-2 text-sm">
             <input type="radio" name="deposit" value="none" defaultChecked={deposit === "none"} /> No deposit

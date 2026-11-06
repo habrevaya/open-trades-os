@@ -78,7 +78,11 @@ test("the office changes a service's terms, its deposit, and takes it off the bo
   await expect(again.getByRole("status")).toHaveText("Saved. It is on the booking page.");
   const back = await api<{ services: { publicName: string; depositPercent: string | null }[] }>(
     owner, "get", "/v1/public/services?organizationSlug=ridgeline");
-  expect(back.services.find((s) => s.publicName === `${name}, whole house`)?.depositPercent).toBe("0.100000");
+  /**
+   * The terms are kept, and the public list carries them only once the
+   * company shows deposits on the booking page, which Ridgeline has not.
+   */
+  expect(back.services.find((s) => s.publicName === `${name}, whole house`)?.depositPercent).toBeNull();
 
   /** Off again, so the next spec's booking page is the one it expects. */
   const off = await owner.request.put(`/api/v1/booking/services/${offered.id}`, {
