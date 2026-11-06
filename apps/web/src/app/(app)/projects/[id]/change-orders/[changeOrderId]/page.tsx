@@ -236,7 +236,7 @@ export default async function ChangeOrderPage({ params, searchParams }: {
                 <TextField label={i === 0 ? "Crew hours" : "Hours on another job"} name="crewHours" inputMode="decimal"
                            defaultValue={row.hours} />
                 <label className="block">
-                  <span className="text-sm font-medium text-ink-700">{i === 0 ? "On which job" : "Another job"}</span>
+                  <span className="text-sm font-medium text-ink-700">{i === 0 ? "On which job" : "Which other job"}</span>
                   <select name="crewJobId" defaultValue={row.jobId} className={field}>
                     <option value="">No job</option>
                     {projectJobs.map((j) => <option key={j.id} value={j.id}>Job {work.documentNumber(j.numberPrefix, j.number)}, {j.summary}</option>)}

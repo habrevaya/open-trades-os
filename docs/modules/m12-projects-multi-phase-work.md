@@ -249,7 +249,7 @@ project's jobs, and the hours can be **split across several of the project's
 jobs**: a second furnace on one job and a duct run on another are one change
 order with hours on each. On the change order's page, "Crew hours it adds" is a
 row of hours and a job for each job that has hours, with one more row to add
-another ("Hours on another job", "Another job"); clearing a row takes the job
+another ("Hours on another job", "Which other job"); clearing a row takes the job
 off. Through the API, `hours` on `POST /v1/projects/{projectId}/change-orders`
 and `PATCH /v1/project-change-orders/{id}` is the whole list of
 `{ jobId, crewHours }`, replacing what it had (an empty list clears it). Each is a

@@ -42,7 +42,7 @@ test("hours on two jobs of a project are listed on the change order and on the p
   await expect(owner.getByText("Adds 6 on")).toBeVisible();
 
   await hours.getByLabel("Hours on another job").fill("2.5");
-  await hours.getByLabel("Another job").selectOption({ label: `Job ${bath.number}, Bath ${run}` });
+  await hours.getByLabel("Which other job").selectOption({ label: `Job ${bath.number}, Bath ${run}` });
   await hours.getByRole("button", { name: "Save crew hours" }).click();
   await expect(owner.getByText("Adds 8.5 in all:")).toBeVisible();
   const byJob = owner.getByRole("list", { name: "Crew hours by job" });
@@ -53,7 +53,7 @@ test("hours on two jobs of a project are listed on the change order and on the p
   await hours.getByLabel("Crew hours", { exact: true }).fill("7");
   await hours.getByLabel("On which job").selectOption({ label: "No job" });
   await hours.getByRole("button", { name: "Save crew hours" }).click();
-  await expect(owner.getByRole("alert")).toContainText("needs the hours and the job");
+  await expect(hours.getByRole("alert")).toContainText("needs the hours and the job");
   await owner.reload();
   await expect(owner.getByText("Adds 8.5 in all:")).toBeVisible();
 
