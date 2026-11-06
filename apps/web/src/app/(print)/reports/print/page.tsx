@@ -89,6 +89,7 @@ export default async function PrintReportPage({ searchParams }: { searchParams: 
             <ReportChart
               result={result!}
               measure={measure}
+              second={split ? undefined : first(params.second)}
               split={split}
               arrange={arrange}
               baseline={first(params.scale) === "data" ? "data" : undefined}

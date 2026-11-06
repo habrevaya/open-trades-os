@@ -103,6 +103,13 @@ export const jobType = pgTable("job_type", {
   /** Skills a technician must hold to be assignable. Enforced by the scheduling engine. */
   requiredSkills: jsonb("required_skills").$type<string[]>().notNull().default([]),
   /**
+   * The trade pack's marks the company gave this job type by hand
+   * ("troubleshooting", "drain"), so a type it made under another code counts
+   * where the pack's own would (`services/pack-marks.ts`). A type whose code
+   * the pack seeded and marked is marked by the pack and needs nothing here.
+   */
+  packMarks: jsonb("pack_marks").$type<string[]>().notNull().default([]),
+  /**
    * Equipment this kind of work cannot be done without, as the same
    * `company_asset.requirement_code` values `crew.required_asset_ids` holds.
    *

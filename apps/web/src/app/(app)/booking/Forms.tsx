@@ -161,8 +161,12 @@ export function Windows({ current }: {
  * the branch's name so a screen with several is read by a screen reader
  * without guessing which Monday is whose.
  */
-export function Hours({ current, businessUnitId, name, submit = "Save hours", action = saveHours, hidden = {}, children }: {
+export function Hours({ current, businessUnitId, name, submit = "Save hours", action = saveHours, hidden = {}, children, keepable, kept = [] }: {
   current: { dayOfWeek: number; opensAt: string | null; closesAt: string | null; closed: boolean }[];
+  /** A season's days: each can be ticked to keep the normal week's hours that day. */
+  keepable?: boolean;
+  /** The days ticked to keep the normal hours when the form opens. */
+  kept?: number[];
   businessUnitId?: string;
   name?: string;
   submit?: string;
@@ -198,6 +202,13 @@ export function Hours({ current, businessUnitId, name, submit = "Save hours", ac
                        aria-label={`${label} closed${whose}`} />
                 Closed
               </label>
+              {keepable ? (
+                <label className="flex items-center gap-1 text-sm text-ink-500">
+                  <input name={`keep-${day}`} type="checkbox" defaultChecked={kept.includes(day)}
+                         aria-label={`${label} keeps the normal hours${whose}`} />
+                  Keep the normal hours
+                </label>
+              ) : null}
             </div>
           );
         })}
@@ -218,12 +229,15 @@ export function Hours({ current, businessUnitId, name, submit = "Save hours", ac
  * Its name, its first and last day, whether it comes back every year, and
  * its seven days, which replace the normal week on every date between. A new
  * one starts from the week it sits over, so only the days that differ need
- * changing.
+ * changing. A day ticked "Keep the normal hours" is not changed by the season
+ * at all. Either end of a yearly season can be a day of the week in a month
+ * (the last Monday of May) instead of a date.
  */
 export function Season({ season, businessUnitId, owner, start }: {
   /** The season being changed, or absent for a new one. */
   season?: {
     id: string; name: string; startsOn: string; endsOn: string; repeatsYearly: boolean;
+    startsRule?: SeasonRule | null; endsRule?: SeasonRule | null; onlySomeDays?: boolean;
     days: { dayOfWeek: number; opensAt: string | null; closesAt: string | null; closed: boolean }[];
   };
   /** The branch a new season is for. Absent is the company's. */
@@ -234,9 +248,17 @@ export function Season({ season, businessUnitId, owner, start }: {
   start: { dayOfWeek: number; opensAt: string | null; closesAt: string | null; closed: boolean }[];
 }) {
   const label = season ? season.name : `a new season for ${owner}`;
+  /** A season changing some days opens with the others ticked, showing the normal week's hours beside them. */
+  const changed = new Set(season?.days.map((d) => d.dayOfWeek) ?? []);
+  const kept = season?.onlySomeDays ? [0, 1, 2, 3, 4, 5, 6].filter((d) => !changed.has(d)) : [];
+  const current = season?.onlySomeDays
+    ? start.map((d) => season.days.find((s) => s.dayOfWeek === d.dayOfWeek) ?? d)
+    : season?.days ?? start;
   return (
     <Hours
-      current={season?.days ?? start}
+      current={current}
+      keepable
+      kept={kept}
       name={label}
       action={season ? changeSeason : addSeason}
       submit={season ? `Save ${season.name}` : `Add the season for ${owner}`}
@@ -251,21 +273,61 @@ export function Season({ season, businessUnitId, owner, start }: {
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-sm text-ink-500">First day</span>
-          <input name="startsOn" type="date" required defaultValue={season?.startsOn ?? ""}
+          <input name="startsOn" type="date" defaultValue={season?.startsRule ? "" : season?.startsOn ?? ""}
                  aria-label={`First day of ${label}`} className="h-9 rounded border border-steel-300 px-2 text-sm" />
         </label>
+        <SeasonEnd end="starts" label={label} rule={season?.startsRule ?? null} />
         <label className="flex flex-col gap-1">
           <span className="text-sm text-ink-500">Last day</span>
-          <input name="endsOn" type="date" required defaultValue={season?.endsOn ?? ""}
+          <input name="endsOn" type="date" defaultValue={season?.endsRule ? "" : season?.endsOn ?? ""}
                  aria-label={`Last day of ${label}`} className="h-9 rounded border border-steel-300 px-2 text-sm" />
         </label>
+        <SeasonEnd end="ends" label={label} rule={season?.endsRule ?? null} />
         <label className="flex h-9 items-center gap-1 text-sm text-ink-700">
           <input name="repeatsYearly" type="checkbox" defaultChecked={season?.repeatsYearly ?? true}
                  aria-label={`${label} comes back every year`} />
           Every year
         </label>
+        <p className="w-full text-xs text-ink-500">
+          For a season that moves with the calendar, like Memorial Day to Labor Day, choose a day of the week
+          instead of a date. It is worked out again every year. Tick Keep the normal hours on any day the season
+          does not change.
+        </p>
       </div>
     </Hours>
+  );
+}
+
+type SeasonRule = { month: number; weekday: number; week: 1 | 2 | 3 | 4 | "last" };
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** One end of a season as a day of the week in a month: "Or the [last] [Monday] of [May]". Left on "a date" it is not used. */
+function SeasonEnd({ end, label, rule }: { end: "starts" | "ends"; label: string; rule: SeasonRule | null }) {
+  const which = end === "starts" ? "Starts" : "Ends";
+  return (
+    <fieldset className="flex flex-col gap-1">
+      <legend className="text-sm text-ink-500">Or {end === "starts" ? "starts" : "ends"} on</legend>
+      <div className="flex gap-1">
+        <select name={`${end}Week`} defaultValue={rule ? String(rule.week) : ""} aria-label={`${which} on which week, ${label}`}
+                className="h-9 rounded border border-steel-300 px-1 text-sm">
+          <option value="">the date</option>
+          <option value="1">the first</option>
+          <option value="2">the second</option>
+          <option value="3">the third</option>
+          <option value="4">the fourth</option>
+          <option value="last">the last</option>
+        </select>
+        <select name={`${end}Weekday`} defaultValue={String(rule?.weekday ?? 1)} aria-label={`${which} on which day, ${label}`}
+                className="h-9 rounded border border-steel-300 px-1 text-sm">
+          {DAYS.map((d, i) => <option key={d} value={String(i)}>{d}</option>)}
+        </select>
+        <select name={`${end}Month`} defaultValue={String(rule?.month ?? 6)} aria-label={`${which} in which month, ${label}`}
+                className="h-9 rounded border border-steel-300 px-1 text-sm">
+          {MONTHS.map((m, i) => <option key={m} value={String(i + 1)}>of {m}</option>)}
+        </select>
+      </div>
+    </fieldset>
   );
 }
 

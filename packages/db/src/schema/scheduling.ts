@@ -85,6 +85,18 @@ export const businessHoursSeason = pgTable("business_hours_season", {
   startsOn: date("starts_on").notNull(),
   endsOn: date("ends_on").notNull(),
   repeatsYearly: boolean("repeats_yearly").notNull().default(false),
+  /**
+   * A yearly season starting or ending on a day of the week in a month (the
+   * last Monday of May), worked out for each year by core; `starts_on` and
+   * `ends_on` then hold the dates it gave in the year it was saved.
+   */
+  startsRule: jsonb("starts_rule").$type<{ month: number; weekday: number; week: 1 | 2 | 3 | 4 | "last" }>(),
+  endsRule: jsonb("ends_rule").$type<{ month: number; weekday: number; week: 1 | 2 | 3 | 4 | "last" }>(),
+  /**
+   * The season changes only the weekdays it has rows for, and the rest keep
+   * the week beneath it. False is a whole week of seven rows, as always.
+   */
+  onlySomeDays: boolean("only_some_days").notNull().default(false),
   /** Removed outright when the company takes one off; the audit log keeps what it said. */
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -255,6 +267,18 @@ export const crew = pgTable("crew", {
    * `routing.crewHoursOn` is the rule. 0 is Sunday.
    */
   weekdayHours: jsonb("weekday_hours").$type<{ dayOfWeek: number; startsAt: string; endsAt: string }[]>().notNull().default([]),
+  /**
+   * Hours for one date only (a long day to finish a job), or the crew off on
+   * that date, read before everything else on that date. Off has no times.
+   * Checked by core's `routing.checkCrewDateHours`.
+   */
+  dateHours: jsonb("date_hours")
+    .$type<{ date: string; off: boolean; startsAt: string | null; endsAt: string | null }[]>().notNull().default([]),
+  /**
+   * The weekdays this crew does not work, 0 for Sunday. A date with hours of
+   * its own still puts the crew to work on one.
+   */
+  daysOff: jsonb("days_off").$type<number[]>().notNull().default([]),
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({ orgIdx: index("crew_org_idx").on(t.organizationId) }));

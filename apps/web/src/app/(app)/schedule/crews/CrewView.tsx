@@ -14,6 +14,10 @@ export interface CrewRow {
   workday?: { startsAt: string; endsAt: string } | null | undefined;
   /** Its own hours on particular weekdays, read before `workday` on that day. */
   weekdayHours?: { dayOfWeek: number; startsAt: string; endsAt: string }[] | undefined;
+  /** The weekdays it does not work, 0 for Sunday. */
+  daysOff?: number[] | undefined;
+  /** Hours for one date only, or off that date. */
+  dateHours?: { date: string; off: boolean; startsAt: string | null; endsAt: string | null }[] | undefined;
   active: boolean;
   members: { technicianId: string; displayName: string; isLead: boolean; active: boolean }[];
 }
@@ -110,6 +114,11 @@ export function Crews({
               {(crew.weekdayHours ?? []).length > 0 ? ", except " : ""}
               {(crew.weekdayHours ?? []).map((h) => `${SHORT_DAYS[h.dayOfWeek]} ${h.startsAt} to ${h.endsAt}`).join(", ")}
             </span>
+            {(crew.daysOff ?? []).length > 0 ? (
+              <span className="block text-xs text-ink-500">
+                Does not work {(crew.daysOff ?? []).map((d) => SHORT_DAYS[d]).join(", ")}
+              </span>
+            ) : null}
           </Td>
           {controls ? <Td>{controls(crew)}</Td> : null}
         </tr>

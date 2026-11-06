@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { kpis, inTenant, ConflictError } from "@opentradesos/api/services";
@@ -158,6 +159,13 @@ export default async function ScorecardPage(
             {packById(card.tradePack)?.name ?? card.tradePack}, {formatDay(from, zone)} to{" "}
             {formatDay(to, zone)}.
           </p>
+          {card.computed.some((k) => k.key === "diag_conversion" || k.key === "drain_conversion")
+            || card.unavailable.some((k) => k.key === "diag_conversion" || k.key === "drain_conversion") ? (
+            <p className="mt-1 text-sm text-ink-700">
+              Made your own job types or items for calls or upsell work?{" "}
+              <Link href="/reports/scorecard/marks" className="underline">Choose what the scorecard counts</Link>.
+            </p>
+          ) : null}
 
           {card.computed.length === 0 ? (
             <Empty title="Nothing to measure in this window">

@@ -780,12 +780,16 @@ export const getDispatchBoard = defineRoute({
       /** One of the reader's own active crews, so work can be sent to it. False for another branch's crew drawn for a visit they see. */
       inScope: z.boolean(),
       /**
-       * The hours the crew works that day, "HH:MM": its own for the weekday
-       * (`weekday`), its one set of hours (`own`), or the company's day.
+       * The hours the crew works that day, "HH:MM": its own for that date
+       * (`date`), for the weekday (`weekday`), its one set of hours (`own`),
+       * or the company's day. On a day the crew is off, the company's day,
+       * with `from` saying where the day off came from.
        */
-      hours: z.object({ startsAt: z.string(), endsAt: z.string(), from: z.enum(["weekday", "own", "company"]) }),
+      hours: z.object({ startsAt: z.string(), endsAt: z.string(), from: z.enum(["date", "weekday", "own", "company"]) }),
       /** The day in words when the crew's branch (or the company) is shut that day, else null. */
       branchClosed: z.string().nullable(),
+      /** In words when the crew itself does not work that day ("Post crew does not work on Sundays."), else null. */
+      dayOff: z.string().nullable(),
       visits: z.array(z.object({
         /** The window starts before the crew's hours that day or ends after them. */
         outsideHours: z.boolean(),

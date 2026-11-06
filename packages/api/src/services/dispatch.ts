@@ -272,6 +272,7 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
     const crewRows = await tx.select({
       id: schema.crew.id, name: schema.crew.name, color: schema.crew.color, businessUnitId: schema.crew.businessUnitId,
       workday: schema.crew.workday, weekdayHours: schema.crew.weekdayHours,
+      dateHours: schema.crew.dateHours, daysOff: schema.crew.daysOff,
       inScope: sql<boolean>`${own}`,
     }).from(schema.crew)
       .where(and(
@@ -337,16 +338,19 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
     const hours = await dayOf(boardBranch);
 
     /**
-     * EACH CREW'S LANE IS DRAWN TO ITS HOURS that day: its own for the
-     * weekday, its one set of hours, or the company's day (core's
-     * `crewHoursOn`), a card whose window runs outside them marked, and the
-     * crew's branch said closed when the week in force (or a holiday) keeps
-     * it shut that day.
+     * EACH CREW'S LANE IS DRAWN TO ITS HOURS that day: its own for that
+     * date, for the weekday, its one set of hours, or the company's day
+     * (core's `crewHoursOn`), a card whose window runs outside them marked,
+     * and the crew's branch said closed when the week in force (or a
+     * holiday) keeps it shut that day. A crew off that day (the date marked
+     * off, or a weekday it does not work) says so, and every card on it is
+     * outside its hours.
      */
     const companyDay = await companyDayOf(tx, ctx.actor.organizationId);
     const minuteOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
     const crewLane = async (c: (typeof crewRows)[number]) => {
-      const own = routing.crewHoursOn({ workday: c.workday, weekdayHours: c.weekdayHours }, input.date);
+      const own = routing.crewHoursOn(c, input.date);
+      const dayOff = routing.crewDayOffWords(c.name, input.date, own);
       const kept = own.hours ?? companyDay;
       const branchDay = await dayOf(c.businessUnitId);
       const start = minuteOf(kept.startsAt);
@@ -356,11 +360,12 @@ export async function board(ctx: ServiceContext, input: z.infer<typeof getDispat
         const until = v.windowEnd ? time.minutesInDay(new Date(v.windowEnd), zone) : null;
         /** A window ending at midnight or after is the end of the day, not its start. */
         const ends = until !== null && until === 0 && v.windowEnd !== v.windowStart ? 24 * 60 : until;
-        return { ...v, outsideHours: (from !== null && from < start) || (ends !== null && ends > end) };
+        return { ...v, outsideHours: dayOff !== null || (from !== null && from < start) || (ends !== null && ends > end) };
       });
       return {
         hours: { startsAt: kept.startsAt, endsAt: kept.endsAt, from: own.from },
         branchClosed: branchDay.closed ? branchDay.words : null,
+        dayOff,
         visits,
       };
     };

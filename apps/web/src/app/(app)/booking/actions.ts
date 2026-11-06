@@ -116,14 +116,38 @@ export async function followCompanyHours(_previous: unknown, form: FormData): Pr
   }));
 }
 
-/** A season's name, dates and week, from the season form. */
-const seasonOf = (form: FormData) => ({
-  name: String(form.get("seasonName") ?? "").trim(),
-  startsOn: String(form.get("startsOn") ?? ""),
-  endsOn: String(form.get("endsOn") ?? ""),
-  repeatsYearly: form.get("repeatsYearly") === "on",
-  days: daysOf(form),
-});
+/**
+ * One end of a season as a day of the week in a month ("the last Monday of
+ * May"), or null when the form gives a date for it.
+ */
+const ruleOf = (form: FormData, end: "starts" | "ends") => {
+  const week = String(form.get(`${end}Week`) ?? "");
+  if (week === "") return null;
+  return {
+    month: Number(form.get(`${end}Month`) ?? 0),
+    weekday: Number(form.get(`${end}Weekday`) ?? 0),
+    week: week === "last" ? "last" as const : Number(week) as 1 | 2 | 3 | 4,
+  };
+};
+
+/**
+ * A season's name, dates and week, from the season form. A day ticked "Keep
+ * the normal hours" is left out, and then the season changes only the days
+ * it has; with none ticked it is a whole week, as before.
+ */
+const seasonOf = (form: FormData) => {
+  const kept = [0, 1, 2, 3, 4, 5, 6].filter((d) => form.get(`keep-${d}`) === "on");
+  const startsRule = ruleOf(form, "starts");
+  const endsRule = ruleOf(form, "ends");
+  return {
+    name: String(form.get("seasonName") ?? "").trim(),
+    ...(startsRule ? { startsRule } : { startsOn: String(form.get("startsOn") ?? ""), startsRule: null }),
+    ...(endsRule ? { endsRule } : { endsOn: String(form.get("endsOn") ?? ""), endsRule: null }),
+    repeatsYearly: form.get("repeatsYearly") === "on",
+    onlySomeDays: kept.length > 0,
+    days: daysOf(form).filter((d) => !kept.includes(d.dayOfWeek)),
+  };
+};
 
 /** A season for the company, or for the branch the form names: summer hours from June 1 to August 31. */
 export async function addSeason(_previous: unknown, form: FormData): Promise<Result> {

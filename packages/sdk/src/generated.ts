@@ -300,9 +300,20 @@ export interface AddExpenseReceiptOutput {
 
 export interface AddHoursSeasonInput {
   name: string;
-  startsOn: string;
-  endsOn: string;
+  startsOn?: string;
+  endsOn?: string;
   repeatsYearly?: boolean;
+  startsRule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  endsRule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  onlySomeDays?: boolean;
   days: Array<{
     dayOfWeek: number;
     opensAt: string | null;
@@ -320,6 +331,17 @@ export interface AddHoursSeasonOutput {
   startsOn: string;
   endsOn: string;
   repeatsYearly: boolean;
+  startsRule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  endsRule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  onlySomeDays: boolean;
   when: string;
   days: Array<{
     dayOfWeek: number;
@@ -2345,9 +2367,20 @@ export interface CancelWebhookReplayOutput {
 
 export interface ChangeHoursSeasonInput {
   name: string;
-  startsOn: string;
-  endsOn: string;
+  startsOn?: string;
+  endsOn?: string;
   repeatsYearly?: boolean;
+  startsRule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  endsRule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  onlySomeDays?: boolean;
   days: Array<{
     dayOfWeek: number;
     opensAt: string | null;
@@ -2364,6 +2397,17 @@ export interface ChangeHoursSeasonOutput {
   startsOn: string;
   endsOn: string;
   repeatsYearly: boolean;
+  startsRule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  endsRule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  onlySomeDays: boolean;
   when: string;
   days: Array<{
     dayOfWeek: number;
@@ -3565,6 +3609,13 @@ export interface CreateCrewInput {
     endsAt: string;
     dayOfWeek: number;
   }>;
+  dateHours?: Array<{
+    date: string;
+    off?: boolean;
+    startsAt?: string | null;
+    endsAt?: string | null;
+  }>;
+  daysOff?: number[];
 }
 
 export interface CreateCrewOutput {
@@ -8655,7 +8706,7 @@ export interface GetCrewAvailabilityOutput {
   on: string;
   canTake: boolean;
   blockers: Array<{
-    code: "crew_inactive" | "no_members" | "everybody_off" | "lead_off" | "missing_equipment" | "equipment_unavailable" | "missing_skills" | "different_business_unit";
+    code: "crew_inactive" | "no_members" | "everybody_off" | "lead_off" | "missing_equipment" | "equipment_unavailable" | "missing_skills" | "different_business_unit" | "crew_day_off";
     explanation: string;
   }>;
   missingEquipment: string[];
@@ -8677,6 +8728,11 @@ export interface GetCrewAvailabilityOutput {
     name: string;
     hours: string;
   }>;
+  hoursFrom: "date" | "weekday" | "own" | "company";
+  hours: {
+    startsAt: string;
+    endsAt: string;
+  } | null;
   leadDesignated: boolean;
   equipmentBasis: "job_type" | "none_declared";
   registeredEquipment: string[];
@@ -9137,9 +9193,10 @@ export interface GetDispatchBoardOutput {
     hours: {
       startsAt: string;
       endsAt: string;
-      from: "weekday" | "own" | "company";
+      from: "date" | "weekday" | "own" | "company";
     };
     branchClosed: string | null;
+    dayOff: string | null;
     visits: Array<{
       outsideHours: boolean;
       id: string;
@@ -13955,6 +14012,7 @@ export interface GetServiceRouteDensityOutput {
     availableMinutes: number | null;
     offAllDay: boolean;
     membersOff: string[];
+    dayOff: string | null;
   } | null;
   fits: boolean | null;
   refusedBecause: string | null;
@@ -16283,7 +16341,7 @@ export interface ListCrewsForJobOutput {
     on: string;
     canTake: boolean;
     blockers: Array<{
-      code: "crew_inactive" | "no_members" | "everybody_off" | "lead_off" | "missing_equipment" | "equipment_unavailable" | "missing_skills" | "different_business_unit";
+      code: "crew_inactive" | "no_members" | "everybody_off" | "lead_off" | "missing_equipment" | "equipment_unavailable" | "missing_skills" | "different_business_unit" | "crew_day_off";
       explanation: string;
     }>;
     missingEquipment: string[];
@@ -16305,6 +16363,11 @@ export interface ListCrewsForJobOutput {
       name: string;
       hours: string;
     }>;
+    hoursFrom: "date" | "weekday" | "own" | "company";
+    hours: {
+      startsAt: string;
+      endsAt: string;
+    } | null;
     leadDesignated: boolean;
     equipmentBasis: "job_type" | "none_declared";
     registeredEquipment: string[];
@@ -16331,6 +16394,13 @@ export interface ListCrewsOutput {
       endsAt: string;
       dayOfWeek: number;
     }>;
+    dateHours: Array<{
+      date: string;
+      off: boolean;
+      startsAt: string | null;
+      endsAt: string | null;
+    }>;
+    daysOff: number[];
     active: boolean;
     members: Array<{
       technicianId: string;
@@ -16898,7 +16968,14 @@ export interface ListEquipmentOutput {
       id: string;
     } | null;
     depth: number;
+    address?: string;
+    customer?: {
+      id: string;
+      name: string;
+    } | null;
   }>;
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 export interface ListEquipmentSerialMatchesOutput {
@@ -17221,6 +17298,17 @@ export interface ListHoursSeasonsOutput {
     startsOn: string;
     endsOn: string;
     repeatsYearly: boolean;
+    startsRule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    endsRule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    onlySomeDays: boolean;
     when: string;
     days: Array<{
       dayOfWeek: number;
@@ -20179,6 +20267,35 @@ export interface ListTradePackInspectionProgramsOutput {
       id: string;
       offered: boolean;
     } | null;
+  }>;
+}
+
+export interface ListTradePackMarksOutput {
+  tradePack: string | null;
+  offered: {
+    jobType: Array<"troubleshooting" | "drain">;
+    item: Array<"troubleshooting" | "drain_upsell">;
+  };
+  meanings: Array<{
+    mark: string;
+    kpi: string;
+    number: string;
+    jobType: string;
+    item: string;
+  }>;
+  jobTypes: Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    fromPack: string[];
+    byHand: string[];
+  }>;
+  items: Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    fromPack: string[];
+    byHand: string[];
   }>;
 }
 
@@ -27981,6 +28098,15 @@ export interface SetJobSkillsOutput {
   checked: string[];
 }
 
+export interface SetJobTypePackMarksInput {
+  marks: string[];
+}
+
+export interface SetJobTypePackMarksOutput {
+  id: string;
+  marks: string[];
+}
+
 export interface SetLocationSharingInput {
   enabled?: boolean;
   retentionDays?: number;
@@ -28714,6 +28840,15 @@ export interface SetPriceBookItemActiveOutput {
   id: string;
   code: string;
   active: boolean;
+}
+
+export interface SetPriceBookItemPackMarksInput {
+  marks: string[];
+}
+
+export interface SetPriceBookItemPackMarksOutput {
+  id: string;
+  marks: string[];
 }
 
 export interface SetProjectPhaseDatesInput {
@@ -31103,6 +31238,13 @@ export interface UpdateCrewInput {
     endsAt: string;
     dayOfWeek: number;
   }>;
+  dateHours?: Array<{
+    date: string;
+    off?: boolean;
+    startsAt?: string | null;
+    endsAt?: string | null;
+  }>;
+  daysOff?: number[];
   active?: boolean;
 }
 
@@ -35795,6 +35937,14 @@ export interface ListEquipmentInput {
   on?: string;
   externalSource?: string;
   externalId?: string;
+  kind?: string;
+  minAgeYears?: number;
+  maxAgeYears?: number;
+  warranty?: "covered" | "lapsed" | "none";
+  fields?: string[];
+  fieldMatch?: "all" | "any";
+  cursor?: string;
+  limit?: number;
 }
 
 export interface ListEquipmentSerialMatchesInput {
@@ -36405,6 +36555,8 @@ export interface ListTrackingCampaignsInput {
 export type ListTrackingNumbersInput = Record<string, never>;
 
 export type ListTradePackInspectionProgramsInput = Record<string, never>;
+
+export type ListTradePackMarksInput = Record<string, never>;
 
 export type ListTradePacksInput = Record<string, never>;
 
@@ -37441,6 +37593,10 @@ export interface SetJobSkillsParams {
   id: string;
 }
 
+export interface SetJobTypePackMarksParams {
+  id: string;
+}
+
 export interface SetMemberBranchParams {
   membershipId: string;
 }
@@ -37498,6 +37654,10 @@ export interface SetPortalCardAutopayBackupParams {
 }
 
 export interface SetPriceBookItemActiveParams {
+  id: string;
+}
+
+export interface SetPriceBookItemPackMarksParams {
   id: string;
 }
 
@@ -38781,6 +38941,7 @@ export interface OperationTypes {
   listTrackingCampaigns: { input: ListTrackingCampaignsInput; output: ListTrackingCampaignsOutput };
   listTrackingNumbers: { input: ListTrackingNumbersInput; output: ListTrackingNumbersOutput };
   listTradePackInspectionPrograms: { input: ListTradePackInspectionProgramsInput; output: ListTradePackInspectionProgramsOutput };
+  listTradePackMarks: { input: ListTradePackMarksInput; output: ListTradePackMarksOutput };
   listTradePacks: { input: ListTradePacksInput; output: ListTradePacksOutput };
   listTransferTargets: { input: ListTransferTargetsInput; output: ListTransferTargetsOutput };
   listTruckFills: { input: ListTruckFillsInput; output: ListTruckFillsOutput };
@@ -39137,6 +39298,7 @@ export interface OperationTypes {
   setJobHoldNudge: { input: SetJobHoldNudgeInput; output: SetJobHoldNudgeOutput };
   setJobParties: { input: SetJobPartiesParams & SetJobPartiesInput; output: SetJobPartiesOutput };
   setJobSkills: { input: SetJobSkillsParams & SetJobSkillsInput; output: SetJobSkillsOutput };
+  setJobTypePackMarks: { input: SetJobTypePackMarksParams & SetJobTypePackMarksInput; output: SetJobTypePackMarksOutput };
   setLocationSharing: { input: SetLocationSharingInput; output: SetLocationSharingOutput };
   setMarketingSettings: { input: SetMarketingSettingsInput; output: SetMarketingSettingsOutput };
   setMemberBranch: { input: SetMemberBranchParams & SetMemberBranchInput; output: SetMemberBranchOutput };
@@ -39166,6 +39328,7 @@ export interface OperationTypes {
   setPortalLayout: { input: SetPortalLayoutInput; output: SetPortalLayoutOutput };
   setPortalSettings: { input: SetPortalSettingsInput; output: SetPortalSettingsOutput };
   setPriceBookItemActive: { input: SetPriceBookItemActiveParams & SetPriceBookItemActiveInput; output: SetPriceBookItemActiveOutput };
+  setPriceBookItemPackMarks: { input: SetPriceBookItemPackMarksParams & SetPriceBookItemPackMarksInput; output: SetPriceBookItemPackMarksOutput };
   setProjectPhaseDates: { input: SetProjectPhaseDatesParams & SetProjectPhaseDatesInput; output: SetProjectPhaseDatesOutput };
   setProjectPhaseDependency: { input: SetProjectPhaseDependencyParams & SetProjectPhaseDependencyInput; output: SetProjectPhaseDependencyOutput };
   setProjectPhaseStatus: { input: SetProjectPhaseStatusParams & SetProjectPhaseStatusInput; output: SetProjectPhaseStatusOutput };
@@ -39946,7 +40109,7 @@ export const OPERATIONS = {
   listDueRequests: { method: "GET", path: "/v1/reviews/requests/due", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   listEmailMessages: { method: "GET", path: "/v1/email/messages", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listEmailSuppressions: { method: "GET", path: "/v1/email/suppressions", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
-  listEquipment: { method: "GET", path: "/v1/equipment", pathParams: [], queryParams: ["propertyId","on","externalSource","externalId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
+  listEquipment: { method: "GET", path: "/v1/equipment", pathParams: [], queryParams: ["propertyId","on","externalSource","externalId","kind","minAgeYears","maxAgeYears","warranty","fields","fieldMatch","cursor","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEquipmentSerialMatches: { method: "GET", path: "/v1/equipment-serial-matches", pathParams: [], queryParams: ["serialNumber","excludeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
@@ -40099,6 +40262,7 @@ export const OPERATIONS = {
   listTrackingCampaigns: { method: "GET", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: ["channelId","include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTrackingNumbers: { method: "GET", path: "/v1/marketing/tracking-numbers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTradePackInspectionPrograms: { method: "GET", path: "/v1/trade-packs/inspection-programs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  listTradePackMarks: { method: "GET", path: "/v1/trade-pack/marks", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listTradePacks: { method: "GET", path: "/v1/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listTransferTargets: { method: "GET", path: "/v1/softphone/transfer-targets", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
@@ -40455,6 +40619,7 @@ export const OPERATIONS = {
   setJobHoldNudge: { method: "PATCH", path: "/v1/job-hold-nudge", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setJobParties: { method: "PUT", path: "/v1/jobs/{id}/parties", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setJobSkills: { method: "PUT", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  setJobTypePackMarks: { method: "PUT", path: "/v1/job-types/{id}/pack-marks", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setLocationSharing: { method: "PUT", path: "/v1/dispatch/location-sharing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMarketingSettings: { method: "PATCH", path: "/v1/marketing/settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMemberBranch: { method: "POST", path: "/v1/memberships/{membershipId}/branch", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
@@ -40484,6 +40649,7 @@ export const OPERATIONS = {
   setPortalLayout: { method: "PUT", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalSettings: { method: "PATCH", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPriceBookItemActive: { method: "POST", path: "/v1/pricebook/items/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
+  setPriceBookItemPackMarks: { method: "PUT", path: "/v1/pricebook/items/{id}/pack-marks", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setProjectPhaseDates: { method: "POST", path: "/v1/project-phases/{id}/dates", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProjectPhaseDependency: { method: "POST", path: "/v1/project-phases/{id}/dependency", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProjectPhaseStatus: { method: "POST", path: "/v1/project-phases/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -46010,7 +46176,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The equipment at one address, or the units brought in from another system.
+   * The equipment at one address, the whole company's register, or the units brought in from another system.
    *
    * GET /v1/equipment. Needs equipment:read.
    */
@@ -47384,6 +47550,15 @@ export abstract class GeneratedOperations {
    */
   listTradePackInspectionPrograms(input: ListTradePackInspectionProgramsInput = {} as ListTradePackInspectionProgramsInput, options?: CallOptions): Promise<ListTradePackInspectionProgramsOutput> {
     return this.call("listTradePackInspectionPrograms", input, options);
+  }
+
+  /**
+   * Which job types and items the scorecard counts as troubleshooting calls, drain calls and their work.
+   *
+   * GET /v1/trade-pack/marks. Needs report:read.
+   */
+  listTradePackMarks(input: ListTradePackMarksInput = {} as ListTradePackMarksInput, options?: CallOptions): Promise<ListTradePackMarksOutput> {
+    return this.call("listTradePackMarks", input, options);
   }
 
   /**
@@ -50591,6 +50766,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Mark a job type as the trade pack's troubleshooting call or drain call.
+   *
+   * PUT /v1/job-types/{id}/pack-marks. Needs settings:write.
+   */
+  setJobTypePackMarks(input: SetJobTypePackMarksParams & SetJobTypePackMarksInput, options?: CallOptions): Promise<SetJobTypePackMarksOutput> {
+    return this.call("setJobTypePackMarks", input, options);
+  }
+
+  /**
    * Turn location sharing on or off, and set how long positions are kept.
    *
    * PUT /v1/dispatch/location-sharing. Needs settings:write.
@@ -50849,6 +51033,15 @@ export abstract class GeneratedOperations {
    */
   setPriceBookItemActive(input: SetPriceBookItemActiveParams & SetPriceBookItemActiveInput, options?: CallOptions): Promise<SetPriceBookItemActiveOutput> {
     return this.call("setPriceBookItemActive", input, options);
+  }
+
+  /**
+   * Mark an item as a charge for finding a fault, or as drain call upsell work.
+   *
+   * PUT /v1/pricebook/items/{id}/pack-marks. Needs settings:write.
+   */
+  setPriceBookItemPackMarks(input: SetPriceBookItemPackMarksParams & SetPriceBookItemPackMarksInput, options?: CallOptions): Promise<SetPriceBookItemPackMarksOutput> {
+    return this.call("setPriceBookItemPackMarks", input, options);
   }
 
   /**

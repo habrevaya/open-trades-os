@@ -1,6 +1,7 @@
 import type { HolidayDay, WeekHours, CompanyHoliday } from "./index.js";
 import { holidayOn, minutesOf } from "./index.js";
-import { weekInForce, type SeasonWeek } from "./seasons.js";
+import { seasonsByWeekday, weekInForce, type SeasonWeek } from "./seasons.js";
+import type { WeekdayRule } from "./moving.js";
 
 /**
  * WHOSE WEEK: THE COMPANY'S, A BRANCH'S, OR A PHONE NUMBER'S
@@ -49,9 +50,15 @@ export interface SeasonDef {
   startsOn: string;
   endsOn: string;
   repeatsYearly: boolean;
+  /** A yearly season starting on a day of the week in a month. */
+  startsRule?: WeekdayRule | null | undefined;
+  /** A yearly season ending on a day of the week in a month. */
+  endsRule?: WeekdayRule | null | undefined;
+  /** Changes only the weekdays it has rows for; the rest keep the week beneath it. */
+  onlySomeDays?: boolean | undefined;
 }
 
-/** A season with its seven rows and the week they make. */
+/** A season with its seven rows (or the rows of the days it changes) and the week they make. */
 export interface ChosenSeason<R extends WeekRow = WeekRow> extends SeasonWeek {
   id: string;
   businessUnitId: string | null;
@@ -88,7 +95,7 @@ function seasonsOf<R extends WeekRow>(rows: readonly R[], seasons: readonly Seas
     .filter((s) => (s.businessUnitId ?? null) === branchId)
     .map((s) => {
       const own = rows.filter((r) => r.seasonId === s.id);
-      return { ...s, rows: own, week: weekOfRows(own) };
+      return { ...s, rows: own, week: weekOfRows(own), days: s.onlySomeDays ? own.map((r) => r.dayOfWeek) : null };
     })
     .filter((s) => s.rows.length > 0);
 }
@@ -138,8 +145,16 @@ export function weekFor<R extends WeekRow>(
 export function weekOn<R extends WeekRow>(
   chosen: ChosenWeek<R>, date: string,
 ): { rows: R[]; week: WeekHours | null; season: ChosenSeason<R> | null } {
-  const { season } = weekInForce(date, chosen.week, chosen.seasons);
-  return season ? { rows: season.rows, week: season.week, season } : { rows: chosen.rows, week: chosen.week, season: null };
+  const inForce = weekInForce(date, chosen.week, chosen.seasons);
+  const byDay = seasonsByWeekday(chosen.seasons, date);
+  /** No season changing only some days covers the date: the season's whole week, or the normal one, as always. */
+  if (!byDay.some((s) => s !== null && s.days !== null && s.days !== undefined)) {
+    const season = inForce.season;
+    return season ? { rows: season.rows, week: season.week, season } : { rows: chosen.rows, week: chosen.week, season: null };
+  }
+  /** Day by day: each weekday's row from the season that changes it, or from the normal week. */
+  const rows = byDay.flatMap((s, dow) => (s ? s.rows : chosen.rows).filter((r) => r.dayOfWeek === dow));
+  return { rows, week: inForce.week, season: inForce.season };
 }
 
 /** Where a phone number reads its hours from. */

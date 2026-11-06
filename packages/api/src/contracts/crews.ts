@@ -56,6 +56,24 @@ const CrewWorkday = z.object({
 
 const CrewWeekdayHours = CrewWorkday.extend({ dayOfWeek: z.number().int().min(0).max(6) });
 
+const TimeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "A time of day, HH:MM");
+
+/** One date's own entry as stored: its hours, or off that day with no times. */
+const CrewDateHours = z.object({
+  date: z.string().date(),
+  off: z.boolean(),
+  startsAt: z.string().nullable(),
+  endsAt: z.string().nullable(),
+});
+
+/** One date's own entry as sent: `off: true` with no times, or both times. */
+const CrewDateHoursInput = z.object({
+  date: z.string().date(),
+  off: z.boolean().optional(),
+  startsAt: TimeOfDay.nullable().optional(),
+  endsAt: TimeOfDay.nullable().optional(),
+});
+
 export const Crew = z.object({
   id: Uuid,
   name: z.string(),
@@ -92,6 +110,14 @@ export const Crew = z.object({
    * `workday`, and with neither the company's day. 0 is Sunday.
    */
   weekdayHours: z.array(CrewWeekdayHours),
+  /**
+   * Hours for one date only, or off that date (`off: true`, no times), read
+   * on that date before everything else: a date with hours puts the crew to
+   * work even on a weekday it does not usually work.
+   */
+  dateHours: z.array(CrewDateHours),
+  /** The weekdays the crew does not work, 0 for Sunday. */
+  daysOff: z.array(z.number().int().min(0).max(6)),
   active: z.boolean(),
   members: z.array(CrewMember),
 });
@@ -136,6 +162,10 @@ export const createCrew = defineRoute({
     workday: CrewWorkday.nullable().optional(),
     /** Hours of its own for some weekdays, one entry a day at most, read in place of `workday` on that weekday. */
     weekdayHours: z.array(CrewWeekdayHours).max(7).optional(),
+    /** Hours for particular dates, or off on them. One entry a date. */
+    dateHours: z.array(CrewDateHoursInput).max(400).optional(),
+    /** Weekdays it does not work, 0 for Sunday. Not all seven, and not a day that has hours of its own. */
+    daysOff: z.array(z.number().int().min(0).max(6)).max(7).optional(),
   }),
   output: z.object({ id: Uuid, name: z.string(), active: z.boolean() }),
 });
@@ -145,7 +175,7 @@ export const updateCrew = defineRoute({
   path: "/v1/crews/{id}",
   summary: "Change a crew's rate, kit, skills or hours",
   description:
-    "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. `weekdayHours` is the whole list of hours it keeps on particular weekdays, read on that weekday in place of `workday` (a day given twice, or one ending before it starts, is refused in words); empty clears them. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.",
+    "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. `weekdayHours` is the whole list of hours it keeps on particular weekdays, read on that weekday in place of `workday` (a day given twice, or one ending before it starts, is refused in words); empty clears them. `dateHours` is the whole list of dates with hours of their own (both times) or off (`off: true`, no times), read on that date before anything else; a date given twice, half a day or a day ending before it starts is refused in words. `daysOff` is the whole list of weekdays the crew does not work; all seven, or a day off that also has hours by weekday, is refused. A crew off on a date cannot be sent work that day (`crew_day_off`), and the board, a route's fit and the rebalance read the same day. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.",
   module: "M09",
   permissions: ["visit:dispatch"],
   idempotent: true,
@@ -163,6 +193,10 @@ export const updateCrew = defineRoute({
     workday: CrewWorkday.nullable().optional(),
     /** Its hours on particular weekdays, the whole list replaced. Empty clears them; left out keeps them. */
     weekdayHours: z.array(CrewWeekdayHours).max(7).optional(),
+    /** Its entries for particular dates, the whole list replaced. Empty clears them; left out keeps them. */
+    dateHours: z.array(CrewDateHoursInput).max(400).optional(),
+    /** The weekdays it does not work, the whole list replaced. Empty clears them; left out keeps them. */
+    daysOff: z.array(z.number().int().min(0).max(6)).max(7).optional(),
     active: z.boolean().optional(),
   }),
   output: z.object({ id: Uuid, name: z.string(), active: z.boolean() }),
@@ -190,7 +224,7 @@ export const setCrewMembers = defineRoute({
 export const CrewBlocker = z.enum([
   "crew_inactive", "no_members", "everybody_off", "lead_off",
   "missing_equipment", "equipment_unavailable", "missing_skills",
-  "different_business_unit",
+  "different_business_unit", "crew_day_off",
 ]);
 
 export const CrewVerdict = z.object({
@@ -230,9 +264,14 @@ export const CrewVerdict = z.object({
    * Who is there for part of the day and not for all of it, and when they are not. Said beside the verdict and
    * never a reason to refuse the work: leave is read by the hour. With the job's visit hours known (the job has a
    * visit that date) a person whose leave meets them is off and one whose leave does not is on the crew;
-   * for a date alone a person is off when their leave covers every hour the company works that day.
+   * for a date alone a person is off when their leave covers every hour the crew works that day (its own hours
+   * that date where it keeps some, the company's otherwise).
    */
   partDayOff: z.array(z.object({ technicianId: Uuid, name: z.string(), hours: z.string() })),
+  /** Whose hours the day was read in: the crew's own for that date, for that weekday, its one set of hours, or the company's. */
+  hoursFrom: z.enum(["date", "weekday", "own", "company"]),
+  /** The crew's own hours that date, or null for the company's day or a day off. */
+  hours: CrewWorkday.nullable(),
   leadDesignated: z.boolean(),
   /**
    * Where the equipment requirement came from. `none_declared` means the job
@@ -255,7 +294,7 @@ export const getCrewAvailability = defineRoute({
   path: "/v1/crews/{id}/availability",
   summary: "Can this crew take this job, on this day",
   description:
-    "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. Leave is read by the hour: asked about a job that has a visit that date, a person is off when their approved leave meets that visit's hours, and asked about a date alone, when it covers every hour the company works that day; anyone with only part of the day off is listed in `partDayOff`. Equipment is matched by requirement code against the company asset register, so a missing item is named with the label of the machine the company actually owns, and a crew carrying a code whose every unit is retired or grounded by an expired obligation is refused with the reason. A code the register does not know is compared by equality alone and makes no claim about availability.",
+    "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. Leave is read by the hour: asked about a job that has a visit that date, a person is off when their approved leave meets that visit's hours, and asked about a date alone, when it covers every hour the crew works that day (its own hours that date where it keeps some: hours for that date, for that weekday or its one set of hours; the company's otherwise); anyone with only part of the day off is listed in `partDayOff`. Equipment is matched by requirement code against the company asset register, so a missing item is named with the label of the machine the company actually owns, and a crew carrying a code whose every unit is retired or grounded by an expired obligation is refused with the reason. A code the register does not know is compared by equality alone and makes no claim about availability. A crew off that date (marked off on it, or a weekday it does not work) is refused with `crew_day_off`.",
   module: "M09",
   permissions: ["visit:read"],
   input: z.object({
@@ -531,6 +570,8 @@ export const getServiceRouteDensity = defineRoute({
       offAllDay: z.boolean(),
       /** A crew's members with leave that day. */
       membersOff: z.array(z.string()),
+      /** In words when a crew does not work that day (marked off on the date, or a weekday it does not work), else null. */
+      dayOff: z.string().nullable(),
     }).nullable(),
     /** On a date: false when refused, true when the work and the whole drive fit the hours left, null when it cannot be said. Null for the template. */
     fits: z.boolean().nullable(),

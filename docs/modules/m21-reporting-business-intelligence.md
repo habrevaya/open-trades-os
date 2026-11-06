@@ -455,7 +455,8 @@ work to `revenue_class`; the plumbing pack (version two, M02) now marks its
 drain call and its camera inspection, lining and excavation items.
 
 - A **drain call** is a completed job of a type the company's trade pack marks as
-  a drain call, in the window it was completed.
+  a drain call (or one the company marked so by hand, below), in the window it
+  was completed.
 - It **produced** the upsell when it, or a job raised from it and not cancelled,
   carries a line of one of the marked items, or an estimate the customer
   approved whose chosen option does. An option the customer did not choose
@@ -483,7 +484,7 @@ owns, or no fault found. The technician answers it on the phone's readings, and
 the office reads the answer on the visit's page.
 
 - A **call** is a job of a type the company's trade pack marks as
-  troubleshooting, counted once, in the window its first visit that was done was
+  troubleshooting (or one the company marked so by hand, below), counted once, in the window its first visit that was done was
   finished.
 - It **converted** when, on that visit, the customer approved an estimate on the
   job between the visit's arrival and its finish, or work was recorded on the
@@ -498,6 +499,40 @@ The rule is core's `reporting.troubleshootingOf`, with unit tests, written again
 in SQL, and `kpi-troubleshooting.integration.test.ts` checks a month worked out
 by hand, puts the same calls through both, and checks the pack's template asks
 the question.
+
+### Marking a hand made job type or item as the trade pack's
+
+The pack marks its own job types and items by the codes it seeded, so a job
+type or item the company made under another code was not counted. It is marked
+by hand on **What the scorecard counts** (`/reports/scorecard/marks`, linked
+from the scorecard as "Choose what the scorecard counts" when the trade's
+scorecard has either number): each job type with a box for "Troubleshooting
+call" or "Drain call", the marked items, and "Mark an item" for any other. The
+page says what marking changes before anybody ticks a box: a job type marked as
+a drain call puts its finished jobs into the bottom of drain call conversion,
+and into the top when it sold the upsell; an item marked as drain call upsell
+lets a drain call that sold it count as converted, so the number can go up; an
+item marked as the charge for finding the fault is no longer repair work, so a
+call with only that on it no longer converts and the number can go down. A mark
+counts for every month, past ones too. No price changes.
+
+`GET /v1/trade-pack/marks` (`report:read`) lists the job types and items with
+the marks the pack gives by code (`fromPack`) and those given by hand
+(`byHand`), the marks the company's scorecard reads (`offered`) and what each
+means (`meanings`). `PUT /v1/job-types/{id}/pack-marks` and
+`PUT /v1/pricebook/items/{id}/pack-marks` (`settings:write`, the permission
+that applies the trade pack, idempotent, the whole list replaced, audited as
+`job_type.pack_marks_set` and `price_book_item.pack_marks_set`) set them.
+Only marks a number on the company's own scorecard reads are accepted: a drain
+mark on an electrical company is refused ("No number on your trade's scorecard
+reads a drain call, so marking it would change nothing."). The marks are kept on
+the record (`pack_marks`), and the two figures read a hand mark exactly as the
+pack's (`kpi-catalogue.ts`); `pack-marks.integration.test.ts` checks both
+numbers before and after marking and after taking the marks off.
+
+A mark the pack gave by code stays: a hand mark only adds, so a company cannot
+take the pack's own call out of its number (the conservative choice, said on the
+screen). To stop counting a pack job type, retire it.
 
 ### Water heater opportunity capture, and why the customer said no
 
@@ -1170,12 +1205,22 @@ the report does not select, the same measure twice, a number tile (one value), a
 a tile that is broken down (the colours would stand for two different things) are
 each refused. The emailed PDF draws it the same way, from the same plan, with the
 legend in words (`Invoiced, columns, left scale`, `Invoices, amber line, right
-scale`), and the table under it has both columns. A report's own chart screen
-still draws one measure; the second measure is a dashboard tile's.
+scale`), and the table under it has both columns.
+
+**A report's own chart takes a second measure too.** On a report screen (one
+that ships, a saved one, or the builder) that counts more than one thing,
+"Also draw" under the chart offers the others and "Nothing else" takes it off,
+with the same plan, the same scales and the same legend a tile draws. The choice
+lives in the address (`second=count`), so a link sent to somebody and "Print or
+save as PDF" draw the same chart. It is not offered on a chart broken down by a
+second grouping, and breaking a chart down drops it, because the colours would
+stand for two different things; choosing the second measure as the one to draw
+drops it too. A line drawn "Around the data" goes back to starting at zero when
+a second measure is drawn, as a tile's does.
 
 The emailed PDF of a report draws the chart as the screen draws it before anybody
-breaks it down: a breakdown is a choice made on the screen, and is on the printed
-page and not in the schedule.
+breaks it down or adds a second measure: both are choices made on the screen, and
+are on the printed page and not in the schedule.
 
 ### Print it, or save it as a PDF
 
@@ -1333,6 +1378,26 @@ words at the save, and again on the day if the last one was turned off since
 (the delivery fails and sends nothing), because it would change nothing and read
 as though it had. That is the conservative reading, and the product owner has not
 been asked for another.
+
+**Days chosen on the dashboard's own screen.** A dashboard with a tile that
+follows dates has a box under its title ("Days"): "As it stands now", the four
+periods a schedule offers, or "Between two dates" with a first and a last day,
+both kept. The days are worked out on the company's own day, as a delivery's
+are, and reach only the tiles that follow dates, exactly as a schedule's do;
+the page says "Showing Mar 1, 2001 to Mar 31, 2001 on the tiles that follow the
+dashboard's dates. These keep their own dates: Outstanding." The days live in
+the address, so "Download as PDF" carries them (`/dashboards/money/pdf?dates=between&from=2001-03-01&to=2001-03-31`)
+and prints the same page with "Dates" under its title, and a number opened for
+its records comes back to the same days. Two days the wrong way round ("The last
+day, Mar 1, 2001, is before the first, Mar 31, 2001. Swap them."), half a range,
+a day that is not one or a period that is not offered is refused in words on the
+screen, which then shows the dashboard as it stands, and the PDF answers the
+same sentence. A dashboard none of whose tiles follow dates has no box, and says
+so ("This dashboard shows things as they stand now. None of its tiles follow
+dates"), with how to turn one on for somebody who can change it. The service is
+`dashboards.chosenDates` and the PDF's `dates` option. The API's
+`GET /v1/dashboards/{id}` draws a dashboard as data as it stands now and takes no
+dates, and no route returns the PDF (see below).
 
 ### Email a report from an automation
 
@@ -1503,15 +1568,17 @@ it was, in the chemical's own unit. The office's visit page, the phone app and
 `/my-day` can each record a product chosen from the book in either of its two units.
 
 Drain call conversion reads the drain call and the upsell items the company's
-trade pack marks, by code: a camera inspection sold under an item the company
-made itself is not counted. A job that names no unit is read as being on the same
+trade pack marks by code and the ones the company marked by hand: a camera
+inspection sold under an item the company made itself is counted once it is
+marked, and not before. A job that names no unit is read as being on the same
 line as any drain job at its address, which leaves it out as a return rather than
 letting it count twice. A camera, lining or excavation done on a new job that was
 not raised from the drain call is not linked to it.
 
 Troubleshooting conversion reads the job types and charges the company's trade
-pack marks, by the codes it seeded: a troubleshooting job type made by hand under
-another code is not a call. A call whose technician never answered where the
+pack marks by the codes it seeded and the ones the company marked by hand: a
+troubleshooting job type made under another code is a call once it is marked,
+and not before. A pack's own mark cannot be taken off one of its codes. A call whose technician never answered where the
 fault was is counted, never left out; a report answered before the electrical
 pack's version two asked has no answer. Repair work done on the visit counts as
 approved by being done; a customer who agreed out loud to work booked for later,
@@ -1646,29 +1713,29 @@ accents print as the plain letter where there is one and as "?" where there is
 not. An emailed report appears as a
 thread in the inbox like every other email this product sends, and "send now"
 queues it for the worker's next pass rather than sending it in the request.
-Nothing is emailed until an email provider is connected. A report's own chart draws one
-measure at a time (a dashboard tile can draw a second beside the first, above). A tile is cut by one of its report's two groupings and drawn
+Nothing is emailed until an email provider is connected. A report's chart, on a
+tile or its own screen, draws two measures at most, and never two on a chart that
+is broken down. A tile is cut by one of its report's two groupings and drawn
 along the other: a report grouped by three things is still refused on a tile,
 because the third would be added up out of sight, and the cut is chosen on the
 tile once it is added ("Add a tile" always starts on the second).
 A dashboard is printed and emailed whole (above), on a schedule or from an
 automation's "Run and email a report" step, and never to a customer: there is no
-narrowing of a dashboard to one customer's records. The dashboard's screen takes no dates of its own: dates come only from a schedule or an
-automation step, and a dashboard printed from its screen is as it stands. A dashboard's
+narrowing of a dashboard to one customer's records. A dashboard is drawn on its
+screen and printed only in the web app: the API has no route that draws one, so
+the days chosen on its screen are the screen's and its PDF's. A dashboard's
 PDF prints the screen's chart with the usual scale, never "Around the data". A tile that
-draws a second measure cannot also be broken down, and a report's own chart screen has
-no second measure. A second measure is added to a tile after the tile is added ("Also
+draws a second measure cannot also be broken down. A second measure is added to a tile after the tile is added ("Also
 draw" under it), not on the "Add a tile" form, it is one measure and not several, and a
 bars tile draws it as a second bar with its own value written beside it rather than on a
 shared axis, because a horizontal bar chart has no second scale to read it against.
 Whether a tile follows a dashboard's dates is set on each tile by a person and is off for
 every tile saved before this existed; nothing works it out from the report, because a
 guess turns a figure about how things stand into one about a week. A tile that follows
-dates has its report's own dates replaced for that delivery, not narrowed by them. The
-dashboard's own screen and its "Download as PDF" have no date box: the days come only from
-a schedule or an automation step, so a dashboard looked at is always as it stands now.
-The days are the schedule's five (the day before, the seven days before, the month
-before, this month so far, or none) and not a range typed in.
+dates has its report's own dates replaced for that delivery or that look, not narrowed by
+them. A schedule's days are its five (the day before, the seven days before, the month
+before, this month so far, or none) and not a range typed in; two days of somebody's own
+are for the dashboard's screen and the PDF made from it.
 The API returns a report and a dashboard as data; the PDF of either is
 downloaded from its screen, or emailed by a schedule, and no route returns the
 file. A report that ships is run over the API by sending the definition

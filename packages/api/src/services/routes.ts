@@ -701,6 +701,8 @@ export interface ServicerDay {
   offAllDay: boolean;
   /** A crew's members with leave that day, by name. */
   membersOff: string[];
+  /** In words when a crew does not work that day (marked off on the date, or a weekday it does not work), else null. */
+  dayOff: string | null;
 }
 
 /** "08:00" from minutes after midnight. */
@@ -799,11 +801,14 @@ async function realDay(
       name: person?.name ?? "The technician", kind: "technician",
       hoursFrom: window === null ? null : window === company ? "company" : "own",
       startsAt: window ? hhmm(window.start) : null, endsAt: window ? hhmm(window.end) : null,
-      membersOff: [], window, leave: (await leaveOf([route.technicianId])).map(asSpan),
+      membersOff: [], dayOff: null, window, leave: (await leaveOf([route.technicianId])).map(asSpan),
     };
   } else {
     const [crew] = route.crewId
-      ? await tx.select({ name: schema.crew.name, workday: schema.crew.workday, weekdayHours: schema.crew.weekdayHours }).from(schema.crew)
+      ? await tx.select({
+        name: schema.crew.name, workday: schema.crew.workday, weekdayHours: schema.crew.weekdayHours,
+        dateHours: schema.crew.dateHours, daysOff: schema.crew.daysOff,
+      }).from(schema.crew)
         .where(eq(schema.crew.id, route.crewId)).limit(1) : [];
     const members = route.crewId ? await tx.select({ id: schema.technician.id, name: schema.technician.displayName })
       .from(schema.crewMember).innerJoin(schema.technician, eq(schema.technician.id, schema.crewMember.technicianId))
@@ -812,21 +817,24 @@ async function realDay(
     /**
      * A crew works its own hours for the date's weekday, or its one set of
      * hours, where it keeps some, the hours the branch keeps that date
-     * otherwise, as a person does; it is off only when every member is off
-     * for all of them.
+     * otherwise, as a person does; it is off when every member is off for
+     * all of them, and when the crew itself does not work that date (marked
+     * off on it, or a weekday it does not work).
      */
-    const hours = crew ? routing.crewHoursOn(crew, on).hours : null;
+    const crewDay = crew ? routing.crewHoursOn(crew, on) : null;
+    const dayOff = crew && crewDay ? routing.crewDayOffWords(crew.name, on, crewDay) : null;
+    const hours = crewDay?.hours ?? null;
     const own = hours ? { start: minuteOf(hours.startsAt), end: minuteOf(hours.endsAt) } : null;
     const window = own && own.start !== null && own.end !== null && own.end > own.start ? { start: own.start, end: own.end } : company;
     const whole = window ?? { start: 0, end: 1440 };
-    const allOff = members.length > 0 && members.every((m) =>
-      routing.coveredMinutes(away.filter((a) => a.technicianId === m.id).map(asSpan), whole) >= whole.end - whole.start);
+    const allOff = dayOff !== null || (members.length > 0 && members.every((m) =>
+      routing.coveredMinutes(away.filter((a) => a.technicianId === m.id).map(asSpan), whole) >= whole.end - whole.start));
     servicer = {
       name: crew?.name ?? "The crew", kind: "crew",
       hoursFrom: window === null ? null : window === company ? "company" : "own",
       startsAt: window ? hhmm(window.start) : null, endsAt: window ? hhmm(window.end) : null,
       membersOff: members.filter((m) => away.some((a) => a.technicianId === m.id)).map((m) => m.name).sort(),
-      window, leave: allOff ? [whole] : [],
+      dayOff, window, leave: allOff ? [whole] : [],
     };
   }
   return { visits, unmade, servicer };
@@ -849,7 +857,9 @@ function realDayWords(d: {
     : "";
   let refused: string | null = null;
   let fit = "";
-  if (s.offAllDay) {
+  if (s.offAllDay && s.dayOff) {
+    refused = `${s.dayOff} Nothing on this route fits that day.`;
+  } else if (s.offAllDay) {
     refused = s.kind === "technician"
       ? `${s.name} is on leave all of ${d.on}, so nothing on this route fits that day.`
       : `Everybody on ${s.name} is on leave all of ${d.on}, so nothing on this route fits that day.`;
@@ -993,7 +1003,7 @@ export async function density(
   const verdict = real?.servicer ? routing.realDayFit({ window: real.servicer.window, leave: real.servicer.leave, totalMinutes, travelComplete }) : null;
   const servicer: ServicerDay | null = real?.servicer && verdict ? {
     name: real.servicer.name, kind: real.servicer.kind, hoursFrom: real.servicer.hoursFrom,
-    startsAt: real.servicer.startsAt, endsAt: real.servicer.endsAt, membersOff: real.servicer.membersOff,
+    startsAt: real.servicer.startsAt, endsAt: real.servicer.endsAt, membersOff: real.servicer.membersOff, dayOff: real.servicer.dayOff,
     leaveMinutes: verdict.leaveMinutes, availableMinutes: verdict.availableMinutes, offAllDay: verdict.offAllDay,
   } : null;
   const said = real && verdict && servicer && on ? realDayWords({

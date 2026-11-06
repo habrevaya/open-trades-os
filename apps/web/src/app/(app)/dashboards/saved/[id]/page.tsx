@@ -1,22 +1,35 @@
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { dashboards, reports, NotFoundError } from "@opentradesos/api/services";
+import { dashboards, reports, NotFoundError, ConflictError } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { DashboardTile, tileSpan } from "@/components/DashboardTile";
 import { PageHeader, Empty } from "@/components/Table";
 import { AddTile, TileControls, CutBy, AlsoDraw, FollowDates, type ReportOption } from "./TileEditor";
 import { DeleteDashboard } from "./DeleteDashboard";
 import { DashboardActions } from "../../DashboardActions";
+import { DashboardDates, choiceOf, choiceQuery } from "../../DashboardDates";
 
 export const dynamic = "force-dynamic";
 
-export default async function SavedDashboardPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SavedDashboardPage({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await requireSetupUser();
   const { id } = await params;
+  const query = await searchParams;
   const ctx = { actor: user.actor, db: getDb() };
 
-  const { definition, tiles } = await dashboards.getSaved(ctx, { id })
+  /** The days chosen on this screen, refused in words when they make no sense, and then not used. */
+  let refusal: string | null = null;
+  const dates = await dashboards.chosenDates(ctx, choiceOf(query)).catch((error: unknown) => {
+    if (error instanceof ConflictError) { refusal = error.message; return undefined; }
+    throw error;
+  });
+  const kept = choiceQuery(query);
+
+  const { definition, tiles } = await dashboards.getSaved(ctx, { id }, dates ? { dates } : {})
     .catch((error: unknown) => {
       if (error instanceof NotFoundError) notFound();
       throw error;
@@ -49,7 +62,7 @@ export default async function SavedDashboardPage({ params }: { params: Promise<{
         title={definition.name}
         action={tiles.length > 0 ? (
           <DashboardActions
-            pdf={`/dashboards/saved/${id}/pdf`}
+            pdf={`/dashboards/saved/${id}/pdf${dates ? kept : ""}`}
             schedule={edits ? `/reports/schedules/new?report=${encodeURIComponent(`savedDashboard:${id}`)}` : null}
           />
         ) : null}
@@ -57,6 +70,14 @@ export default async function SavedDashboardPage({ params }: { params: Promise<{
       {definition.description && (
         <p className="mt-1 text-sm text-ink-500">{definition.description}</p>
       )}
+      {tiles.length > 0 ? (
+        <DashboardDates
+          action={`/dashboards/saved/${id}`} params={query} label={dates?.label ?? null} refusal={refusal}
+          followers={tiles.filter((t) => t.followsDates).length}
+          keepsOwn={dates ? tiles.filter((t) => !t.followsDates && !t.problem).map((t) => t.title) : []}
+          editable={edits}
+        />
+      ) : null}
 
       {edits && (
         <div className="mt-5 rounded-lg border border-steel-200 bg-canvas p-4">
@@ -81,7 +102,7 @@ export default async function SavedDashboardPage({ params }: { params: Promise<{
         <div className="mt-5 grid grid-cols-12 items-start gap-4">
           {tiles.map((tile, index) => (
             <div key={tile.key} className={`col-span-12 ${tileSpan(tile.width)}`}>
-              <DashboardTile tile={tile} back={`/dashboards/saved/${id}`} />
+              <DashboardTile tile={tile} back={`/dashboards/saved/${id}${dates ? kept : ""}`} />
               {edits && (
                 <div className="mt-1 flex flex-wrap items-center justify-end gap-3">
                   {tile.cuts && tile.breakdown ? (

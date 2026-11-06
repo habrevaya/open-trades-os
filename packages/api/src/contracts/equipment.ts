@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
 import { Uuid, ExternalRef, ExternalLookup } from "./common";
+import { FieldFilters, FieldMatch } from "./custom-fields";
 
 /** A calendar date, the way every other contract here spells one. */
 const IsoDate = z.string().date();
@@ -90,6 +91,10 @@ export const EquipmentView = z.object({
   ...EquipmentFields,
   /** 0 for a unit at the top. The parent is the nearest earlier row below it. */
   depth: z.number().int().min(0),
+  /** On the company wide list: where the unit is, in words. */
+  address: z.string().optional(),
+  /** On the company wide list: who to ring about it, the customer linked to that address now. */
+  customer: z.object({ id: Uuid, name: z.string() }).nullable().optional(),
 });
 
 export const EquipmentMove = z.object({
@@ -104,13 +109,28 @@ export const EquipmentMove = z.object({
 export const listEquipment = defineRoute({
   method: "get",
   path: "/v1/equipment",
-  summary: "The equipment at one address, or the units brought in from another system",
+  summary: "The equipment at one address, the whole company's register, or the units brought in from another system",
   description:
-    "Nested, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now. With `externalSource` or `externalId`, or both, it finds the units another system's records became, across every address the caller may see, retired ones included and marked `retired`, so a migration run twice finds what it already loaded; with both, that is at most one unit. A `propertyId` beside them narrows to that address. One of `propertyId`, `externalSource` or `externalId` is needed.",
+    "With `propertyId` alone, the units at that address, nested in tree order, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now. Without `propertyId`, or with any filter or a page, the whole company's register, flat, every unit the caller may see (narrowed by the addresses whose work they see, so a branch manager sees their branch's), each with its `address` and `customer`, in the order of its kind: `kind` (exactly as the register names it), `minAgeYears` and `maxAgeYears` (whole years from the install date; a unit with no install date is left out by either), `warranty` (`covered`: parts or labour covered on the day; `lapsed`: a date and neither covered; `none`: no date recorded), `fields` and `fieldMatch` (the company's own fields on a unit, as every list takes them), paged by `cursor` and `limit` (up to 200, 50 when left out), with `nextCursor` and `hasMore`. With `externalSource` or `externalId`, or both, it finds the units another system's records became, across every address the caller may see, retired ones included and marked `retired`, so a migration run twice finds what it already loaded; with both, that is at most one unit. A `propertyId` beside them narrows to that address.",
   module: "M04",
   permissions: ["equipment:read"],
-  input: z.object({ propertyId: Uuid.optional(), on: IsoDate.optional(), ...ExternalLookup }),
-  output: z.object({ equipment: z.array(EquipmentView) }),
+  input: z.object({
+    propertyId: Uuid.optional(), on: IsoDate.optional(), ...ExternalLookup,
+    kind: z.string().max(100).optional(),
+    minAgeYears: z.number().int().min(0).max(200).optional(),
+    maxAgeYears: z.number().int().min(0).max(200).optional(),
+    warranty: z.enum(["covered", "lapsed", "none"]).optional(),
+    fields: FieldFilters,
+    fieldMatch: FieldMatch,
+    cursor: z.string().max(500).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  }),
+  output: z.object({
+    equipment: z.array(EquipmentView),
+    /** The next page of the company wide list, or null. Always null for one address and for units from another system. */
+    nextCursor: z.string().nullable(),
+    hasMore: z.boolean(),
+  }),
 });
 
 export const getEquipment = defineRoute({

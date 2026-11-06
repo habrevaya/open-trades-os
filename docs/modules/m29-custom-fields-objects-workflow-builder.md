@@ -353,8 +353,9 @@ customer list also has a link, "Show customers that match any of these", that jo
 them by "or" instead (the Annual plan or pets), says so in the sentence above the list
 ("whose Plan is Annual, or whose Pets is yes"), carries it in the address as
 `fieldmatch=any`, and offers "Show only customers that match all of these" to go back.
-So do `/jobs`, `/invoices`, `/estimates`, `/people` (by a technician's fields) and
-each kind of record's own list (`/records/{type}`), each with its own words ("Show
+So do `/jobs`, `/invoices`, `/estimates`, `/people` (by a technician's fields),
+`/equipment` (by a unit's fields, M04) and each kind of record's own list
+(`/records/{type}`), each with its own words ("Show
 jobs that match any of these"), and each list's search box keeps the choice while it
 searches. "Any" only widens which of the fields has to hold: the rows are still
 the ones the reader's scope shows on that list, so a technician asking for any of
@@ -363,7 +364,8 @@ A choice matches exactly, several choices match a customer holding that one amon
 theirs, yes or no matches as stored, a number matches as a number, and free text
 matches anywhere in the value, ignoring case. `GET /v1/customers`,
 `GET /v1/jobs`, `GET /v1/invoices`, `GET /v1/estimates`, `GET /v1/properties`,
-`GET /v1/people` and `GET /v1/custom-records` take `fields`, repeated, each the
+`GET /v1/people`, `GET /v1/custom-records` and `GET /v1/equipment` (the company wide
+list) take `fields`, repeated, each the
 field's key, a colon and the value (`fields=plan:Annual&fields=has_pets:yes`), every
 one of which has to hold, up to ten; `fieldKey` and `fieldValue` still work and are
 one more beside them. Each of them also takes `fieldMatch`: `all` (the default) or
@@ -423,6 +425,14 @@ search box does, through the same lists and so at the writer's own scope: a
 technician allowed to file records is offered the work they were sent to, a branch
 manager their branch's. "Point at this one" saves it and goes back to the record. A
 job brings its customer and address with it when the kind points at those too.
+"Change several at once" under the list opens `/records/{type}/{id}/links`, a form
+with every link the kind offers: type words in as many boxes as needed and press
+"Find", then pick one for each link, "Keep it as it is" or "Take it off", and press
+"Save these changes". All of them go to the service as one change, through the same
+lists and the same checks as the one link page, and if any one of them is refused
+none of them is saved, with each refusal said in words, so a record is never left
+half moved (one line in the audit log, one `record.updated`). A person and a record
+are picked from their short lists without typing.
 `PATCH /v1/custom-records/{id}` does the same through the API, and both are held to
 exactly the checks making a record with that link is: the kind's write permission,
 the permission that reads the thing pointed at, and the writer's scope on it (a job,
@@ -820,8 +830,9 @@ turned on again from its original wording.
 A technician's required fields are asked for when they are saved on the person's page and
 not when the person is invited, because the invitation carries no field. A record the
 product makes by itself starts with none, as above, and so does the first visit booked
-together with a new job. Visits and units have no company wide list to filter, so their
-fields are filtered in the report builder rather than on a list screen. "Any of these"
+together with a new job. Visits have no company wide list to filter, so their fields are
+filtered in the report builder rather than on a list screen; units do, on `/equipment`
+(M04). "Any of these"
 across several fields is on every list that filters by fields and in the report
 builder, but it is one choice for the whole list: there is no "this one, or both of
 those".
@@ -831,9 +842,10 @@ kind of record's. A kind of record points at one record of one other kind, not
 several, and an invoice, a person and a record are chosen on the form only as
 described above: an invoice is carried in from its page, a person is picked only by
 somebody holding `user:read` (anybody else opens the form from the person's page),
-and the record list offered is the first two hundred. A record's links are changed
-one at a time on its page, by finding the new one with words: there is no form
-that changes several at once (the API's `PATCH` does). The page that chooses a
+and the record list offered is the first two hundred. A record's links are found with
+words, one link at a time or several on one form; a job chosen there does not fill the
+customer and address boxes on the same form, it brings them with it only when they
+are left as they are, as on the one link page. The page that chooses a
 person offers the people the writer may see and themselves, and the page that
 chooses a record offers fifty of the kind it points at, narrowed by words. An
 address or a unit can be pointed at only when the writer can see work at that

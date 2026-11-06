@@ -106,6 +106,7 @@ run("a unit's external reference", () => {
     expect(found.status).toBe(200);
     expect((found.body["equipment"] as { externalRef: unknown }[])).toMatchObject([{ externalRef: { source: "jobber", id: "eq-1" } }]);
     const neither = await call("/v1/equipment");
-    expect(neither.status).toBe(422);
+    /** Without an address it is now the whole company's register (M04/M29), not a refusal. */
+    expect(neither.status).toBe(200);
   });
 });

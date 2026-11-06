@@ -69,6 +69,18 @@ export interface CrewInput {
   workday?: CrewWorkday | null | undefined;
   /** Hours of its own for some weekdays, read on that weekday in place of `workday`. */
   weekdayHours?: CrewWeekdayHours[] | undefined;
+  /** Hours for one date only, or off that date, read before everything else. */
+  dateHours?: CrewDateInput[] | undefined;
+  /** Weekdays the crew does not work, 0 for Sunday. */
+  daysOff?: number[] | undefined;
+}
+
+/** One date's own entry: its hours, or off that day. */
+export interface CrewDateInput {
+  date: string;
+  off?: boolean | undefined;
+  startsAt?: string | null | undefined;
+  endsAt?: string | null | undefined;
 }
 
 /** A crew's own working day, local time, "06:00" to "14:30". */
@@ -86,6 +98,24 @@ function checkedWeekdayHours(hours: CrewWeekdayHours[] | undefined): CrewWeekday
   const check = routing.checkCrewWeekdayHours(hours);
   if (!check.ok) throw new ConflictError(check.message);
   return check.hours;
+}
+
+/** A crew's entries for particular dates, checked in core. Left out keeps what it has; empty clears them. */
+function checkedDateHours(entries: CrewDateInput[] | undefined) {
+  if (entries === undefined) return undefined;
+  const check = routing.checkCrewDateHours(entries);
+  if (!check.ok) throw new ConflictError(check.message);
+  return check.dates;
+}
+
+/**
+ * The weekdays a crew does not work, checked against the hours by weekday the
+ * crew will have after the edit: a day off cannot also have hours of its own.
+ */
+function checkedDaysOff(days: number[] | undefined, weekdayHours: readonly CrewWeekdayHours[]) {
+  const check = routing.checkCrewDaysOff(days ?? [], weekdayHours);
+  if (!check.ok) throw new ConflictError(check.message);
+  return days === undefined ? undefined : check.daysOff;
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -125,6 +155,8 @@ export async function create(ctx: ServiceContext, input: CrewInput) {
     assertRatePair(input.productionRatePerDay, input.productionUnit);
     const workday = checkedWorkday(input.workday) ?? null;
     const weekdayHours = checkedWeekdayHours(input.weekdayHours) ?? [];
+    const dateHours = checkedDateHours(input.dateHours) ?? [];
+    const daysOff = checkedDaysOff(input.daysOff, weekdayHours) ?? [];
     assertCrewPlaceable(ctx, input.businessUnitId ?? null);
     if (input.businessUnitId) await liveBranch(tx, ctx, input.businessUnitId);
 
@@ -140,6 +172,8 @@ export async function create(ctx: ServiceContext, input: CrewInput) {
       color: input.color ?? null,
       workday,
       weekdayHours,
+      dateHours,
+      daysOff,
     }).returning();
 
     await audit(tx, ctx, "crew.created", "crew", row!.id, null, row!);
@@ -162,6 +196,10 @@ export interface CrewUpdate {
   workday?: CrewWorkday | null | undefined;
   /** Its hours for some weekdays, the whole list replaced. Empty clears them; left out keeps them. */
   weekdayHours?: CrewWeekdayHours[] | undefined;
+  /** Its entries for particular dates, the whole list replaced. Empty clears them; left out keeps them. */
+  dateHours?: CrewDateInput[] | undefined;
+  /** The weekdays it does not work, the whole list replaced. Empty clears them; left out keeps them. */
+  daysOff?: number[] | undefined;
   active?: boolean | undefined;
 }
 
@@ -198,6 +236,9 @@ export async function update(ctx: ServiceContext, input: CrewUpdate) {
     assertRatePair(rate, unit);
     const workday = checkedWorkday(input.workday);
     const weekdayHours = checkedWeekdayHours(input.weekdayHours);
+    const dateHours = checkedDateHours(input.dateHours);
+    /** Checked against the result of the edit, so a day off and hours on that weekday never both stand. */
+    const daysOff = checkedDaysOff(input.daysOff ?? before.daysOff, weekdayHours ?? before.weekdayHours)!;
 
     const [row] = await tx.update(schema.crew).set({
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
@@ -211,6 +252,8 @@ export async function update(ctx: ServiceContext, input: CrewUpdate) {
       ...(input.color !== undefined ? { color: input.color } : {}),
       ...(workday !== undefined ? { workday } : {}),
       ...(weekdayHours !== undefined ? { weekdayHours } : {}),
+      ...(dateHours !== undefined ? { dateHours } : {}),
+      ...(input.daysOff !== undefined ? { daysOff } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
       updatedAt: new Date(),
     }).where(eq(schema.crew.id, before.id)).returning();
@@ -284,6 +327,8 @@ export async function list(ctx: ServiceContext) {
       color: crew.color,
       workday: crew.workday ?? null,
       weekdayHours: crew.weekdayHours,
+      dateHours: crew.dateHours,
+      daysOff: crew.daysOff,
       active: crew.active,
       members: members
         .filter((m) => m.crewId === crew.id)
@@ -386,6 +431,22 @@ export async function setMembers(
   });
 }
 
+/**
+ * WHY A CREW CANNOT BE BOOKED ON A DATE, or null when it works that day: the
+ * date marked off, or a weekday it does not work (core's `crewHoursOn`).
+ * Booking a visit with a crew asks this, in the caller's transaction, so a
+ * visit is never booked onto a crew that will not be there.
+ */
+export async function crewDayOffOn(tx: Database, organizationId: string, crewId: string, on: string): Promise<string | null> {
+  const [crew] = await tx.select({
+    name: schema.crew.name, workday: schema.crew.workday, weekdayHours: schema.crew.weekdayHours,
+    dateHours: schema.crew.dateHours, daysOff: schema.crew.daysOff,
+  }).from(schema.crew)
+    .where(and(eq(schema.crew.id, crewId), eq(schema.crew.organizationId, organizationId))).limit(1);
+  if (!crew) return null;
+  return routing.crewDayOffWords(crew.name, on, routing.crewHoursOn(crew, on));
+}
+
 /* ----------------------------------------------------- can it take the job */
 
 /** Why a crew cannot take a job. Every one of these is actionable today. */
@@ -397,7 +458,8 @@ export type Blocker =
   | "missing_equipment"
   | "equipment_unavailable"
   | "missing_skills"
-  | "different_business_unit";
+  | "different_business_unit"
+  | "crew_day_off";
 
 export interface CrewVerdict {
   crewId: string;
@@ -430,9 +492,19 @@ export interface CrewVerdict {
    * crew to a visit, or the planner's day moves) a person whose leave meets
    * them is off, and a person whose leave does not is on the crew for it. A
    * question about a date alone counts a person as off when their leave covers
-   * every hour the company works that day, and lists the rest here.
+   * every hour the crew works that day (its own hours that date where it keeps
+   * some, the company's otherwise), and lists the rest here.
    */
   partDayOff: { technicianId: string; name: string; hours: string }[];
+  /**
+   * Whose hours the day was read in: the crew's own for that date
+   * (`date`), for that weekday (`weekday`), its one set of hours (`own`),
+   * or the company's (`company`). A crew off that day says so as a blocker
+   * (`crew_day_off`), and `hours` is then null.
+   */
+  hoursFrom: "date" | "weekday" | "own" | "company";
+  /** The crew's own hours that date, or null for the company's day or a day off. */
+  hours: { startsAt: string; endsAt: string } | null;
   leadDesignated: boolean;
   /**
    * WHERE THE EQUIPMENT REQUIREMENT CAME FROM, published with the answer.
@@ -719,7 +791,28 @@ async function verdict(
    * covers every hour the company works that day, and a person with only part
    * of it off is on the crew and said so in `partDayOff`.
    */
-  const workingSpan = holidayRules.workingSpanOn(on, when.calendar);
+  /**
+   * THE CREW'S OWN DAY. Its hours that date (core's `crewHoursOn`: the date's
+   * own entry, a weekday it does not work, its weekday hours, its one set of
+   * hours) where it keeps some, and the company's working hours otherwise. A
+   * crew that does not work that day cannot take work on it, whoever is free:
+   * the office gives it hours on that date first, which says the crew is
+   * coming in.
+   */
+  const crewDay = routing.crewHoursOn(crew, on);
+  const dayOff = routing.crewDayOffWords(crew.name, on, crewDay);
+  if (dayOff) {
+    blockers.push({
+      code: "crew_day_off",
+      explanation: `${dayOff} Give it hours on ${on} on Crews and on call if it is coming in.`,
+    });
+  }
+  const workingSpan = crewDay.hours
+    ? {
+      start: time.instantOfLocal(on, minuteOf(crewDay.hours.startsAt), zone),
+      end: time.instantOfLocal(on, minuteOf(crewDay.hours.endsAt), zone),
+    }
+    : holidayRules.workingSpanOn(on, when.calendar);
   const offIds = new Set<string>();
   const partDayOff: CrewVerdict["partDayOff"] = [];
   for (const m of members) {
@@ -909,6 +1002,8 @@ async function verdict(
       offOn: members.length - available.length,
     },
     partDayOff,
+    hoursFrom: crewDay.from,
+    hours: crewDay.hours,
     leadDesignated,
     equipmentBasis: job.jobTypeId ? "job_type" : "none_declared",
     registeredEquipment: job.requiredAssetIds.filter((code) => (register.get(code)?.length ?? 0) > 0),

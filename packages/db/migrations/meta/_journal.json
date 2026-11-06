@@ -1310,6 +1310,13 @@
       "when": 1793928494311,
       "tag": "0186_moaning_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1793935177463,
+      "tag": "0187_worthless_wild_pack",
+      "breakpoints": true
     }
   ]
 }

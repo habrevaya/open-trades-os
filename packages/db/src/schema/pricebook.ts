@@ -122,6 +122,14 @@ export const priceBookItem = pgTable("price_book_item", {
    */
   quantityIsCrewHours: boolean("quantity_is_crew_hours").notNull().default(false),
   /**
+   * The trade pack's marks the company gave this item by hand
+   * ("troubleshooting" for the charge for finding a fault, "drain_upsell" for
+   * a camera inspection, a lining or an excavation), so an item it made under
+   * another code counts where the pack's own would (`services/pack-marks.ts`).
+   * On the item, like `feeRole`: marking it changes no price.
+   */
+  packMarks: jsonb("pack_marks").$type<string[]>().notNull().default([]),
+  /**
    * A CHEMICAL, AND THE UNIT ITS COST IS PER. Null for everything that is not
    * chemistry, which is nearly everything; set, the item is a product a
    * technician applies and is offered by name on the phone's application

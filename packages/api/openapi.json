@@ -16067,7 +16067,7 @@
       "post": {
         "operationId": "addHoursSeason",
         "summary": "Add a season: hours kept between two dates",
-        "description": "All seven days, as for the week. Without `businessUnitId` it is the company's, read by every branch on the company's week; with one, that branch's own. A season that would be in force on a date another of the same owner's is (two dated ones whose dates meet, or a yearly one whose months and days meet another's) is refused in words naming the other. A holiday on a date in a season still wins. Somebody who sees only their own branch's work keeps only its seasons.\n\nRequires a session holding: booking:configure.",
+        "description": "All seven days, as for the week, or with `onlySomeDays` the days it changes, every other weekday keeping the week beneath it. Either end of a yearly season can be a day of the week in a month (`startsRule`, `endsRule`), worked out for each year; its ends must fall in the same order every year. Without `businessUnitId` it is the company's, read by every branch on the company's week; with one, that branch's own. A season that would be in force on a date another of the same owner's is (two dated ones whose dates meet, or a yearly one whose months and days meet another's) is refused in words naming the other. A holiday on a date in a season still wins. Somebody who sees only their own branch's work keeps only its seasons.\n\nRequires a session holding: booking:configure.",
         "tags": [
           "M02"
         ],
@@ -39465,7 +39465,7 @@
       "patch": {
         "operationId": "updateCrew",
         "summary": "Change a crew's rate, kit, skills or hours",
-        "description": "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. `weekdayHours` is the whole list of hours it keeps on particular weekdays, read on that weekday in place of `workday` (a day given twice, or one ending before it starts, is refused in words); empty clears them. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
+        "description": "`workday` is the crew's own working hours (two times of day, the end after the start), which the rebalance and a route's fit read instead of the company's day; null goes back to the company's day. `weekdayHours` is the whole list of hours it keeps on particular weekdays, read on that weekday in place of `workday` (a day given twice, or one ending before it starts, is refused in words); empty clears them. `dateHours` is the whole list of dates with hours of their own (both times) or off (`off: true`, no times), read on that date before anything else; a date given twice, half a day or a day ending before it starts is refused in words. `daysOff` is the whole list of weekdays the crew does not work; all seven, or a day off that also has hours by weekday, is refused. A crew off on a date cannot be sent work that day (`crew_day_off`), and the board, a route's fit and the rebalance read the same day. The rate and unit pair is checked against the result of the edit rather than against what was sent, so clearing the unit on a crew that has a rate is refused rather than leaving half a rate behind. Moving a crew to another branch is for somebody who sees the whole company. Another branch's crew reads as not found.\n\nRequires a session holding: visit:dispatch.",
         "tags": [
           "M09"
         ],
@@ -39603,7 +39603,7 @@
       "get": {
         "operationId": "getCrewAvailability",
         "summary": "Can this crew take this job, on this day",
-        "description": "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. Leave is read by the hour: asked about a job that has a visit that date, a person is off when their approved leave meets that visit's hours, and asked about a date alone, when it covers every hour the company works that day; anyone with only part of the day off is listed in `partDayOff`. Equipment is matched by requirement code against the company asset register, so a missing item is named with the label of the machine the company actually owns, and a crew carrying a code whose every unit is retired or grounded by an expired obligation is refused with the reason. A code the register does not know is compared by equality alone and makes no claim about availability.\n\nRequires a session holding: visit:read.",
+        "description": "Two questions and both must pass: the kit, which is a property of the crew and the work, and the people, which is a property of the day. Leave is read by the hour: asked about a job that has a visit that date, a person is off when their approved leave meets that visit's hours, and asked about a date alone, when it covers every hour the crew works that day (its own hours that date where it keeps some: hours for that date, for that weekday or its one set of hours; the company's otherwise); anyone with only part of the day off is listed in `partDayOff`. Equipment is matched by requirement code against the company asset register, so a missing item is named with the label of the machine the company actually owns, and a crew carrying a code whose every unit is retired or grounded by an expired obligation is refused with the reason. A code the register does not know is compared by equality alone and makes no claim about availability. A crew off that date (marked off on it, or a weekday it does not work) is refused with `crew_day_off`.\n\nRequires a session holding: visit:read.",
         "tags": [
           "M09"
         ],
@@ -53439,8 +53439,8 @@
       ],
       "get": {
         "operationId": "listEquipment",
-        "summary": "The equipment at one address, or the units brought in from another system",
-        "description": "Nested, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now. With `externalSource` or `externalId`, or both, it finds the units another system's records became, across every address the caller may see, retired ones included and marked `retired`, so a migration run twice finds what it already loaded; with both, that is at most one unit. A `propertyId` beside them narrows to that address. One of `propertyId`, `externalSource` or `externalId` is needed.\n\nRequires a session holding: equipment:read.",
+        "summary": "The equipment at one address, the whole company's register, or the units brought in from another system",
+        "description": "With `propertyId` alone, the units at that address, nested in tree order, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now. Without `propertyId`, or with any filter or a page, the whole company's register, flat, every unit the caller may see (narrowed by the addresses whose work they see, so a branch manager sees their branch's), each with its `address` and `customer`, in the order of its kind: `kind` (exactly as the register names it), `minAgeYears` and `maxAgeYears` (whole years from the install date; a unit with no install date is left out by either), `warranty` (`covered`: parts or labour covered on the day; `lapsed`: a date and neither covered; `none`: no date recorded), `fields` and `fieldMatch` (the company's own fields on a unit, as every list takes them), paged by `cursor` and `limit` (up to 200, 50 when left out), with `nextCursor` and `hasMore`. With `externalSource` or `externalId`, or both, it finds the units another system's records became, across every address the caller may see, retired ones included and marked `retired`, so a migration run twice finds what it already loaded; with both, that is at most one unit. A `propertyId` beside them narrows to that address.\n\nRequires a session holding: equipment:read.",
         "tags": [
           "M04"
         ],
@@ -53480,11 +53480,101 @@
               "type": "string",
               "maxLength": 200
             }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "minAgeYears",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "maxAgeYears",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "warranty",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "covered",
+                "lapsed",
+                "none"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 270
+              },
+              "maxItems": 10,
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any."
+            }
+          },
+          {
+            "name": "fieldMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "any"
+              ],
+              "description": "all (the default): every field filter has to hold. any: at least one of them does."
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "The equipment at one address, or the units brought in from another system",
+            "description": "The equipment at one address, the whole company's register, or the units brought in from another system",
             "content": {
               "application/json": {
                 "schema": {
@@ -71185,6 +71275,144 @@
         "x-authorization": "session",
         "x-permissions": [
           "job:read"
+        ]
+      }
+    },
+    "/v1/job-types/{id}/pack-marks": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setJobTypePackMarks",
+        "summary": "Mark a job type as the trade pack's troubleshooting call or drain call",
+        "description": "The whole list of hand marks, replaced; empty takes them off. `troubleshooting` counts the job type's jobs as troubleshooting calls in troubleshooting conversion, `drain` as drain calls in drain call conversion. A mark no number on the company's scorecard reads is refused in words. A code the pack marked stays marked by the pack. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetJobTypePackMarksInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mark a job type as the trade pack's troubleshooting call or drain call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetJobTypePackMarksOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -110523,6 +110751,144 @@
         "x-authorization": "session",
         "x-permissions": [
           "pricebook:write"
+        ]
+      }
+    },
+    "/v1/pricebook/items/{id}/pack-marks": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setPriceBookItemPackMarks",
+        "summary": "Mark an item as a charge for finding a fault, or as drain call upsell work",
+        "description": "The whole list of hand marks, replaced; empty takes them off. `troubleshooting` makes the item a charge for finding the fault, so a call with only that on it has not turned into repair work; `drain_upsell` makes it a camera inspection, a lining or an excavation a drain call can turn into. A mark no number on the company's scorecard reads is refused in words. No price changes. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPriceBookItemPackMarksInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mark an item as a charge for finding a fault, or as drain call upsell work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPriceBookItemPackMarksOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -152298,6 +152664,104 @@
         ]
       }
     },
+    "/v1/trade-pack/marks": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listTradePackMarks",
+        "summary": "Which job types and items the scorecard counts as troubleshooting calls, drain calls and their work",
+        "description": "The company's job types and price book items, each with the marks the trade pack gives it by code (`fromPack`) and the ones given by hand (`byHand`). Only marks a number on the company's own scorecard reads are offered (`offered`), with what each means and which number reads it (`meanings`).\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M21"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which job types and items the scorecard counts as troubleshooting calls, drain calls and their work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTradePackMarksOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
+        ]
+      }
+    },
     "/v1/trade-packs": {
       "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -163594,6 +164058,123 @@
           "repeatsYearly": {
             "type": "boolean"
           },
+          "startsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "endsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "onlySomeDays": {
+            "type": "boolean"
+          },
           "days": {
             "type": "array",
             "items": {
@@ -163628,7 +164209,9 @@
                 "closesAt",
                 "closed"
               ]
-            }
+            },
+            "minItems": 1,
+            "maxItems": 7
           },
           "businessUnitId": {
             "type": [
@@ -163640,8 +164223,6 @@
         },
         "required": [
           "name",
-          "startsOn",
-          "endsOn",
           "days"
         ]
       },
@@ -163675,6 +164256,123 @@
             "type": "string"
           },
           "repeatsYearly": {
+            "type": "boolean"
+          },
+          "startsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "endsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "onlySomeDays": {
             "type": "boolean"
           },
           "when": {
@@ -163728,6 +164426,9 @@
           "startsOn",
           "endsOn",
           "repeatsYearly",
+          "startsRule",
+          "endsRule",
+          "onlySomeDays",
           "when",
           "days",
           "inForceToday"
@@ -174080,6 +174781,123 @@
           "repeatsYearly": {
             "type": "boolean"
           },
+          "startsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "endsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "onlySomeDays": {
+            "type": "boolean"
+          },
           "days": {
             "type": "array",
             "items": {
@@ -174114,13 +174932,13 @@
                 "closesAt",
                 "closed"
               ]
-            }
+            },
+            "minItems": 1,
+            "maxItems": 7
           }
         },
         "required": [
           "name",
-          "startsOn",
-          "endsOn",
           "days"
         ]
       },
@@ -174154,6 +174972,123 @@
             "type": "string"
           },
           "repeatsYearly": {
+            "type": "boolean"
+          },
+          "startsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "endsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "onlySomeDays": {
             "type": "boolean"
           },
           "when": {
@@ -174207,6 +175142,9 @@
           "startsOn",
           "endsOn",
           "repeatsYearly",
+          "startsRule",
+          "endsRule",
+          "onlySomeDays",
           "when",
           "days",
           "inForceToday"
@@ -180116,6 +181054,48 @@
                 "endsAt",
                 "dayOfWeek"
               ]
+            },
+            "maxItems": 7
+          },
+          "dateHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "off": {
+                  "type": "boolean"
+                },
+                "startsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                }
+              },
+              "required": [
+                "date"
+              ]
+            },
+            "maxItems": 400
+          },
+          "daysOff": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
             },
             "maxItems": 7
           }
@@ -206445,7 +207425,8 @@
                     "missing_equipment",
                     "equipment_unavailable",
                     "missing_skills",
-                    "different_business_unit"
+                    "different_business_unit",
+                    "crew_day_off"
                   ]
                 },
                 "explanation": {
@@ -206547,6 +207528,35 @@
               ]
             }
           },
+          "hoursFrom": {
+            "type": "string",
+            "enum": [
+              "date",
+              "weekday",
+              "own",
+              "company"
+            ]
+          },
+          "hours": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "endsAt": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              }
+            },
+            "required": [
+              "startsAt",
+              "endsAt"
+            ]
+          },
           "leadDesignated": {
             "type": "boolean"
           },
@@ -206576,6 +207586,8 @@
           "missingSkills",
           "headcount",
           "partDayOff",
+          "hoursFrom",
+          "hours",
           "leadDesignated",
           "equipmentBasis",
           "registeredEquipment"
@@ -208842,6 +209854,7 @@
                     "from": {
                       "type": "string",
                       "enum": [
+                        "date",
                         "weekday",
                         "own",
                         "company"
@@ -208855,6 +209868,12 @@
                   ]
                 },
                 "branchClosed": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dayOff": {
                   "type": [
                     "string",
                     "null"
@@ -208992,6 +210011,7 @@
                 "inScope",
                 "hours",
                 "branchClosed",
+                "dayOff",
                 "visits"
               ]
             }
@@ -234703,6 +235723,12 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "dayOff": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -234714,7 +235740,8 @@
               "leaveMinutes",
               "availableMinutes",
               "offAllDay",
-              "membersOff"
+              "membersOff",
+              "dayOff"
             ]
           },
           "fits": {
@@ -247019,6 +248046,47 @@
                     ]
                   }
                 },
+                "dateHours": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "date": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "off": {
+                        "type": "boolean"
+                      },
+                      "startsAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "endsAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "date",
+                      "off",
+                      "startsAt",
+                      "endsAt"
+                    ]
+                  }
+                },
+                "daysOff": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 6
+                  }
+                },
                 "active": {
                   "type": "boolean"
                 },
@@ -247062,6 +248130,8 @@
                 "color",
                 "workday",
                 "weekdayHours",
+                "dateHours",
+                "daysOff",
                 "active",
                 "members"
               ]
@@ -247121,7 +248191,8 @@
                           "missing_equipment",
                           "equipment_unavailable",
                           "missing_skills",
-                          "different_business_unit"
+                          "different_business_unit",
+                          "crew_day_off"
                         ]
                       },
                       "explanation": {
@@ -247223,6 +248294,35 @@
                     ]
                   }
                 },
+                "hoursFrom": {
+                  "type": "string",
+                  "enum": [
+                    "date",
+                    "weekday",
+                    "own",
+                    "company"
+                  ]
+                },
+                "hours": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "startsAt": {
+                      "type": "string",
+                      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                    },
+                    "endsAt": {
+                      "type": "string",
+                      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                    }
+                  },
+                  "required": [
+                    "startsAt",
+                    "endsAt"
+                  ]
+                },
                 "leadDesignated": {
                   "type": "boolean"
                 },
@@ -247252,6 +248352,8 @@
                 "missingSkills",
                 "headcount",
                 "partDayOff",
+                "hoursFrom",
+                "hours",
                 "leadDesignated",
                 "equipmentBasis",
                 "registeredEquipment"
@@ -250152,6 +251254,28 @@
                 "depth": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "address": {
+                  "type": "string"
+                },
+                "customer": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
                 }
               },
               "required": [
@@ -250175,10 +251299,21 @@
                 "depth"
               ]
             }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
           }
         },
         "required": [
-          "equipment"
+          "equipment",
+          "nextCursor",
+          "hasMore"
         ]
       },
       "ListEquipmentSerialMatchesOutput": {
@@ -251952,6 +253087,123 @@
                 "repeatsYearly": {
                   "type": "boolean"
                 },
+                "startsRule": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "month": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 12
+                    },
+                    "weekday": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "week": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            2
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            3
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            4
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "last"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "month",
+                    "weekday",
+                    "week"
+                  ]
+                },
+                "endsRule": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "month": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 12
+                    },
+                    "weekday": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "week": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            2
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            3
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            4
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "last"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "month",
+                    "weekday",
+                    "week"
+                  ]
+                },
+                "onlySomeDays": {
+                  "type": "boolean"
+                },
                 "when": {
                   "type": "string"
                 },
@@ -252003,6 +253255,9 @@
                 "startsOn",
                 "endsOn",
                 "repeatsYearly",
+                "startsRule",
+                "endsRule",
+                "onlySomeDays",
                 "when",
                 "days",
                 "inForceToday"
@@ -267692,6 +268947,163 @@
         },
         "required": [
           "programs"
+        ]
+      },
+      "ListTradePackMarksOutput": {
+        "type": "object",
+        "properties": {
+          "tradePack": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "offered": {
+            "type": "object",
+            "properties": {
+              "jobType": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "troubleshooting",
+                    "drain"
+                  ]
+                }
+              },
+              "item": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "troubleshooting",
+                    "drain_upsell"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "jobType",
+              "item"
+            ]
+          },
+          "meanings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "mark": {
+                  "type": "string"
+                },
+                "kpi": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "string"
+                },
+                "jobType": {
+                  "type": "string"
+                },
+                "item": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mark",
+                "kpi",
+                "number",
+                "jobType",
+                "item"
+              ]
+            }
+          },
+          "jobTypes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fromPack": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "byHand": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "code",
+                "fromPack",
+                "byHand"
+              ]
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fromPack": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "byHand": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "code",
+                "fromPack",
+                "byHand"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tradePack",
+          "offered",
+          "meanings",
+          "jobTypes",
+          "items"
         ]
       },
       "ListTradePacksOutput": {
@@ -306054,6 +307466,41 @@
           "checked"
         ]
       },
+      "SetJobTypePackMarksInput": {
+        "type": "object",
+        "properties": {
+          "marks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "maxItems": 4
+          }
+        },
+        "required": [
+          "marks"
+        ]
+      },
+      "SetJobTypePackMarksOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "marks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "marks"
+        ]
+      },
       "SetLocationSharingInput": {
         "type": "object",
         "properties": {
@@ -309768,6 +311215,41 @@
           "id",
           "code",
           "active"
+        ]
+      },
+      "SetPriceBookItemPackMarksInput": {
+        "type": "object",
+        "properties": {
+          "marks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "maxItems": 4
+          }
+        },
+        "required": [
+          "marks"
+        ]
+      },
+      "SetPriceBookItemPackMarksOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "marks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "marks"
         ]
       },
       "SetProjectPhaseDatesInput": {
@@ -321627,6 +323109,48 @@
                 "endsAt",
                 "dayOfWeek"
               ]
+            },
+            "maxItems": 7
+          },
+          "dateHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "off": {
+                  "type": "boolean"
+                },
+                "startsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                }
+              },
+              "required": [
+                "date"
+              ]
+            },
+            "maxItems": 400
+          },
+          "daysOff": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
             },
             "maxItems": 7
           },

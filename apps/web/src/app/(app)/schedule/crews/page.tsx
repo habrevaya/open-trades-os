@@ -1,7 +1,7 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { branches, crews, onCall, people, inTenant } from "@opentradesos/api/services";
-import { can } from "@opentradesos/core";
+import { can, time } from "@opentradesos/core";
 import { schema } from "@opentradesos/db";
 import { eq } from "drizzle-orm";
 import { Empty, PageHeader } from "@/components/Table";
@@ -55,6 +55,8 @@ export default async function CrewsPage() {
       .from(schema.organization)
       .where(eq(schema.organization.id, user.actor.organizationId)).limit(1));
   const zone = org?.timezone ?? "UTC";
+  /** The company's day, so only dates still to come are listed. */
+  const today = time.dateIn(new Date(), zone);
 
   const [all, now, shifts] = await Promise.all([
     crews.list(ctx),
@@ -157,6 +159,48 @@ export default async function CrewsPage() {
                 </div>
                 <p className="text-xs text-ink-500">Leave a day empty and the crew works its usual hours that day.</p>
               </ActionForm>
+            </details>
+            {/*
+              The weekdays the crew does not work, and hours or a day off on
+              one date. A date with hours puts the crew to work even on a day
+              it usually has off. Work is refused on a day the crew is off.
+            */}
+            <details className="w-full">
+              <summary className="cursor-pointer text-sm font-medium text-ink-700">Days off and dates for {row.name}</summary>
+              <ActionForm op="daysOff" label="Save days off" quiet hidden={{ id: row.id }}>
+                <fieldset className="flex flex-wrap gap-3">
+                  <legend className="sr-only">Days {row.name} does not work</legend>
+                  {DAYS.map((day, index) => (
+                    <label key={day} className="flex items-center gap-1 text-sm text-ink-700">
+                      <input type="checkbox" name="dayOff" value={String(index)} defaultChecked={(row.daysOff ?? []).includes(index)}
+                             aria-label={`${row.name} does not work on ${day}`} />
+                      {day.slice(0, 3)}
+                    </label>
+                  ))}
+                </fieldset>
+                <p className="text-xs text-ink-500">Tick the days this crew never works. Nobody can book it on those days.</p>
+              </ActionForm>
+              <ActionForm op="dateHours" label="Save the date" quiet hidden={{ id: row.id }}>
+                <input type="date" name="date" required className={input} aria-label={`Date for ${row.name}`} />
+                <input type="time" name="startsAt" className={input} aria-label={`${row.name} starts that day`} />
+                <input type="time" name="endsAt" className={input} aria-label={`${row.name} finishes that day`} />
+                <label className="flex items-center gap-1 text-sm text-ink-700">
+                  <input type="checkbox" name="off" aria-label={`${row.name} is off that day`} /> Off that day
+                </label>
+                <p className="w-full text-xs text-ink-500">
+                  Hours for one day only, like a long day to finish a job. Or tick Off that day.
+                </p>
+              </ActionForm>
+              {(row.dateHours ?? []).filter((d) => d.date >= today).length > 0 ? (
+                <ul className="mt-2 space-y-1" aria-label={`Dates for ${row.name}`}>
+                  {(row.dateHours ?? []).filter((d) => d.date >= today).map((d) => (
+                    <li key={d.date} className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
+                      <span>{d.date}: {d.off ? "Off" : `${d.startsAt} to ${d.endsAt}`}</span>
+                      <ActionForm op="dateClear" label="Clear" quiet hidden={{ id: row.id, date: d.date }} />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </details>
             {row.active
               ? <ActionForm op="retire" label="Retire" quiet hidden={{ id: row.id }} />

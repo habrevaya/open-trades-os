@@ -22,7 +22,7 @@ export type IconName =
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
   | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance"
-  | "books" | "people" | "records" | "me" | "servicereports";
+  | "books" | "people" | "records" | "me" | "servicereports" | "equipment";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   /**
@@ -76,6 +76,17 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   /** Fleet: a van from the side, which is the asset everybody means first. */
+  /**
+   * Equipment: a unit with a grille and a fan, the furnace or the condenser
+   * at a customer's address. Not the van, which is the company's own fleet.
+   */
+  equipment: (
+    <>
+      <rect x="5" y="3" width="14" height="18" rx="1.5" />
+      <path d="M8.5 7h7M8.5 9.5h7" />
+      <circle cx="12" cy="15.5" r="2.5" />
+    </>
+  ),
   fleet: (
     <>
       <path d="M3 7h11v9H3zM14 10h4l3 3v3h-7" />
