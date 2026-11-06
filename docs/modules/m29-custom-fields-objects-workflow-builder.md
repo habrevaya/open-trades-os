@@ -510,10 +510,10 @@ job under the reader's own visit scope exactly as the visit's page is opened: by
 what is written in either of its notes (the technician's and what the office chose
 to show the customer), the job's summary and number, the customer's name, the name
 of anybody assigned to it, or the name of the crew it is booked to. A hit
-reads "Visit 2 on job 1042: Furnace check", the customer, the day of the visit
+reads "Visit 2 on job 1042: Furnace check", the customer and the day of the visit
 in the company's own calendar ("not scheduled" for a visit with no window yet), and
-who is on it ("with Ray Fielding", the lead first, or "crew Shingle Squad"), and
-opens the visit's own page (`/visits/{id}`). A technician finds the visits they could
+opens the visit's own page (`/visits/{id}`). The hit does not name who is on the
+visit, so one found by a technician's or a crew's name says so only on its page. A technician finds the visits they could
 open and no others. A message is a group for `message:read`, found through its
 conversation under the reader's conversation scope exactly as the inbox lists it:
 a technician finds words only in threads attached to a job they can see or to a

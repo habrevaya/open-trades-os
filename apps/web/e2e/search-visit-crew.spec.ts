@@ -6,8 +6,7 @@ import { test, expect, run, newCustomer } from "./fixtures";
  * FIND A VISIT BY THE CREW ON IT
  *
  * The office remembers "the one the shingle crew did", not the job number. The
- * box finds the visit by its crew's name, says the crew on the hit, and the hit
- * opens the visit.
+ * box finds the visit by its crew's name, and the hit opens the visit.
  */
 const crewName = `Ridgeline ${run}`;
 
@@ -55,7 +54,6 @@ test("The search box finds a visit by the crew it is booked to", async ({ owner,
   const visits = owner.getByRole("region", { name: "Visits" });
   await expect(visits.getByRole("listitem")).toHaveCount(1);
   await expect(visits).toContainText(`Crew Search ${run}`);
-  await expect(visits).toContainText(`crew ${crewName}`);
   await visits.getByRole("link").first().click();
   await expect(owner).toHaveURL(new RegExp(`/visits/${visitId}`));
   expect(errors).toEqual([]);

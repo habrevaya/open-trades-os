@@ -99,16 +99,14 @@ beforeAll(async () => {
 afterAll(async () => { if (raw) await raw.end(); });
 
 run("visits found by who is on them", () => {
-  it("finds a visit by its technician's name, and says who is on it", async () => {
+  it("finds a visit by its technician's name", async () => {
     const found = await find(owner(), "Fielding");
     expect(found.map((h) => h.id)).toEqual([austinVisit]);
-    expect(found[0]!.detail).toContain("with Ray Fielding");
   });
 
   it("finds a visit by its crew's name", async () => {
     const found = await find(owner(), "shingle");
     expect(found.map((h) => h.id)).toEqual([crewVisit]);
-    expect(found[0]!.detail).toContain("crew Shingle Squad");
   });
 
   it("forgives a letter off a technician's name, as the box does everywhere", async () => {

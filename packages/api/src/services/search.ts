@@ -183,11 +183,7 @@ export async function everything(
       hits: found.rows.map(({ row: v, close }) => ({
         id: v.id,
         title: `Visit ${v.sequence} on job ${v.jobNumber}: ${v.jobSummary}`,
-        detail: joined([
-          v.customerName,
-          v.day ? inWords(v.day) : "not scheduled",
-          v.crewName ? `crew ${v.crewName}` : v.people ? `with ${v.people}` : null,
-        ], ", ") || null,
+        detail: joined([v.customerName, v.day ? inWords(v.day) : "not scheduled"], ", ") || null,
         href: `/visits/${v.id}`,
         close,
       })),

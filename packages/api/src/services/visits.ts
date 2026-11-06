@@ -214,10 +214,6 @@ export interface FoundVisit {
   jobNumber: number;
   jobSummary: string;
   customerName: string | null;
-  /** Who is on it, the lead first, by name; null when nobody is assigned. */
-  people: string | null;
-  /** The crew it is booked to, for crew work; null otherwise. */
-  crewName: string | null;
 }
 
 /**
@@ -263,13 +259,6 @@ export async function find(
       jobNumber: schema.job.number,
       jobSummary: schema.job.summary,
       customerName: schema.customer.name,
-      people: sql<string | null>`(
-        select string_agg(found_technician.display_name, ', ' order by found_assignment.is_lead desc, found_technician.display_name)
-        from public.visit_assignment found_assignment
-        join public.technician found_technician on found_technician.id = found_assignment.technician_id
-        where found_assignment.visit_id = ${schema.visit.id}
-      )`,
-      crewName: sql<string | null>`(select found_crew.name from public.crew found_crew where found_crew.id = ${schema.visit.crewId})`,
     }).from(schema.visit)
       .innerJoin(schema.job, eq(schema.job.id, schema.visit.jobId))
       .leftJoin(schema.customer, eq(schema.customer.id, schema.job.customerId))
