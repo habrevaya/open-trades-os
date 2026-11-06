@@ -49,7 +49,7 @@ export type NoteView = {
 };
 
 /** The two field scopes, at which only the notes marked for the field are read. */
-const FIELD_SCOPES = new Set(["own", "crew"]);
+export const FIELD_SCOPES = new Set(["own", "crew"]);
 
 async function visibleCustomer(tx: Database, ctx: ServiceContext, customerId: string): Promise<void> {
   const [row] = await tx.select({ id: schema.customer.id }).from(schema.customer)

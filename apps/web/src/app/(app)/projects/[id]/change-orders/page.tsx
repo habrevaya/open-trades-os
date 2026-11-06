@@ -121,7 +121,8 @@ export default async function ChangeOrdersPage({ params }: { params: Promise<{ i
             </div>
             <p className="text-xs text-ink-500">
               Crew hours the customer approves come off that job&apos;s hours in the budgeted hour variance, so agreed extra
-              work does not read as an overrun.
+              work does not read as an overrun. The page the customer signs lists them. Work spread over more than one job
+              can have hours on each once the change is logged.
             </p>
           </ChangeOrderForm>
         </section>

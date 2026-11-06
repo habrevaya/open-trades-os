@@ -691,7 +691,7 @@ export interface PurchaseOrderPdfInput {
     vendorPartNumber: string | null; itemCode: string; itemName: string;
     quantityOrdered: string; unitPrice: string; lineTotal: string; deliverTo: string;
     /** When the vendor sells by the pack: how many packs, of how many, called what, at what each. */
-    packs?: { count: string; size: string; unit: string | null; price: string } | null | undefined;
+    packs?: { count: string; size: string; unit: string | null; price: string; loose?: string | null | undefined; loosePrice?: string | null | undefined } | null | undefined;
   }>;
   generatedAt: Date;
 }
@@ -720,20 +720,21 @@ export function purchaseOrderPdf(input: PurchaseOrderPdfInput, options: RenderOp
     [
       { label: "Part", width: 90 },
       { label: "Description" },
-      { label: "Qty", width: 92, align: "right" },
-      { label: "Each", width: 76, align: "right" },
+      { label: "Qty", width: 114, align: "right" },
+      { label: "Each", width: 84, align: "right" },
       { label: "Amount", width: 80, align: "right" },
     ],
     input.lines.map((line) => {
       const packs = line.packs;
       const qty = packs
-        ? `${quantity(packs.count)} ${packs.unit ?? "pack"} of ${quantity(packs.size)}\n(${quantity(line.quantityOrdered)})`
+        /** Two lines at most fit a cell: the packs, then the loose ones and our count beside them. */
+        ? `${quantity(packs.count)} ${packs.unit ?? "pack"} of ${quantity(packs.size)}\n${packs.loose ? `and ${quantity(packs.loose)} each ` : ""}(${quantity(line.quantityOrdered)})`
         : quantity(line.quantityOrdered);
       return [
         line.vendorPartNumber ?? line.itemCode,
         `${line.itemName}\nDeliver to ${line.deliverTo}`,
         qty,
-        usd(packs ? packs.price : line.unitPrice),
+        packs ? `${usd(packs.price)}${packs.loose && packs.loosePrice ? `\nand ${usd(packs.loosePrice)}` : ""}` : usd(line.unitPrice),
         usd(line.lineTotal),
       ];
     }),

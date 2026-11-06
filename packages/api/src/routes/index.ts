@@ -4,7 +4,7 @@ import type { RouteDefinition, AuthOf } from "../lib/define";
 import type { ServiceContext } from "../services/context";
 import type { Database } from "@opentradesos/db";
 import {
-  customers, jobs, jobHolds, billing, estimates, estimateExpiry, deposits, portal, booking,
+  customers, jobs, jobHolds, billing, estimates, estimateExpiry, estimateExtendedNotice, deposits, portal, booking,
   fieldOps, fieldDevices, fieldPayments, knowledge, dispatch, properties, priceBook, telephony, inventory, labor,
   obligations, files, marketing, leadIntake, forms, reviews, recurring,
   roles as roleService, contracts as contractService, customFields, webhooks, payments, email, accounting, accountingBranches,
@@ -158,6 +158,9 @@ export const handlers = {
   approveEstimate: estimates.approve,
   declineEstimate: estimates.decline,
   extendEstimateExpiry: estimateExpiry.handlers.extendEstimateExpiry,
+  listEstimateHeldTexts: estimateExpiry.handlers.listEstimateHeldTexts,
+  getEstimateExtendedWords: estimateExtendedNotice.handlers.getEstimateExtendedWords,
+  updateEstimateExtendedWords: estimateExtendedNotice.handlers.updateEstimateExtendedWords,
   convertEstimate: estimates.convert,
   listUnsoldEstimates: estimates.unsoldHandler,
   listEstimateDeliveries: async (ctx, input) => ({ deliveries: await estimates.deliveries(ctx, input) }),
@@ -1052,6 +1055,8 @@ export const handlers = {
   // A customer's people (M03), under the rules the customer's page holds them to
   listCustomerContacts: contacts.handlers.listCustomerContacts,
   addCustomerContact: contacts.handlers.addCustomerContact,
+  listPropertyContacts: contacts.handlers.listPropertyContacts,
+  addPropertyContact: contacts.handlers.addPropertyContact,
   updateContact: contacts.handlers.updateContact,
   removeContact: contacts.handlers.removeContact,
   makeContactPrimary: contacts.handlers.makeContactPrimary,

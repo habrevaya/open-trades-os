@@ -212,6 +212,12 @@ function PartRow({ row, known }: { row: number; known: VendorPart[] }) {
         <input name="partPrice" inputMode="decimal" aria-label={`Price, line ${row + 1}`}
                className="h-9 w-24 rounded border border-steel-300 px-2 text-right text-sm" />
       </td>
+      <td className="pr-3 pt-2">
+        {twoWays ? (
+          <input name="partLoose" inputMode="decimal" aria-label={`Bought by the each, line ${row + 1}`}
+                 placeholder="0" className="h-9 w-20 rounded border border-steel-300 px-2 text-right text-sm" />
+        ) : <input type="hidden" name="partLoose" value="" />}
+      </td>
       <td className="pt-2">
         {twoWays ? (
           <select name="partPack" aria-label={`Buy it, line ${row + 1}`} defaultValue=""
@@ -278,6 +284,7 @@ export function PartOrder({ vendors, locations, parts }: {
             <th className="pr-3 font-medium text-ink-700">Their part number, or our code</th>
             <th className="pr-3 font-medium text-ink-700">Quantity</th>
             <th className="pr-3 font-medium text-ink-700">Price (empty for theirs)</th>
+            <th className="pr-3 font-medium text-ink-700">Of those, bought by the each</th>
             <th className="font-medium text-ink-700">Buy it</th>
           </tr>
         </thead>

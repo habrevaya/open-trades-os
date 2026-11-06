@@ -465,6 +465,8 @@ export const createPurchaseOrder = defineRoute({
       unitPrice: MoneyString.optional(),
       /** Which way to buy it when the vendor sells it two ways: how many of ours in one of theirs. Left out, the cheaper per unit that fits. */
       packQuantity: QuantityString.optional(),
+      /** A mixed line: how many of `quantity` to buy by the each, the rest being whole packs ("2 boxes of 25 and 3 each" is 53, with 3 loose). The vendor has to sell the part both ways. */
+      looseQuantity: QuantityString.optional(),
     }).refine((line) => line.itemId !== undefined || line.partNumber !== undefined, {
       message: "Name the part: our item, or the vendor's part number",
     })).min(1),
@@ -484,6 +486,8 @@ const OrderLineInput = z.object({
   unitPrice: MoneyString.optional(),
   /** Which way to buy it when the vendor sells it two ways: how many of ours in one of theirs. Left out, the cheaper per unit that fits. */
   packQuantity: QuantityString.optional(),
+  /** A mixed line: how many of `quantity` to buy by the each, the rest being whole packs ("2 boxes of 25 and 3 each" is 53, with 3 loose). The vendor has to sell the part both ways. */
+  looseQuantity: QuantityString.optional(),
 }).refine((line) => line.itemId !== undefined || line.partNumber !== undefined, {
   message: "Name the part: our item, or the vendor's part number",
 });
@@ -598,7 +602,11 @@ export const getPurchaseOrder = defineRoute({
       /** What the line comes to: whole packs at the pack price, otherwise quantity at the unit price. */
       lineTotal: MoneyString,
       /** How the vendor sells it, when by the pack: so many packs of so many, called what, at what a pack. */
-      packs: z.object({ count: QuantityString, size: QuantityString, unit: z.string().nullable(), price: MoneyString }).nullable(),
+      packs: z.object({
+        count: QuantityString, size: QuantityString, unit: z.string().nullable(), price: MoneyString,
+        /** A mixed line: how many are bought by the each beside the packs, and the price of one of those. */
+        loose: QuantityString.nullable(), loosePrice: MoneyString.nullable(),
+      }).nullable(),
       /** How the item is tracked, when it is: a receipt of this line has to name its serials or lots. */
       tracking: z.enum(["serial", "lot"]).nullable(),
       /** Freight and fees spread onto this line across every delivery so far. */

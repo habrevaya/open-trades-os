@@ -45,7 +45,7 @@ const ORDER = [
    * project itself follows its own children.
    */
   "project_lien_record", "project_application_line", "project_application",
-  "project_change_order_line", "project_change_order",
+  "project_change_order_hours", "project_change_order_line", "project_change_order",
   "project_draw", "project_job", "project_phase", "project",
   /**
    * A loan application points at the payment its funding became, the invoice
@@ -62,7 +62,7 @@ const ORDER = [
   "ledger_entry", "deferred_revenue_entry", "payment_allocation", "payment",
   "credit_note_payout", "credit_note_application", "credit_note_line", "credit_note",
   /** An estimate's send points at the estimate, the message it became and the link it carried. */
-  "estimate_delivery",
+  "estimate_held_text", "estimate_delivery",
   /** A claim points at the invoice it is about, the job and the payer. */
   "coverage_claim",
   "invoice_delivery",
@@ -199,8 +199,10 @@ const ORDER = [
   // the order; truck minimums point at the item and the truck.
   // A late freight bill and a return to a vendor are named by the movements
   // they made, and point at the delivery, the order and the vendor.
-  "stock_movement", "stock_lot", "stock_tracking", "truck_stock_minimum",
-  "landed_cost_bill_charge", "landed_cost_bill", "vendor_return",
+  // A stock receipt (stock that came without an order) groups movements and
+  // is named by the late bills put on it.
+  "stock_receipt_movement", "stock_movement", "stock_lot", "stock_tracking", "truck_stock_minimum",
+  "landed_cost_bill_charge", "landed_cost_bill", "stock_receipt", "vendor_return",
   "purchase_order_receipt_charge", "purchase_order_receipt",
   "purchase_order_approval_notice",
   "purchase_order_approval", "purchase_order_send", "purchase_order_acknowledgement",

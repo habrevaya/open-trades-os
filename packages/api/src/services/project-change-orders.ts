@@ -40,6 +40,9 @@ import {
  */
 
 type ChangeOrderRow = typeof schema.projectChangeOrder.$inferSelect;
+
+/** Crew hours on one of the project's jobs, with the job's number as the office and the customer read it. */
+export interface HoursView { jobId: string; jobNumber: number | null; jobLabel: string; crewHours: string }
 type LineRow = typeof schema.projectChangeOrderLine.$inferSelect;
 
 const EDITABLE = ["requested", "priced"] as const;
@@ -59,8 +62,12 @@ export interface ChangeOrderView {
   projectPhaseId: string | null;
   phaseName: string | null;
   scheduleDays: number | null;
+  /** The crew hours it adds in all, across every job in `hours`. Null when it adds none. */
   crewHours: string | null;
+  /** The one job the hours are on, when they are on exactly one; null when there are none or they are split. */
   jobId: string | null;
+  /** The crew hours it adds, job by job. */
+  hours: HoursView[];
   amount: string;
   /** Null for a caller who may not read cost, and when a line's cost is unknown. */
   cost: string | null;
@@ -81,7 +88,7 @@ export interface ChangeOrderView {
 }
 
 function shape(
-  ctx: ServiceContext, row: ChangeOrderRow, lines: LineRow[], phaseName: string | null,
+  ctx: ServiceContext, row: ChangeOrderRow, lines: LineRow[], phaseName: string | null, hours: HoursView[],
 ): ChangeOrderView {
   /**
    * Cost is margin, and `job.cost:read` is the permission that keeps it off a
@@ -101,8 +108,9 @@ function shape(
     projectPhaseId: row.projectPhaseId,
     phaseName,
     scheduleDays: row.scheduleDays,
-    crewHours: row.crewHours,
-    jobId: row.jobId,
+    crewHours: hours.length === 0 ? null : totalHours(hours),
+    jobId: hours.length === 1 ? hours[0]!.jobId : null,
+    hours,
     amount: row.amount,
     cost: seesCost ? row.cost : null,
     sentAt: row.sentAt,
@@ -135,6 +143,46 @@ async function linesOf(tx: Database, ids: string[]): Promise<LineRow[]> {
     .orderBy(asc(schema.projectChangeOrderLine.sortOrder), asc(schema.projectChangeOrderLine.createdAt));
 }
 
+const totalHours = (hours: readonly { crewHours: string }[]): string =>
+  hours.reduce((sum, h) => sum + Number(h.crewHours), 0).toFixed(4);
+
+/**
+ * Each change order's crew hours, job by job, in the order of the jobs'
+ * numbers. A change order made before hours could be split has its one job's
+ * hours in its own columns; those are read when it has no rows of its own.
+ */
+async function hoursOf(tx: Database, orders: readonly ChangeOrderRow[]): Promise<Map<string, HoursView[]>> {
+  const out = new Map<string, HoursView[]>(orders.map((o) => [o.id, []]));
+  if (orders.length === 0) return out;
+  const stored = await tx.select({
+    changeOrderId: schema.projectChangeOrderHours.changeOrderId, jobId: schema.projectChangeOrderHours.jobId,
+    crewHours: schema.projectChangeOrderHours.crewHours,
+  }).from(schema.projectChangeOrderHours)
+    .where(inArray(schema.projectChangeOrderHours.changeOrderId, orders.map((o) => o.id)));
+  const rows = stored.map((r) => ({ orderId: r.changeOrderId, jobId: r.jobId, crewHours: r.crewHours }));
+  const withRows = new Set(rows.map((r) => r.orderId));
+  for (const o of orders) {
+    if (!withRows.has(o.id) && o.crewHours !== null && o.jobId !== null) {
+      rows.push({ orderId: o.id, jobId: o.jobId, crewHours: o.crewHours });
+    }
+  }
+  if (rows.length === 0) return out;
+  const jobs = await tx.select({
+    id: schema.job.id, number: schema.job.number, prefix: schema.job.numberPrefix,
+  }).from(schema.job).where(inArray(schema.job.id, [...new Set(rows.map((r) => r.jobId))]));
+  const named = new Map(jobs.map((j) => [j.id, j] as const));
+  for (const r of rows) {
+    const job = named.get(r.jobId);
+    out.get(r.orderId)!.push({
+      jobId: r.jobId, jobNumber: job?.number ?? null,
+      jobLabel: job ? `Job ${job.prefix ?? ""}${job.number}` : "A job",
+      crewHours: Number(r.crewHours).toFixed(4),
+    });
+  }
+  for (const list of out.values()) list.sort((a, b) => (a.jobNumber ?? 0) - (b.jobNumber ?? 0) || a.jobId.localeCompare(b.jobId));
+  return out;
+}
+
 async function phaseNames(tx: Database, projectId: string): Promise<Map<string, string>> {
   const rows = await tx.select({ id: schema.projectPhase.id, name: schema.projectPhase.name })
     .from(schema.projectPhase).where(eq(schema.projectPhase.projectId, projectId));
@@ -150,9 +198,10 @@ export async function list(ctx: ServiceContext, input: { projectId: string }): P
       .orderBy(asc(schema.projectChangeOrder.number));
     const lines = await linesOf(tx, rows.map((r) => r.id));
     const names = await phaseNames(tx, project.id);
+    const hours = await hoursOf(tx, rows);
     return rows.map((row) => shape(
       ctx, row, lines.filter((l) => l.changeOrderId === row.id),
-      row.projectPhaseId ? names.get(row.projectPhaseId) ?? null : null,
+      row.projectPhaseId ? names.get(row.projectPhaseId) ?? null : null, hours.get(row.id) ?? [],
     ));
   });
 }
@@ -181,7 +230,8 @@ async function viewIn(tx: Database, ctx: ServiceContext, id: string): Promise<Ch
   const row = await loadIn(tx, ctx.actor.organizationId, id);
   const lines = await linesOf(tx, [row.id]);
   const names = await phaseNames(tx, row.projectId);
-  return shape(ctx, row, lines, row.projectPhaseId ? names.get(row.projectPhaseId) ?? null : null);
+  const hours = await hoursOf(tx, [row]);
+  return shape(ctx, row, lines, row.projectPhaseId ? names.get(row.projectPhaseId) ?? null : null, hours.get(row.id) ?? []);
 }
 
 async function loadIn(tx: Database, organizationId: string, id: string): Promise<ChangeOrderRow> {
@@ -208,33 +258,85 @@ export interface ChangeOrderInput {
   reason?: string | null | undefined;
   phaseId?: string | null | undefined;
   scheduleDays?: number | null | undefined;
-  /** Crew hours the change adds, on which of the project's jobs. Both or neither. */
+  /** Crew hours the change adds, on which of the project's jobs. Both or neither. The one-job way of writing `hours`. */
   crewHours?: string | null | undefined;
   jobId?: string | null | undefined;
+  /**
+   * Crew hours the change adds, job by job, replacing whatever it had (an empty
+   * list clears them). A job once, each of the project's own, hours above
+   * nought. Not given together with `crewHours` or `jobId`.
+   */
+  hours?: { jobId: string; crewHours: string }[] | undefined;
+}
+
+/** The most jobs one change order spreads its hours over: a project has a handful, and a longer list is a typing mistake. */
+const MOST_JOBS = 25;
+
+/**
+ * Crew hours, job by job, checked: each a positive number of hours on a job
+ * that is one of this project's, a job once, nothing else. Answers the list to
+ * write (empty to clear), or nothing when the input did not touch hours.
+ *
+ * The one-job way (`crewHours` and `jobId`, both or neither) still works and
+ * means a list of one. Changing only one of them on a change order whose hours
+ * are on one job changes that one; on a split change order it is ambiguous, so
+ * it is refused and the whole list is asked for.
+ */
+async function hoursPlan(
+  tx: Database, projectId: string, input: ChangeOrderInput | ChangeOrderUpdate, current: HoursView[] = [],
+): Promise<{ jobId: string; crewHours: string }[] | null> {
+  const single = input.crewHours !== undefined || input.jobId !== undefined;
+  if (input.hours !== undefined && single) {
+    throw new ConflictError("Give the hours as a list, or as one job's crew hours and the job, not both.");
+  }
+  if (input.hours === undefined && !single) return null;
+
+  let wanted: { jobId: string; crewHours: string }[];
+  if (input.hours !== undefined) {
+    wanted = input.hours;
+  } else {
+    if (current.length > 1) {
+      throw new ConflictError("This change order's hours are split across several jobs, so change them as a whole list, not one figure.");
+    }
+    const crewHours = input.crewHours !== undefined ? input.crewHours : current[0]?.crewHours ?? null;
+    const jobId = input.jobId !== undefined ? input.jobId : current[0]?.jobId ?? null;
+    if ((crewHours === null) !== (jobId === null)) {
+      throw new ConflictError("Crew hours on a change order name the job they are worked on. Give both, or neither.");
+    }
+    wanted = crewHours === null || jobId === null ? [] : [{ jobId, crewHours }];
+  }
+  if (wanted.length > MOST_JOBS) throw new ConflictError(`A change order spreads its hours over ${MOST_JOBS} jobs at most.`);
+  const seen = new Set<string>();
+  for (const row of wanted) {
+    if (seen.has(row.jobId)) throw new ConflictError("A job is named twice. Give each job's hours once.");
+    seen.add(row.jobId);
+    if (!(Number(row.crewHours) > 0)) throw new ConflictError("Crew hours on a change order are more than nought.");
+  }
+  if (wanted.length > 0) {
+    const linked = await tx.select({ jobId: schema.projectJob.jobId }).from(schema.projectJob)
+      .where(and(eq(schema.projectJob.projectId, projectId), inArray(schema.projectJob.jobId, wanted.map((w) => w.jobId))));
+    if (linked.length !== wanted.length) {
+      throw new ConflictError("A job named is not part of this project, so the change order cannot add hours to it.");
+    }
+  }
+  return wanted.map((w) => ({ jobId: w.jobId, crewHours: Number(w.crewHours).toFixed(4) }));
 }
 
 /**
- * Crew hours and the job they are worked on, checked: both or neither, a
- * positive number of hours, and a job that is one of this project's. Answers
- * the two columns to write, or nothing when neither was sent.
+ * Replace a change order's crew hours with these, and empty the old
+ * single-job columns so nothing counts the same hours twice.
  */
-async function crewHoursOf(
-  tx: Database, projectId: string,
-  input: { crewHours?: string | null | undefined; jobId?: string | null | undefined },
-  current: { crewHours: string | null; jobId: string | null } = { crewHours: null, jobId: null },
-): Promise<{ crewHours: string | null; jobId: string | null } | null> {
-  if (input.crewHours === undefined && input.jobId === undefined) return null;
-  const crewHours = input.crewHours !== undefined ? input.crewHours : current.crewHours;
-  const jobId = input.jobId !== undefined ? input.jobId : current.jobId;
-  if ((crewHours === null) !== (jobId === null)) {
-    throw new ConflictError("Crew hours on a change order name the job they are worked on. Give both, or neither.");
+async function writeHours(
+  tx: Database, ctx: ServiceContext, orderId: string, rows: { jobId: string; crewHours: string }[],
+): Promise<void> {
+  await tx.delete(schema.projectChangeOrderHours).where(eq(schema.projectChangeOrderHours.changeOrderId, orderId));
+  if (rows.length > 0) {
+    await tx.insert(schema.projectChangeOrderHours).values(rows.map((r) => ({
+      organizationId: ctx.actor.organizationId, changeOrderId: orderId, jobId: r.jobId, crewHours: r.crewHours,
+    })));
   }
-  if (crewHours === null || jobId === null) return { crewHours: null, jobId: null };
-  if (!(Number(crewHours) > 0)) throw new ConflictError("Crew hours on a change order are more than nought.");
-  const [linked] = await tx.select({ id: schema.projectJob.id }).from(schema.projectJob)
-    .where(and(eq(schema.projectJob.projectId, projectId), eq(schema.projectJob.jobId, jobId))).limit(1);
-  if (!linked) throw new ConflictError("That job is not part of this project, so the change order cannot add hours to it.");
-  return { crewHours: Number(crewHours).toFixed(4), jobId };
+  await tx.update(schema.projectChangeOrder).set({ crewHours: null, jobId: null })
+    .where(eq(schema.projectChangeOrder.id, orderId));
 }
 
 /**
@@ -259,7 +361,7 @@ export async function request(ctx: ServiceContext, input: ChangeOrderInput): Pro
     const title = input.title.trim();
     if (title === "") throw new ConflictError("A change order needs a title. It heads the page the customer signs.");
     if (input.phaseId) await assertPhaseOf(tx, project.id, input.phaseId);
-    const hours = await crewHoursOf(tx, project.id, input);
+    const hours = await hoursPlan(tx, project.id, input);
 
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`change_order:${project.id}`}))`);
     const [top] = await tx.select({ number: sql<number>`coalesce(max(${schema.projectChangeOrder.number}), 0)` })
@@ -275,9 +377,9 @@ export async function request(ctx: ServiceContext, input: ChangeOrderInput): Pro
       reason: input.reason?.trim() || null,
       projectPhaseId: input.phaseId ?? null,
       scheduleDays: input.scheduleDays ?? null,
-      ...(hours ?? {}),
       status: "requested",
     }).returning();
+    if (hours && hours.length > 0) await writeHours(tx, ctx, row!.id, hours);
 
     await rememberKey(tx, ctx, "project_change_order.request", "project_change_order", row!.id);
     await audit(tx, ctx, "project_change_order.requested", "project_change_order", row!.id, null, row!);
@@ -304,7 +406,7 @@ export async function update(
     if (input.title !== undefined && input.title.trim() === "") {
       throw new ConflictError("A change order needs a title.");
     }
-    const hours = await crewHoursOf(tx, before.projectId, input, before);
+    const hours = await hoursPlan(tx, before.projectId, input, (await hoursOf(tx, [before])).get(before.id) ?? []);
     const [after] = await tx.update(schema.projectChangeOrder).set({
       ...(input.title !== undefined ? { title: input.title.trim() } : {}),
       ...(input.description !== undefined ? { description: input.description?.trim() || null } : {}),
@@ -312,10 +414,13 @@ export async function update(
       ...(input.reason !== undefined ? { reason: input.reason?.trim() || null } : {}),
       ...(input.phaseId !== undefined ? { projectPhaseId: input.phaseId } : {}),
       ...(input.scheduleDays !== undefined ? { scheduleDays: input.scheduleDays } : {}),
-      ...(hours ?? {}),
       updatedAt: new Date(),
     }).where(eq(schema.projectChangeOrder.id, before.id)).returning();
-    await audit(tx, ctx, "project_change_order.updated", "project_change_order", before.id, before, after!);
+    const hoursBefore = (await hoursOf(tx, [before])).get(before.id) ?? [];
+    if (hours) await writeHours(tx, ctx, before.id, hours);
+    await audit(tx, ctx, "project_change_order.updated", "project_change_order", before.id,
+      { ...before, hours: hoursBefore.map((h) => ({ jobId: h.jobId, crewHours: h.crewHours })) },
+      { ...after!, ...(hours ? { hours } : {}) });
     return viewIn(tx, ctx, before.id);
   });
 }
@@ -524,7 +629,7 @@ async function retotal(tx: Database, changeOrderId: string): Promise<void> {
  * and the total. Recomputed when it is approved through the link, and a
  * mismatch is refused: the signature has to cover the page as shown.
  */
-function documentHashOf(row: ChangeOrderRow, lines: LineRow[]): string {
+function documentHashOf(row: ChangeOrderRow, lines: LineRow[], hours: readonly HoursView[] = []): string {
   const canonical = JSON.stringify({
     number: row.number,
     title: row.title,
@@ -539,6 +644,13 @@ function documentHashOf(row: ChangeOrderRow, lines: LineRow[]): string {
       unitPrice: m.toString(m.money(l.unitPrice)),
       lineTotal: m.toString(m.money(l.lineTotal)),
     })),
+    /**
+     * The crew hours the page lists, job by job. Left out of the hash when
+     * there are none, so a change order without hours hashes as it always did,
+     * and a link sent before the page listed hours still verifies (see
+     * `approveIn`).
+     */
+    ...(hours.length > 0 ? { crewHours: hours.map((h) => ({ job: h.jobLabel, hours: h.crewHours })) } : {}),
   });
   return createHash("sha256").update(canonical).digest("hex");
 }
@@ -611,7 +723,7 @@ export async function send(
       expiresInDays: input.expiresInDays ?? 30,
     });
 
-    const hash = documentHashOf(order, lines);
+    const hash = documentHashOf(order, lines, (await hoursOf(tx, [order])).get(order.id) ?? []);
     await tx.update(schema.projectChangeOrder).set({
       status: "sent", sentAt: new Date(), documentHash: hash, updatedAt: new Date(),
     }).where(eq(schema.projectChangeOrder.id, order.id));
@@ -728,7 +840,14 @@ async function approveIn(
   if (name === "") throw new ConflictError("A signature needs the name of whoever is signing.");
 
   const lines = await linesOf(tx, [order.id]);
-  if (signer.via === "portal" && order.documentHash !== documentHashOf(order, lines)) {
+  const hours = (await hoursOf(tx, [order])).get(order.id) ?? [];
+  /**
+   * The page as sent. A link sent before the page listed crew hours was hashed
+   * without them, so that hash is accepted too: the signature stored below
+   * covers the page as the customer saw it now, hours and all.
+   */
+  if (signer.via === "portal" && order.documentHash !== documentHashOf(order, lines, hours)
+    && order.documentHash !== documentHashOf(order, lines)) {
     throw new ConflictError("This change order changed after it was sent, so it cannot be approved from this link.");
   }
 
@@ -753,7 +872,7 @@ async function approveIn(
     }).where(eq(schema.projectPhase.id, order.projectPhaseId));
   }
 
-  const hash = documentHashOf(order, lines);
+  const hash = documentHashOf(order, lines, hours);
   await tx.insert(schema.documentSignature).values({
     organizationId: ctx.actor.organizationId,
     subject: "change_order",
@@ -878,6 +997,8 @@ export interface CustomerChangeOrder {
   scheduleDays: number | null;
   status: ChangeOrderRow["status"];
   lines: { name: string; description: string | null; quantity: string; unitPrice: string; lineTotal: string }[];
+  /** The crew hours the change adds, job by job, as the page lists them. Empty when it adds none. */
+  crewHours: { jobLabel: string; hours: string }[];
   amount: string;
   /** The contract as it stands now, and as it would be once this is agreed. */
   contractValue: string | null;
@@ -928,6 +1049,7 @@ async function customerView(tx: Database, order: ChangeOrderRow): Promise<Custom
       name: l.name, description: l.description, quantity: l.quantity,
       unitPrice: l.unitPrice, lineTotal: l.lineTotal,
     })),
+    crewHours: ((await hoursOf(tx, [order])).get(order.id) ?? []).map((h) => ({ jobLabel: h.jobLabel, hours: h.crewHours })),
     amount: order.amount,
     contractValue,
     contractValueAfter: order.status === "approved"
@@ -1017,6 +1139,8 @@ export async function documentFor(ctx: ServiceContext, input: { id: string }) {
       contractValueNow: customer.contractValue,
       contractValueIfAgreed: customer.contractValueAfter,
       signedAt: signature?.signedAt ?? null,
+      /** What the page the customer signs lists, so the printed copy reads as it does. */
+      crewHoursListed: customer.crewHours,
       documentHash: order.documentHash,
     };
   });

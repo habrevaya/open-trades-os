@@ -65,7 +65,7 @@ export default async function ChangeOrderPage({ params, searchParams }: {
     : [];
   const field = "mt-1 h-10 w-full rounded border border-steel-300 bg-canvas px-3 text-sm";
   const projectJobs = await projectChangeOrders.jobsFor(ctx, { projectId: id });
-  const crewJob = projectJobs.find((j) => j.id === order.jobId) ?? null;
+  const jobOf = (jobId: string) => projectJobs.find((j) => j.id === jobId) ?? null;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-6">
@@ -86,10 +86,34 @@ export default async function ChangeOrderPage({ params, searchParams }: {
         {order.crewHours !== null && (
           <div>
             <dt className="text-ink-500">Crew hours</dt>
-            <dd>
-              Adds {Number(order.crewHours)} on{" "}
-              {crewJob ? <Link href={`/jobs/${crewJob.id}`} className="underline underline-offset-4">job {work.documentNumber(crewJob.numberPrefix, crewJob.number)}</Link> : "a job"}
-            </dd>
+            {order.hours.length === 1 ? (
+              <dd>
+                Adds {Number(order.crewHours)} on{" "}
+                {(() => {
+                  const crewJob = jobOf(order.hours[0]!.jobId);
+                  return crewJob
+                    ? <Link href={`/jobs/${crewJob.id}`} className="underline underline-offset-4">job {work.documentNumber(crewJob.numberPrefix, crewJob.number)}</Link>
+                    : "a job";
+                })()}
+              </dd>
+            ) : (
+              <dd>
+                Adds {Number(order.crewHours)} in all:
+                <ul aria-label="Crew hours by job" className="mt-1 list-disc pl-5">
+                  {order.hours.map((h) => {
+                    const crewJob = jobOf(h.jobId);
+                    return (
+                      <li key={h.jobId}>
+                        {Number(h.crewHours)} on{" "}
+                        {crewJob
+                          ? <Link href={`/jobs/${crewJob.id}`} className="underline underline-offset-4">job {work.documentNumber(crewJob.numberPrefix, crewJob.number)}</Link>
+                          : h.jobLabel.toLowerCase()}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </dd>
+            )}
           </div>
         )}
         {order.requestedBy && <div><dt className="text-ink-500">Asked for by</dt><dd>{order.requestedBy}</dd></div>}
@@ -199,20 +223,27 @@ export default async function ChangeOrderPage({ params, searchParams }: {
         <section className="mt-8 max-w-2xl" aria-label="Crew hours it adds">
           <h2 className="text-base font-semibold">Crew hours it adds</h2>
           <p className="mt-1 text-sm text-ink-500">
-            Once the customer approves it, these hours come off the job&apos;s hours in the budgeted hour variance. Not
-            printed on the page they sign. Leave both empty for none.
+            Once the customer approves it, these hours come off those jobs&apos; hours in the budgeted hour variance. The page
+            the customer signs lists them, job by job. Put hours on more than one job when the work is spread over
+            them. Clear a row to take it off.
           </p>
           <ChangeOrderForm submit="Save crew hours" tone="quiet" hidden={{ ...hidden, op: "crew-hours" }}
                            className="mt-2 grid gap-3 sm:grid-cols-2">
-            <TextField label="Crew hours" name="crewHours" inputMode="decimal"
-                       defaultValue={order.crewHours !== null ? String(Number(order.crewHours)) : ""} />
-            <label className="block">
-              <span className="text-sm font-medium text-ink-700">On which job</span>
-              <select name="crewJobId" defaultValue={order.jobId ?? ""} className={field}>
-                <option value="">No job</option>
-                {projectJobs.map((j) => <option key={j.id} value={j.id}>Job {work.documentNumber(j.numberPrefix, j.number)}, {j.summary}</option>)}
-              </select>
-            </label>
+            {/* The jobs that have hours, then room for one more; the first row is labelled as the form always was. */}
+            {[...order.hours.map((h) => ({ key: h.jobId, hours: String(Number(h.crewHours)), jobId: h.jobId })),
+              { key: "more", hours: "", jobId: "" }].map((row, i) => (
+              <div key={row.key} className="contents">
+                <TextField label={i === 0 ? "Crew hours" : "Hours on another job"} name="crewHours" inputMode="decimal"
+                           defaultValue={row.hours} />
+                <label className="block">
+                  <span className="text-sm font-medium text-ink-700">{i === 0 ? "On which job" : "Which other job"}</span>
+                  <select name="crewJobId" defaultValue={row.jobId} className={field}>
+                    <option value="">No job</option>
+                    {projectJobs.map((j) => <option key={j.id} value={j.id}>Job {work.documentNumber(j.numberPrefix, j.number)}, {j.summary}</option>)}
+                  </select>
+                </label>
+              </div>
+            ))}
           </ChangeOrderForm>
         </section>
       )}

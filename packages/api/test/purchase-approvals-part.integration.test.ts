@@ -92,8 +92,9 @@ afterAll(async () => { if (raw) await raw.end(); });
 
 run("approval steps for part of an order", () => {
   it("refuses to count some lines without saying which, and keeps the choice on the step", async () => {
-    await expect(approvals.addRule(owner(), { minimumTotal: "500", approverRole: "owner", vendorId, amountOf: "matching_lines" }))
-      .rejects.toThrow(/say which: a category, a location, or both/);
+    // A vendor alone is allowed since steps could count by vendor (see purchasing-mixed-late); with nothing to pick lines by it is not.
+    await expect(approvals.addRule(owner(), { minimumTotal: "500", approverRole: "owner", amountOf: "matching_lines" }))
+      .rejects.toThrow(/say which: a category, a location, a vendor, or a quantity/);
     await expect(approvals.addRule(owner(), { minimumTotal: "500", approverRole: "owner", amountOf: "matching_lines" }))
       .rejects.toThrow(/say which/);
     await expect(approvals.addRule(manager(), { minimumTotal: "500", approverRole: "owner", categoryId: refrigerant, amountOf: "matching_lines" }))

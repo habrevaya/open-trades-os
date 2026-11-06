@@ -227,6 +227,8 @@ export const NAV: NavGroup[] = [
           { href: "/estimates/terms", label: "Proposal terms" },
           /** How the proposal reads: a cover, the sections in the company's order, saved per job type. */
           { href: "/estimates/templates", label: "Proposal layouts" },
+          /** The words that tell a customer they were given longer to answer. */
+          { href: "/estimates/given-longer", label: "Words for giving longer" },
         ],
       },
       {

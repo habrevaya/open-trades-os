@@ -1720,8 +1720,15 @@ export async function hoursAgainstBudget(ctx: ServiceContext, input: { id: strin
              coalesce(sum(te.minutes) filter (where te.ended_at is not null
                and te.kind::text <> all(${sql.param([...reporting.NOT_A_DAY_WORKED])}::text[])), 0)::text as minutes,
              count(*) filter (where te.ended_at is null)::text as running,
-             (select coalesce(sum(co.crew_hours), 0) from public.project_change_order co
-               where co.job_id = ${input.id} and co.status = 'approved')::text as changed
+             (select coalesce(sum(x.hours), 0) from (
+                select h.crew_hours as hours from public.project_change_order_hours h
+                  join public.project_change_order co on co.id = h.change_order_id
+                 where h.job_id = ${input.id} and co.status = 'approved'
+                union all
+                select co.crew_hours from public.project_change_order co
+                 where co.job_id = ${input.id} and co.status = 'approved' and co.crew_hours is not null
+                   and not exists (select 1 from public.project_change_order_hours h where h.change_order_id = co.id)
+             ) x)::text as changed
       from public.timeclock_entry te
       where te.job_id = ${input.id} and te.deleted_at is null`);
     return {

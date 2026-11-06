@@ -39,6 +39,8 @@ const Rule = z.object({
    * so a step can say "over $500 of refrigerant".
    */
   amountOf: z.enum(["order", "matching_lines"]),
+  /** A line of this many or more brings the step in (the quantity ordered). Null is no quantity test. */
+  lineQuantityAtLeast: QuantityString.nullable(),
   /** The scope in words: "orders from Ferguson, with a line from Refrigerant". Empty for every order. */
   scopeLabel: z.string(),
 });
@@ -58,7 +60,7 @@ export const addPurchaseApprovalRule = defineRoute({
   path: "/v1/purchase-approval-rules",
   summary: "Add an approval step",
   description:
-    "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A step can be for some orders only: to one vendor (`vendorId`), with any line from one price book category (`categoryId`), or delivering to one location (`locationId`), all that are given holding. The amount is the whole order's total unless `amountOf` is `matching_lines`, which counts only the lines from the category and going to the location, as in over $500 of refrigerant or over $2,000 for the Houston warehouse; that needs a category or a location, because a vendor picks no lines. Among steps for every order, a later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.",
+    "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A step can be for some orders only: to one vendor (`vendorId`), with any line from one price book category (`categoryId`), or delivering to one location (`locationId`), all that are given holding. The amount is the whole order's total unless `amountOf` is `matching_lines`, which counts only the lines from the category and going to the location, as in over $500 of refrigerant or over $2,000 for the Houston warehouse; that needs something to pick lines by: a category, a location, a vendor (every line of that vendor's orders) or a quantity. `lineQuantityAtLeast` makes it a step on a line's quantity, for orders with a line of that many or more (the quantity ordered, in the order's units); counting only its lines, it adds up just those lines. Among steps for every order, a later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.",
   module: "M16",
   permissions: ["settings:write"],
   idempotent: true,
@@ -71,6 +73,7 @@ export const addPurchaseApprovalRule = defineRoute({
     categoryId: Uuid.nullable().optional(),
     locationId: Uuid.nullable().optional(),
     amountOf: z.enum(["order", "matching_lines"]).optional(),
+    lineQuantityAtLeast: QuantityString.nullable().optional(),
   }),
   output: Rule,
 });
@@ -181,6 +184,59 @@ export const recordLateLandedCost = defineRoute({
   }),
 });
 
+const StockReceipt = z.object({
+  id: Uuid,
+  receivedAt: z.string().datetime(),
+  itemId: Uuid, itemCode: z.string(), itemName: z.string(),
+  locationId: Uuid, locationName: z.string(),
+  quantity: QuantityString,
+  /** What the goods cost, as typed when they were received. */
+  cost: MoneyString,
+  /** Freight and duty bills put on it since. */
+  lateTotal: MoneyString,
+  lateBills: z.array(z.object({
+    id: Uuid, total: MoneyString, reference: z.string().nullable(),
+    onShelf: MoneyString, onJobs: MoneyString, onGone: MoneyString, recordedAt: z.string().datetime(),
+  })),
+});
+
+export const listStockReceipts = defineRoute({
+  method: "get",
+  path: "/v1/stock-receipts",
+  summary: "Stock received without an order, as deliveries",
+  description: "Each stock receipt made outside an order since deliveries were kept, newest first, up to two hundred, with the freight and duty bills put on it since. Stock received before that has no delivery to bill against.",
+  module: "M16",
+  permissions: ["po:read"],
+  input: z.object({}),
+  output: z.object({ receipts: z.array(StockReceipt) }),
+});
+
+export const recordStockLateLandedCost = defineRoute({
+  method: "post",
+  path: "/v1/stock-receipts/{id}/late-charges",
+  summary: "Spread a freight or duty bill onto stock received without an order",
+  description:
+    "The same as a late bill on a delivery against an order, for stock that arrived with no order: the bill is spread over the pieces that arrived (by value or quantity, by value when left out), and each piece's share follows its parts onto the shelf or truck they are still on, onto each job that used them as that job's cost of goods sold, and onto stock already scrapped, counted short or sent back. One balanced ledger posting, the whole bill in accounts payable. Refused when the history cannot account for every part that arrived.",
+  module: "M16",
+  permissions: ["po:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    charges: z.array(z.object({ description: z.string().min(1).max(200), amount: MoneyString })).min(1).max(20),
+    basis: z.enum(["value", "quantity"]).optional(),
+    reference: z.string().max(100).nullable().optional(),
+  }),
+  output: z.object({
+    id: Uuid,
+    stockReceiptId: Uuid,
+    total: MoneyString,
+    onShelf: MoneyString,
+    onJobs: MoneyString,
+    onGone: MoneyString,
+    jobs: z.array(z.object({ jobId: Uuid, jobNumber: z.number().int().nullable(), amount: MoneyString })),
+  }),
+});
+
 const VendorReturn = z.object({
   id: Uuid,
   number: z.number().int(),
@@ -249,5 +305,5 @@ export const recordVendorCredit = defineRoute({
 export const purchasingRoutes = {
   listPurchaseApprovalRules, addPurchaseApprovalRule, removePurchaseApprovalRule,
   getPurchaseOrderApprovals, decidePurchaseOrder, emailPurchaseOrder, listPurchaseOrderSends,
-  recordLateLandedCost, listVendorReturns, createVendorReturn, recordVendorCredit,
+  recordLateLandedCost, listStockReceipts, recordStockLateLandedCost, listVendorReturns, createVendorReturn, recordVendorCredit,
 } as const;

@@ -225,6 +225,9 @@ const LEFT_TO_THE_DATABASE: Record<string, string> = {
   project_change_order_number_idx: "Allocated by the service as the next number under a per project lock.",
   project_application_number_idx: "Allocated by the service as the next number under a per project lock.",
   stock_movement_sequence_idx: "A per-item sequence assigned inside the movement write.",
+  estimate_held_text_one_waiting_idx: "The service cancels an older waiting text before it holds a newer one, in one transaction, so the index is only the backstop.",
+  project_change_order_hours_job_idx: "The service refuses a job named twice in the list before it writes, in words; the index is the backstop.",
+  stock_receipt_movement_movement_idx: "A movement joins one stock receipt, written with it in the same receive; nobody types a movement into a receipt.",
   domain_event_seq_idx:
     "The event log's own per-organization sequence, allocated inside the append.",
   field_operation_device_seq_idx: "The device's own counter, which the sync protocol orders by.",

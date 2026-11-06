@@ -64,9 +64,18 @@ is stop it counting as open pipeline.
 passed in the company's own calendar (it is good through the end of that day where
 the company is, not at seven in the evening because UTC rolled over), the worker's
 pass sets its status to `expired`, writes `estimate.expired` to the audit log, and
-goes on to the next. It looks only at estimates that are `sent` or `viewed`: a
-customer has them and has not answered. A draft has not gone anywhere, so its date
-has not started running, and an approved, declined or converted estimate is a
+goes on to the next. It looks at estimates that are `sent` or `viewed` (a
+customer has them and has not answered) and at a `draft` whose date has passed: a
+quote with a date in the past is not one anybody should send as though it were
+fresh. A draft marked expired keeps the moment it was in `expired_as_draft_at`,
+shows on its page as "It ran out before it was ever sent to the customer", and
+is audited with `wasDraft`. It is otherwise an expired estimate: it can still be
+sent (it goes out as `expired`, as any estimate sent after its date does) and still
+approved, declined or recorded as a yes. The one difference is that nobody can be
+given longer on it until it has been sent: a customer who never had it has no
+price to hold, so "Give them longer to answer" is not offered and
+`POST /v1/estimates/{id}/expiry` says it has not been sent. A draft with no date is
+never expired. An approved, declined or converted estimate is a
 decision that a date on the paper does not undo, so none of those is selected or
 touched, whatever their date says. It is idempotent: an estimate it has marked is
 not selected again, so a pass repeated, or two workers at once, marks each one
@@ -323,7 +332,8 @@ stay exactly as they were sent, and the document the customer approves is the
 one they were sent with the later date on it.
 
 Only an estimate the customer has and has not answered: sent, opened or
-expired. A draft has not been sent, so its date has not started; an approved,
+expired. A draft has not been sent, and neither has one that ran out as a draft,
+so there is nobody to give longer; an approved,
 declined or converted one is answered; one with no date never runs out. The
 new date must be later than the one it has, from today on, and within a year
 (past that it is a new estimate with today's prices). The reason, both dates,
@@ -386,8 +396,10 @@ answer's `told` says what went:
   The link it was last sent with is withdrawn, as by any send, so the customer
   has one working link. The words are the message templates
   `estimate_extended.sms` and `estimate_extended.email` (the email's subject
-  too), which a company writes through the message templates API
-  (`settings:write`) using `customer.firstName`, `company.name`,
+  too), which a company writes on the "Words for giving longer" screen
+  (`/estimates/given-longer`, under Estimates in the menu and linked from the
+  form's "Change the words"), or through the message templates API
+  (`settings:write`), using `customer.firstName`, `company.name`,
   `estimate.number`, `estimate.title`, `estimate.expiresOn` and
   `estimate.previousExpiresOn`. Where it has written none, the product's own
   words are sent.
@@ -395,10 +407,30 @@ answer's `told` says what went:
   address, no sender connected. In addition a **text is held in the company's
   quiet hours** (`organization.settings.quietHours`, 9pm to 8am where none is
   set), though an estimate itself may be texted at any hour. This is a courtesy
-  the customer did not ask for, so it waits for the morning. Nothing is queued
-  for later: the answer says it was not sent and why, and the office sends the
-  estimate again after the quiet hours. The email beside a held text still
-  goes.
+  the customer did not ask for, so it waits for the morning, and **it is kept,
+  not lost**: the company's words and the new date are stored (`estimate_held_text`,
+  `waiting`), the answer says "The text is held ... It will go in the morning"
+  (`told.heldForMorning`), and the estimate's page says a text is waiting. The
+  worker sends it once the hours end, in its own pass (`heldTextPass`, one cheap
+  read when nothing is waiting). It is checked again at that moment, not trusted
+  from when it was held: the quiet hours themselves (they may have changed), the
+  customer's consent, STOP list and number (refused by the send itself, as for
+  any text), and the estimate: if the customer has answered it, if its date was
+  moved again (the words name a date that is no longer the date), or if the
+  estimate was texted to the customer again by hand since, the held text is
+  cancelled with the reason and nothing is sent. It is sent once: the row is
+  taken `for update skip locked` and marked `sent` in the same transaction as the
+  send, so two workers or two passes cannot send it twice, and a text that was
+  refused or cancelled is not tried again. One text is held per estimate; a newer
+  one replaces an older (`cancelled`, "Replaced by a newer text."), and a retry of
+  the same change holds nothing more. The morning's text starts no follow up and
+  raises no `estimate.sent` (the date moving already did that, or the office
+  ticked "Leave the follow up alone"), and its link works through the new date.
+  The email beside a held text still goes at once.
+  `GET /v1/estimates/{id}/held-texts` (`estimate:read`) lists the last five with
+  their state and reason; the audit log has `estimate.text_held`,
+  `estimate.held_text_sent`, `estimate.held_text_refused` and
+  `estimate.held_text_cancelled`.
 - **A message that does not go does not undo the date.** The date has moved and
   the page says "The customer was not told." with the reason in words (they
   replied STOP, they have no mobile number, it is outside the hours we text
@@ -413,6 +445,15 @@ answer's `told` says what went:
   `notToldBecause`).
 - A retry of the same change is the change already made, and tells nobody a
   second time.
+
+**The words have a screen.** `/estimates/given-longer` shows the text and the
+email, the subject too, with a note under one nobody has written ("Nobody here has
+written this one, so our own words are sent."), and saves them with "Save the
+words". `GET /v1/estimate-extended-words` (`settings:read`) reads them and
+`PUT /v1/estimate-extended-words` (`settings:write`) changes them; they are the
+same two message templates, saved the way every template is, so a placeholder the
+notice does not know is refused instead of reaching a customer as a gap. A text
+already held for the morning keeps the words it was held with.
 
 ### Price it for a member
 
@@ -476,7 +517,10 @@ read their screen.
 | `PUT /v1/proposal-terms` | `settings:write` |
 | `POST /v1/estimates/{id}/approve` | `estimate:approve` |
 | `POST /v1/estimates/{id}/decline` | `estimate:write` |
-| `POST /v1/estimates/{id}/expiry` | `estimate:write` |
+| `POST /v1/estimates/{id}/expiry` | `estimate:write` (and `estimate:send`, `portal:grant` to tell the customer) |
+| `GET /v1/estimates/{id}/held-texts` | `estimate:read` |
+| `GET /v1/estimate-extended-words` | `settings:read` |
+| `PUT /v1/estimate-extended-words` | `settings:write` |
 | `POST /v1/estimates/{id}/convert` | `estimate:write`, `job:write` |
 | `GET /v1/estimate-discount-policy` | `estimate:read` |
 | `PUT /v1/estimates/discount-policy` | `settings:write` |
@@ -515,14 +559,16 @@ a company created since it was; an older company still turns it on. Only the goo
 until date of a sent estimate can be changed, and only later: an estimate has no
 other edit, so a different price or option is a new estimate. Giving longer tells
 the customer only when the office ticks it (above): a text held in the quiet
-hours is not kept for the morning (the office sends again), the "given longer"
-words have no screen of their own (they are message templates written through
-the API, and the product's own are sent where none is written), and it does not
+hours is kept and sent in the morning, once, but it keeps the words it was held
+with (changing the words after does not change a text already waiting), it is not
+sent after the customer answers, the date moves again or the estimate is texted by
+hand, and the pass looks once a minute, so a text can go a minute or two after the
+hours end. Giving longer does not
 bring back a link that was withdrawn or used up (telling the customer is a new
 send with a new link). Starting the follow up again is
 the company's recommended follow up and the sweep: an automation of the company's own that waits
 from a send is not run again, and a company that deleted or switched off the recommended follow up
 gets only the sweep's restart.
 A draft
-is never marked expired, so one written with a date in the past is not either until
-it is sent.
+past its date is marked expired, but a draft that ran out has no customer to give
+longer: it is sent first, or written again with a later date.

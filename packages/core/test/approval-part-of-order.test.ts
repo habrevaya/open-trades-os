@@ -100,7 +100,8 @@ describe("a step that counts the lines it is for", () => {
 
   it("counts a vendor step's amount on the order, because a vendor picks no lines", () => {
     const v = rule({ step: 1, minimumTotal: "100", vendorId: "V", amountOf: "matching_lines" });
-    expect(inv.countsPartOfOrder(v)).toBe(false);
+    // A vendor alone now counts every line of that vendor's orders (see mixed-line-and-quantity-step.test.ts): the same amount, shown as lines.
+    expect(inv.countsPartOfOrder(v)).toBe(true);
     expect(inv.approvalPlan({ rules: [v], total, approvals: [], order }).next?.amount).toEqual(total);
   });
 });

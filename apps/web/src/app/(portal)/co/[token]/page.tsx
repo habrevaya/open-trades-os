@@ -58,6 +58,19 @@ export default async function ChangeOrderPortalPage({ params }: { params: Promis
             </li>
           ))}
         </ul>
+        {order.crewHours.length > 0 && (
+          <div className="mt-4 border-t border-steel-200 pt-4" aria-label="Crew hours">
+            <p className="text-sm font-medium">Crew hours this change adds</p>
+            <ul className="mt-2 space-y-1 text-sm text-ink-700">
+              {order.crewHours.map((h) => (
+                <li key={h.jobLabel} className="flex justify-between gap-4">
+                  <span>{h.jobLabel}</span>
+                  <span className="shrink-0 tabular-nums">{Number(h.hours)} {Number(h.hours) === 1 ? "hour" : "hours"}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="mt-4 flex items-baseline justify-between border-t border-steel-200 pt-4">
           <span className="font-medium">{credit ? "Credit" : "Total"}</span>
           <span className="font-mono text-2xl font-semibold tabular-nums">{dollars(order.amount)}</span>

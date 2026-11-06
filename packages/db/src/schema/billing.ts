@@ -127,6 +127,14 @@ export const estimate = pgTable("estimate", {
    */
   expiryExtendedAt: timestamp("expiry_extended_at", { withTimezone: true }),
   /**
+   * When the worker marked this estimate expired while it was still a draft:
+   * its date passed before it was ever sent. It stays expired (and can still
+   * be sent, and approved, as any expired estimate can), but the customer
+   * never had it, so giving them longer has nothing to extend until it is
+   * sent. Null for every estimate that was not a draft when its date passed.
+   */
+  expiredAsDraftAt: timestamp("expired_as_draft_at", { withTimezone: true }),
+  /**
    * When the office started the follow up again from the day it gave the
    * customer longer (the tick on "Give them longer to answer" that is left
    * alone by default). The "estimate nobody answered" sweep then counts its

@@ -157,7 +157,9 @@ export async function extendEstimate(_previous: FormState, form: FormData): Prom
       : given.told.sent
         ? ` The customer was told by ${given.told.channels.map((c) => (c === "sms" ? "text" : "email")).join(" and ")}.`
           + (given.told.explanation ? ` ${given.told.explanation}` : "")
-        : ` The customer was not told. ${given.told.explanation ?? ""}`.trimEnd();
+        : given.told.heldForMorning
+          ? ` The customer has not been told yet. ${given.told.explanation ?? ""}`.trimEnd()
+          : ` The customer was not told. ${given.told.explanation ?? ""}`.trimEnd();
     return { message: `${linkSaid} ${followUpSaid}${toldSaid}` };
   });
   revalidatePath(`/estimates/${id}`);

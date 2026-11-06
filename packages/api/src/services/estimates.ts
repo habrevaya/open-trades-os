@@ -1,6 +1,6 @@
 import { and, asc, eq, desc, gte, lt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { permissionsFor, estimate as est, ledger, membership, money as m, plugins as pluginRules, tax, time } from "@opentradesos/core";
+import { isSystem, permissionsFor, estimate as est, ledger, membership, money as m, plugins as pluginRules, tax, time } from "@opentradesos/core";
 import { createHash, randomBytes } from "node:crypto";
 import type { z } from "zod";
 import {
@@ -765,6 +765,8 @@ export interface SendOptions {
   linkUntil?: Date | undefined;
   /** Not the route's own retry: the caller keeps its own idempotency. */
   keyless?: boolean | undefined;
+  /** Called when a text was not sent because it is the company's quiet hours, so the caller can keep it for the morning. */
+  onHeld?: (() => void) | undefined;
 }
 
 /** `send`, inside a transaction that already holds the permission check. */
@@ -873,7 +875,7 @@ export async function sendWithin(
         channel: one,
         destination: one === "link" ? null : destinations.get(one)!,
         portalGrantId: grant!.id,
-        sentByUserId: ctx.portalGrantId ? null : ctx.actor.userId,
+        sentByUserId: ctx.portalGrantId || isSystem(ctx.actor) ? null : ctx.actor.userId,
       })),
     ).returning({ id: schema.estimateDelivery.id, channel: schema.estimateDelivery.channel });
     const deliveryId = attempts[0]!.id;
@@ -909,6 +911,7 @@ export async function sendWithin(
             .set({ error: outcome.explanation, updatedAt: new Date() })
             .where(eq(schema.estimateDelivery.id, attempt.id));
           refused.push({ channel: one, to: destinations.get(one)!, reason: outcome.reason });
+          if (one === "sms" && outcome.reason === "quiet_hours") options.onHeld?.();
         }
       }
 

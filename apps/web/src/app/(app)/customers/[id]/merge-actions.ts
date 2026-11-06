@@ -23,8 +23,12 @@ export async function undoMerge(_previous: FormState, form: FormData): Promise<F
     const reason = field(form, "reason");
     const undone = await customerLifecycle.undoMerge(await ctx(), parsed(undoCustomerMerge.input, {
       id: String(form.get("id") ?? ""), ...(reason ? { reason } : {}),
+      ...(form.get("markNotSame") === "yes" ? { markNotSame: true } : {}),
     }));
-    return { message: `${undone.restoredName} is a customer of their own again.` };
+    return {
+      message: `${undone.restoredName} is a customer of their own again.`
+        + (undone.markedNotSame ? " The two are marked as different people." : ""),
+    };
   });
   revalidatePath(`/customers/${customerId}`);
   return state;

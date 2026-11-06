@@ -113,7 +113,7 @@ run("telling the customer", () => {
     const given = await expiry.extend(owner(), {
       id, expiresOn: plus(14), reason: "Insurer is slow.", tellCustomer: true, restartFollowUp: true,
     });
-    expect(given.told).toEqual({ sent: true, channels: ["email"], explanation: null });
+    expect(given.told).toEqual({ sent: true, channels: ["email"], explanation: null, heldForMorning: false });
     expect(given.linkExpiresAt && new Date(given.linkExpiresAt) >= time.daysFrom(plus(14), 1, ZONE).end).toBe(true);
 
     const [mail] = await messages(id);
@@ -155,7 +155,7 @@ run("telling the customer", () => {
     try {
       const text = await sentEstimate();
       const asText = await expiry.extend(owner(), { id: text.id, expiresOn: plus(9), reason: "Asked.", tellCustomer: true, tellChannel: "sms" });
-      expect(asText.told).toEqual({ sent: true, channels: ["sms"], explanation: null });
+      expect(asText.told).toEqual({ sent: true, channels: ["sms"], explanation: null, heldForMorning: false });
       const [sms] = await messages(text.id);
       expect(sms).toMatchObject({ channel: "sms", to_address: PHONE });
       expect(sms!.body).toMatch(/^Hi Rosa, it's Notice Plumbing\. Your price is safe until .+, Rosa\. Your estimate for Water heater is ready/);
@@ -193,7 +193,7 @@ run("telling the customer", () => {
 
     const both = await sentEstimate();
     const half = await expiry.extend(owner(), { id: both.id, expiresOn: plus(9), reason: "Asked.", tellCustomer: true, tellChannel: "both" });
-    expect(half.told).toMatchObject({ sent: true, channels: ["email"], explanation: expect.stringMatching(/The text did not go/) });
+    expect(half.told).toMatchObject({ sent: true, channels: ["email"], explanation: expect.stringMatching(/The text is held/) });
   });
 
   it("says what is missing when the customer has no address for the channel", async () => {

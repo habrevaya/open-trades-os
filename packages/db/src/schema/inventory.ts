@@ -407,6 +407,13 @@ export const purchaseOrderLine = pgTable("purchase_order_line", {
   purchaseUnit: text("purchase_unit"),
   /** Their price for one pack, when the line was priced by the pack. Null when priced by our unit. */
   packPrice: money("pack_price"),
+  /**
+   * A MIXED LINE. How many of `quantity_ordered` are bought by the each
+   * instead of by the pack: "2 boxes of 25 and 3 each" is 53 ordered and 3
+   * loose, the boxes at `pack_price` and the 3 at `unit_price`, which on a
+   * mixed line is the vendor's each price. Zero is a line bought one way.
+   */
+  looseQuantity: quantity("loose_quantity").notNull().default("0"),
   sortOrder: integer("sort_order").notNull().default(0),
   ...timestamps,
 }, (t) => ({
@@ -571,6 +578,13 @@ export const purchaseApprovalRule = pgTable("purchase_approval_rule", {
    * vendor is a fact about the whole order and picks no lines.
    */
   amountOf: approvalAmountOf("amount_of").notNull().default("order"),
+  /**
+   * A STEP ON A LINE'S QUANTITY. Null is no quantity test. Given, the step is
+   * for orders with a line of this many or more, in the order's own units
+   * (the quantity ordered, as the order shows it); counting only its lines,
+   * it adds up just those lines.
+   */
+  lineQuantityAtLeast: quantity("line_quantity_at_least"),
   createdByUserId: uuid("created_by_user_id").references(() => user.id, { onDelete: "set null" }),
   ...timestamps,
 }, (t) => ({
@@ -781,6 +795,40 @@ export const truckFillLine = pgTable("truck_fill_line", {
 /* ===================================================================== */
 
 /**
+ * STOCK RECEIVED WITHOUT AN ORDER, as one delivery.
+ *
+ * A receipt outside an order writes one movement per item and place (one per
+ * unit for a tracked part). This groups the movements of one receiving so a
+ * freight bill that comes later has a delivery to belong to, the way an
+ * order's delivery does. The movements stay append only: the link is a row
+ * here, not a column on them.
+ */
+export const stockReceipt = pgTable("stock_receipt", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  /** Cascading: a delivery is only a grouping of movements, and the movements themselves hold the item and the place. */
+  itemId: uuid("item_id").notNull().references(() => priceBookItem.id, { onDelete: "cascade" }),
+  locationId: uuid("location_id").notNull().references(() => location.id, { onDelete: "cascade" }),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+  receivedByUserId: uuid("received_by_user_id").references(() => user.id, { onDelete: "set null" }),
+  ...timestamps,
+}, (t) => ({
+  itemIdx: index("stock_receipt_item_idx").on(t.organizationId, t.itemId, t.receivedAt),
+}));
+
+export const stockReceiptMovement = pgTable("stock_receipt_movement", {
+  id: pk(),
+  organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  stockReceiptId: uuid("stock_receipt_id").notNull().references(() => stockReceipt.id, { onDelete: "cascade" }),
+  /** Cascading, because this row only says which delivery a movement came on and means nothing without it. */
+  movementId: uuid("movement_id").notNull().references(() => stockMovement.id, { onDelete: "cascade" }),
+  ...timestamps,
+}, (t) => ({
+  receiptIdx: index("stock_receipt_movement_receipt_idx").on(t.stockReceiptId),
+  movementIdx: uniqueIndex("stock_receipt_movement_movement_idx").on(t.movementId),
+}));
+
+/**
  * A FREIGHT OR DUTY BILL THAT ARRIVED AFTER THE DELIVERY IT WAS FOR.
  *
  * The carrier's invoice comes a week after the truck, by which time some of
@@ -793,8 +841,11 @@ export const truckFillLine = pgTable("truck_fill_line", {
 export const landedCostBill = pgTable("landed_cost_bill", {
   id: pk(),
   organizationId: uuid("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
-  purchaseOrderId: uuid("purchase_order_id").notNull().references(() => purchaseOrder.id, { onDelete: "restrict" }),
-  receiptId: uuid("receipt_id").notNull().references(() => purchaseOrderReceipt.id, { onDelete: "restrict" }),
+  /** Null for a bill on stock received without an order: that has a `stock_receipt_id` instead. */
+  purchaseOrderId: uuid("purchase_order_id").references(() => purchaseOrder.id, { onDelete: "restrict" }),
+  receiptId: uuid("receipt_id").references(() => purchaseOrderReceipt.id, { onDelete: "restrict" }),
+  /** The stock received without an order this bill is for. Exactly one of this and `receipt_id` is set. */
+  stockReceiptId: uuid("stock_receipt_id").references(() => stockReceipt.id, { onDelete: "restrict" }),
   basis: landedCostBasis("basis").notNull(),
   total: money("total").notNull(),
   /** The carrier's or broker's own number for the bill. */
@@ -808,6 +859,11 @@ export const landedCostBill = pgTable("landed_cost_bill", {
   ...timestamps,
 }, (t) => ({
   receiptIdx: index("landed_cost_bill_receipt_idx").on(t.receiptId, t.createdAt),
+  stockReceiptIdx: index("landed_cost_bill_stock_receipt_idx").on(t.stockReceiptId, t.createdAt)
+    .where(sql`${t.stockReceiptId} is not null`),
+  oneDelivery: check("landed_cost_bill_one_delivery",
+    sql`(${t.receiptId} is not null and ${t.purchaseOrderId} is not null and ${t.stockReceiptId} is null)
+      or (${t.receiptId} is null and ${t.purchaseOrderId} is null and ${t.stockReceiptId} is not null)`),
 }));
 
 export const landedCostBillCharge = pgTable("landed_cost_bill_charge", {

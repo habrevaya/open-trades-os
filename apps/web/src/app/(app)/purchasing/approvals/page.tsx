@@ -53,8 +53,8 @@ export default async function ApprovalStepsPage() {
         An order at or over a step&apos;s amount waits for somebody holding that role to approve it, the steps in order,
         and nobody approves two steps of the same order. An order under every step goes out on the sender&apos;s own
         approval. A rejected order is cancelled and raised again rather than asked twice. A step can be for orders
-        to one vendor, with a line from one category, or for one location. Its amount is the whole order, or
-        only the lines it is for, such as $500 of refrigerant or $2,000 for the Houston warehouse. Whoever a step
+        to one vendor, with a line from one category, with a line of so many or more, or for one location. Its amount is the whole order, or
+        only the lines it is for, such as $500 of refrigerant, $2,000 for the Houston warehouse, or the lines of 20 or more. Whoever a step
         waits for is told on the bell, the phone or by text as they chose, and by email when the company&apos;s
         email is connected.
       </p>
@@ -80,6 +80,7 @@ export default async function ApprovalStepsPage() {
           <Select label="Approved by" name="role" className="w-56" options={roleOptions} />
           <Select label="Only orders to" name="vendorId" className="w-48" options={[any, ...vendors.map((v) => ({ value: v.id, label: v.name }))]} />
           <Select label="Only with a line from" name="categoryId" className="w-48" options={[any, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
+          <TextField label="Only with a line of this many or more" name="lineQuantityAtLeast" inputMode="decimal" className="w-56" />
           <Select label="Only for" name="locationId" className="w-48" options={[any, ...places.map((p) => ({ value: p.id, label: p.name }))]} />
           <Select label="Count the amount on" name="amountOf" className="w-56" options={[
             { value: "order", label: "The whole order" },

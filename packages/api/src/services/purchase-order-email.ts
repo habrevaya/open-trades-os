@@ -73,7 +73,7 @@ export interface PrintableOrder {
     quantityOrdered: string; quantityReceived: string; unitPrice: string; lineTotal: string;
     deliverTo: string;
     /** Sold by the pack: so many packs of so many, called what, at what a pack. Null when by our unit. */
-    packs: { count: string; size: string; unit: string | null; price: string } | null;
+    packs: { count: string; size: string; unit: string | null; price: string; loose: string | null; loosePrice: string | null } | null;
   }[];
 }
 
@@ -122,10 +122,12 @@ async function printable(tx: Database, orderId: string): Promise<PrintableOrder>
       lineTotal: m.toString(totalOf([line])),
       packs: line.packPrice && inv.quantity(line.packQuantity) !== inv.quantity("1")
         ? {
-          count: inv.quantityLabel(inv.quantity(line.quantityOrdered) / inv.quantity(line.packQuantity) * inv.quantity("1")),
+          count: inv.quantityLabel((inv.quantity(line.quantityOrdered) - inv.quantity(line.looseQuantity)) / inv.quantity(line.packQuantity) * inv.quantity("1")),
           size: inv.quantityLabel(inv.quantity(line.packQuantity)),
           unit: line.purchaseUnit,
           price: m.toString(m.round(m.money(line.packPrice), 2)),
+          loose: inv.quantity(line.looseQuantity) === inv.ZERO_QUANTITY ? null : inv.quantityLabel(inv.quantity(line.looseQuantity)),
+          loosePrice: inv.quantity(line.looseQuantity) === inv.ZERO_QUANTITY ? null : m.toString(m.round(m.money(line.unitPrice), 2)),
         }
         : null,
       /**
@@ -144,9 +146,11 @@ export function composeOrderEmail(order: PrintableOrder, input: { url: string; m
   const money = (v: string) => m.format(m.money(v));
   /** A pack line reads as the vendor sells it: "10 box of 25 x WN-25 ... at $112.50", with our count beside it. */
   const qty = (l: PrintableOrder["lines"][number]) => (l.packs
-    ? `${l.packs.count} ${l.packs.unit ?? "pack"} of ${l.packs.size}`
+    ? `${l.packs.count} ${l.packs.unit ?? "pack"} of ${l.packs.size}${l.packs.loose ? ` and ${l.packs.loose} each` : ""}`
     : l.quantityOrdered);
-  const each = (l: PrintableOrder["lines"][number]) => money(l.packs ? l.packs.price : l.unitPrice);
+  const each = (l: PrintableOrder["lines"][number]) => (l.packs?.loose && l.packs.loosePrice
+    ? `${money(l.packs.price)} a ${l.packs.unit ?? "pack"} and ${money(l.packs.loosePrice)} each`
+    : money(l.packs ? l.packs.price : l.unitPrice));
   const lineText = order.lines.map((l) =>
     `  ${qty(l)} x ${l.vendorPartNumber ?? l.itemCode}  ${l.itemName}  at ${each(l)}  = ${money(l.lineTotal)}`
     + `${l.packs ? `  (${l.quantityOrdered} in all)` : ""}  (deliver to ${l.deliverTo})`);

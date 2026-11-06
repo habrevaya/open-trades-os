@@ -100,6 +100,7 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
               {line.packs ? (
                 <>
                   {line.packs.count} {line.packs.unit ?? "pack"} of {line.packs.size}
+                  {line.packs.loose ? <div>and {line.packs.loose} each</div> : null}
                   <div className="text-xs text-ink-500">{Number(line.quantityOrdered)} in all</div>
                 </>
               ) : Number(line.quantityOrdered)}
@@ -108,6 +109,7 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
             <Td className="text-right">
               <Money value={line.packs ? line.packs.price : line.unitPrice} />
               {line.packs ? <div className="text-xs text-ink-500">a {line.packs.unit ?? "pack"}</div> : null}
+              {line.packs?.loosePrice ? <div className="text-xs text-ink-500">and <Money value={line.packs.loosePrice} /> each</div> : null}
             </Td>
             <Td className="text-right"><Money value={line.lineTotal} /></Td>
           </tr>

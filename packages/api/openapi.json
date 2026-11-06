@@ -42427,7 +42427,7 @@
       "post": {
         "operationId": "undoCustomerMerge",
         "summary": "Take a merge back",
-        "description": "Moves exactly the rows the merge moved back to the duplicate, puts back the address links it took out as doubles, clears the blank fields it filled where nobody has changed them since, takes off the tags it added, and makes the duplicate a customer of its own again. Anything else written to the record kept since the merge stays with it. Refused with a 409 naming every reason at once when it cannot be done (see `GET /v1/customers/{id}/merges`). Written to the audit log as `customer.merge_undone`. A retry with the same idempotency key returns the first answer.\n\nRequires a session holding: customer:merge.",
+        "description": "Moves exactly the rows the merge moved back to the duplicate, puts back the address links it took out as doubles, clears the blank fields it filled where nobody has changed them since, takes off the tags it added, and makes the duplicate a customer of its own again. Anything else written to the record kept since the merge stays with it. Refused with a 409 naming every reason at once when it cannot be done (see `GET /v1/customers/{id}/merges`). Written to the audit log as `customer.merge_undone`. With `markNotSame` the two are also marked as different people (the same mark the duplicates screen makes, kept with the undo's reason, audited as `customer.not_duplicate`), so the matcher stops offering the pair; left out, the undo says nothing about whether they are the same person. A retry with the same idempotency key returns the first answer.\n\nRequires a session holding: customer:merge.",
         "tags": [
           "M03"
         ],
@@ -54037,6 +54037,217 @@
         ]
       }
     },
+    "/v1/estimate-extended-words": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getEstimateExtendedWords",
+        "summary": "The words that tell a customer they were given longer",
+        "description": "The company's text and email for \"we are holding your price until\", the message templates `estimate_extended.sms` and `estimate_extended.email`. Where a company has written none, the product's own wording is what is sent and `isDefault` is true. The same templates can be read and written through the message templates routes; this is the one place for them on the screen.\n\nRequires a session holding: settings:read.",
+        "tags": [
+          "M07"
+        ],
+        "responses": {
+          "200": {
+            "description": "The words that tell a customer they were given longer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetEstimateExtendedWordsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:read"
+        ]
+      },
+      "put": {
+        "operationId": "updateEstimateExtendedWords",
+        "summary": "Change the words that tell a customer they were given longer",
+        "description": "Only what is sent changes. The words are checked as every message template is: a placeholder that is not one of `variables` is refused, because it would reach a customer as a gap in a sentence. An email's `subject` is kept for an email and ignored for a text. A message already held for the morning keeps the words it was held with.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M07"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEstimateExtendedWordsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Change the words that tell a customer they were given longer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateEstimateExtendedWordsOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/estimate-option-photos/{id}": {
       "description": "Served at this path: DELETE. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -55822,6 +56033,115 @@
         "x-authorization": "session",
         "x-permissions": [
           "estimate:write"
+        ]
+      }
+    },
+    "/v1/estimates/{id}/held-texts": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listEstimateHeldTexts",
+        "summary": "Texts held for the morning on an estimate",
+        "description": "A text telling the customer they were given longer is not sent in the company's quiet hours; it is kept and the worker sends it once the hours end, once, after checking again that the customer may be texted, that the estimate is still open and still has the date the words name, and that it was not texted to the customer again by hand since. `waiting` has not gone yet; `sent`, `refused` (the customer could not be texted any more) and `cancelled` (it no longer made sense) say why in `reason`. The last five, newest first.\n\nRequires a session holding: estimate:read.",
+        "tags": [
+          "M07"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Texts held for the morning on an estimate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEstimateHeldTextsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "estimate:read"
         ]
       }
     },
@@ -114979,6 +115299,248 @@
         ]
       }
     },
+    "/v1/properties/{id}/contacts": {
+      "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "POST"
+      ],
+      "post": {
+        "operationId": "addPropertyContact",
+        "summary": "Add a person to an address",
+        "description": "For somebody at an address who is on no customer's account. The same rules as a customer's people: a phone or an email is required, the preferred channel has to be one they can be reached on, and `isPrimary` makes them the person told first at this address. Changing, removing and making them primary use the same routes as any contact. A retry with the same idempotency key returns the first answer.\n\nRequires a session holding: customer:write.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPropertyContactInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Add a person to an address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddPropertyContactOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:write"
+        ]
+      },
+      "get": {
+        "operationId": "listPropertyContacts",
+        "summary": "The people at an address",
+        "description": "Everybody tied to this address, whether or not they are also on a customer's account: the tenant at a rental, the site manager at a job nobody has made a customer for. Ordered the way the \"on the way\" text picks its recipient, so the first one listed is the person who would be told. `customerName` is the account a person is also on, when they are on one. A technician reads the people at addresses they have been sent to and is told another does not exist.\n\nRequires a session holding: customer:read.",
+        "tags": [
+          "M03"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The people at an address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListPropertyContactsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "customer:read"
+        ]
+      }
+    },
     "/v1/properties/{id}/customers": {
       "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -118145,7 +118707,7 @@
       "post": {
         "operationId": "addPurchaseApprovalRule",
         "summary": "Add an approval step",
-        "description": "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A step can be for some orders only: to one vendor (`vendorId`), with any line from one price book category (`categoryId`), or delivering to one location (`locationId`), all that are given holding. The amount is the whole order's total unless `amountOf` is `matching_lines`, which counts only the lines from the category and going to the location, as in over $500 of refrigerant or over $2,000 for the Houston warehouse; that needs a category or a location, because a vendor picks no lines. Among steps for every order, a later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.\n\nRequires a session holding: settings:write.",
+        "description": "Orders at or over `minimumTotal` need this step, approved by somebody holding the role: a preset (`approverRole`) or one of the company's own roles (`approverRoleId`), exactly one. A step can be for some orders only: to one vendor (`vendorId`), with any line from one price book category (`categoryId`), or delivering to one location (`locationId`), all that are given holding. The amount is the whole order's total unless `amountOf` is `matching_lines`, which counts only the lines from the category and going to the location, as in over $500 of refrigerant or over $2,000 for the Houston warehouse; that needs something to pick lines by: a category, a location, a vendor (every line of that vendor's orders) or a quantity. `lineQuantityAtLeast` makes it a step on a line's quantity, for orders with a line of that many or more (the quantity ordered, in the order's units); counting only its lines, it adds up just those lines. Among steps for every order, a later step may not start below an earlier one. Company policy about who may commit money, so `settings:write`.\n\nRequires a session holding: settings:write.",
         "tags": [
           "M16"
         ],
@@ -139663,6 +140225,242 @@
         ]
       }
     },
+    "/v1/stock-receipts": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listStockReceipts",
+        "summary": "Stock received without an order, as deliveries",
+        "description": "Each stock receipt made outside an order since deliveries were kept, newest first, up to two hundred, with the freight and duty bills put on it since. Stock received before that has no delivery to bill against.\n\nRequires a session holding: po:read.",
+        "tags": [
+          "M16"
+        ],
+        "responses": {
+          "200": {
+            "description": "Stock received without an order, as deliveries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListStockReceiptsOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "po:read"
+        ]
+      }
+    },
+    "/v1/stock-receipts/{id}/late-charges": {
+      "description": "Served at this path: POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "POST"
+      ],
+      "post": {
+        "operationId": "recordStockLateLandedCost",
+        "summary": "Spread a freight or duty bill onto stock received without an order",
+        "description": "The same as a late bill on a delivery against an order, for stock that arrived with no order: the bill is spread over the pieces that arrived (by value or quantity, by value when left out), and each piece's share follows its parts onto the shelf or truck they are still on, onto each job that used them as that job's cost of goods sold, and onto stock already scrapped, counted short or sent back. One balanced ledger posting, the whole bill in accounts payable. Refused when the history cannot account for every part that arrived.\n\nRequires a session holding: po:write.",
+        "tags": [
+          "M16"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordStockLateLandedCostInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Spread a freight or duty bill onto stock received without an order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordStockLateLandedCostOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "po:write"
+        ]
+      }
+    },
     "/v1/stock-tracking": {
       "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -158791,6 +159589,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -158934,6 +159763,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -161361,6 +162191,117 @@
           "status"
         ]
       },
+      "AddPropertyContactInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 320,
+            "format": "email"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 40
+          },
+          "preferredChannel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "email",
+              "voice"
+            ]
+          },
+          "isPrimary": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "AddPropertyContactOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customerId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preferredChannel": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          },
+          "portalAccess": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "propertyId",
+          "name",
+          "title",
+          "email",
+          "phone",
+          "preferredChannel",
+          "isPrimary",
+          "portalAccess"
+        ]
+      },
       "AddPurchaseApprovalRuleInput": {
         "type": "object",
         "properties": {
@@ -161425,6 +162366,13 @@
               "order",
               "matching_lines"
             ]
+          },
+          "lineQuantityAtLeast": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
           }
         },
         "required": [
@@ -161489,6 +162437,13 @@
               "matching_lines"
             ]
           },
+          "lineQuantityAtLeast": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
           "scopeLabel": {
             "type": "string"
           }
@@ -161504,6 +162459,7 @@
           "categoryId",
           "locationId",
           "amountOf",
+          "lineQuantityAtLeast",
           "scopeLabel"
         ]
       },
@@ -165673,6 +166629,13 @@
             ],
             "format": "date-time"
           },
+          "expiredAsDraftAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "decidedAt": {
             "type": [
               "string",
@@ -166258,6 +167221,25 @@
               ]
             }
           },
+          "crewHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobLabel": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobLabel",
+                "hours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -166303,6 +167285,7 @@
           "scheduleDays",
           "status",
           "lines",
+          "crewHours",
           "amount",
           "contractValue",
           "contractValueAfter",
@@ -166421,6 +167404,13 @@
                 "format": "date-time"
               },
               "viewedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "expiredAsDraftAt": {
                 "type": [
                   "string",
                   "null"
@@ -172674,6 +173664,13 @@
                 ],
                 "format": "date-time"
               },
+              "expiredAsDraftAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
               "decidedAt": {
                 "type": [
                   "string",
@@ -177444,6 +178441,13 @@
             "format": "date-time"
           },
           "viewedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expiredAsDraftAt": {
             "type": [
               "string",
               "null"
@@ -183135,6 +184139,10 @@
                 "packQuantity": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "looseQuantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 }
               },
               "required": [
@@ -186864,6 +187872,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -187007,6 +188046,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -188375,6 +189415,13 @@
             "format": "date-time"
           },
           "viewedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expiredAsDraftAt": {
             "type": [
               "string",
               "null"
@@ -193070,6 +194117,10 @@
                 "packQuantity": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "looseQuantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                 }
               },
               "required": [
@@ -194501,12 +195552,16 @@
                   "string",
                   "null"
                 ]
+              },
+              "heldForMorning": {
+                "type": "boolean"
               }
             },
             "required": [
               "sent",
               "channels",
-              "explanation"
+              "explanation",
+              "heldForMorning"
             ]
           }
         },
@@ -198313,6 +199368,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -198456,6 +199542,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -204826,6 +205913,13 @@
             ],
             "format": "date-time"
           },
+          "expiredAsDraftAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "decidedAt": {
             "type": [
               "string",
@@ -205163,6 +206257,66 @@
           "externalRef",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "GetEstimateExtendedWordsOutput": {
+        "type": "object",
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "estimate_extended.sms",
+                    "estimate_extended.email"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "sms",
+                    "email"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "body": {
+                  "type": "string"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "channel",
+                "name",
+                "subject",
+                "body",
+                "isDefault"
+              ]
+            }
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "templates",
+          "variables"
         ]
       },
       "GetEstimateFinancingOutput": {
@@ -224177,13 +225331,29 @@
                     "price": {
                       "type": "string",
                       "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "loose": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                    },
+                    "loosePrice": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^-?\\d+(\\.\\d{1,4})?$"
                     }
                   },
                   "required": [
                     "count",
                     "size",
                     "unit",
-                    "price"
+                    "price",
+                    "loose",
+                    "loosePrice"
                   ]
                 },
                 "tracking": {
@@ -237643,6 +238813,37 @@
                   ],
                   "format": "uuid"
                 },
+                "hours": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "jobId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "jobNumber": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "jobLabel": {
+                        "type": "string"
+                      },
+                      "crewHours": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      }
+                    },
+                    "required": [
+                      "jobId",
+                      "jobNumber",
+                      "jobLabel",
+                      "crewHours"
+                    ]
+                  }
+                },
                 "amount": {
                   "type": "string",
                   "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -237786,6 +238987,7 @@
                 "scheduleDays",
                 "crewHours",
                 "jobId",
+                "hours",
                 "amount",
                 "cost",
                 "sentAt",
@@ -243839,6 +245041,64 @@
           "drafts"
         ]
       },
+      "ListEstimateHeldTextsOutput": {
+        "type": "object",
+        "properties": {
+          "heldTexts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "waiting",
+                    "sent",
+                    "refused",
+                    "cancelled"
+                  ]
+                },
+                "expiresOn": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "heldAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "resolvedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "expiresOn",
+                "reason",
+                "heldAt",
+                "resolvedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "heldTexts"
+        ]
+      },
       "ListEstimatesOutput": {
         "type": "object",
         "properties": {
@@ -243909,6 +245169,13 @@
                   "format": "date-time"
                 },
                 "viewedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "expiredAsDraftAt": {
                   "type": [
                     "string",
                     "null"
@@ -253579,6 +254846,93 @@
           "hasMore"
         ]
       },
+      "ListPropertyContactsOutput": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "customerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "propertyId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "phone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "preferredChannel": {
+                  "type": "string"
+                },
+                "isPrimary": {
+                  "type": "boolean"
+                },
+                "portalAccess": {
+                  "type": "boolean"
+                },
+                "noticeRank": {
+                  "type": "integer"
+                },
+                "customerName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "customerId",
+                "propertyId",
+                "name",
+                "title",
+                "email",
+                "phone",
+                "preferredChannel",
+                "isPrimary",
+                "portalAccess",
+                "noticeRank",
+                "customerName"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contacts"
+        ]
+      },
       "ListProposalTemplatesOutput": {
         "type": "object",
         "properties": {
@@ -253767,6 +255121,13 @@
                     "matching_lines"
                   ]
                 },
+                "lineQuantityAtLeast": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
                 "scopeLabel": {
                   "type": "string"
                 }
@@ -253782,6 +255143,7 @@
                 "categoryId",
                 "locationId",
                 "amountOf",
+                "lineQuantityAtLeast",
                 "scopeLabel"
               ]
             }
@@ -258148,6 +259510,119 @@
         },
         "required": [
           "locations"
+        ]
+      },
+      "ListStockReceiptsOutput": {
+        "type": "object",
+        "properties": {
+          "receipts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "receivedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "itemId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "itemCode": {
+                  "type": "string"
+                },
+                "itemName": {
+                  "type": "string"
+                },
+                "locationId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "locationName": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "cost": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lateTotal": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "lateBills": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "total": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "reference": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "onShelf": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "onJobs": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "onGone": {
+                        "type": "string",
+                        "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                      },
+                      "recordedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "total",
+                      "reference",
+                      "onShelf",
+                      "onJobs",
+                      "onGone",
+                      "recordedAt"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "receivedAt",
+                "itemId",
+                "itemCode",
+                "itemName",
+                "locationId",
+                "locationName",
+                "quantity",
+                "cost",
+                "lateTotal",
+                "lateBills"
+              ]
+            }
+          }
+        },
+        "required": [
+          "receipts"
         ]
       },
       "ListStockUnitsOutput": {
@@ -277225,6 +278700,116 @@
           "origin"
         ]
       },
+      "RecordStockLateLandedCostInput": {
+        "type": "object",
+        "properties": {
+          "charges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "description",
+                "amount"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "value",
+              "quantity"
+            ]
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "charges"
+        ]
+      },
+      "RecordStockLateLandedCostOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stockReceiptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "onShelf": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "onJobs": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "onGone": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "amount"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "stockReceiptId",
+          "total",
+          "onShelf",
+          "onJobs",
+          "onGone",
+          "jobs"
+        ]
+      },
       "RecordTechnicianSkillInput": {
         "type": "object",
         "properties": {
@@ -280245,6 +281830,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -280388,6 +282004,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -283025,6 +284642,27 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "crewHours"
+              ]
+            },
+            "maxItems": 25
           }
         },
         "required": [
@@ -283109,6 +284747,37 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
           },
           "amount": {
             "type": "string",
@@ -283253,6 +284922,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -291624,6 +293294,13 @@
                 "format": "date-time"
               },
               "viewedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "expiredAsDraftAt": {
                 "type": [
                   "string",
                   "null"
@@ -309016,12 +310693,18 @@
           "reason": {
             "type": "string",
             "maxLength": 500
+          },
+          "markNotSame": {
+            "type": "boolean"
           }
         }
       },
       "UndoCustomerMergeOutput": {
         "type": "object",
         "properties": {
+          "markedNotSame": {
+            "type": "boolean"
+          },
           "mergeRecordId": {
             "type": "string",
             "format": "uuid"
@@ -309075,6 +310758,7 @@
           }
         },
         "required": [
+          "markedNotSame",
           "mergeRecordId",
           "keptId",
           "restoredId",
@@ -311217,6 +312901,27 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "crewHours"
+              ]
+            },
+            "maxItems": 25
           }
         }
       },
@@ -311298,6 +313003,37 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
           },
           "amount": {
             "type": "string",
@@ -311442,6 +313178,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",
@@ -313502,6 +315239,107 @@
         },
         "required": [
           "id"
+        ]
+      },
+      "UpdateEstimateExtendedWordsInput": {
+        "type": "object",
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "estimate_extended.sms",
+                    "estimate_extended.email"
+                  ]
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 200
+                },
+                "body": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                }
+              },
+              "required": [
+                "code",
+                "body"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "templates"
+        ]
+      },
+      "UpdateEstimateExtendedWordsOutput": {
+        "type": "object",
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "estimate_extended.sms",
+                    "estimate_extended.email"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "sms",
+                    "email"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "body": {
+                  "type": "string"
+                },
+                "isDefault": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "channel",
+                "name",
+                "subject",
+                "body",
+                "isDefault"
+              ]
+            }
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "templates",
+          "variables"
         ]
       },
       "UpdateHolidayInput": {
@@ -322934,6 +324772,25 @@
               ]
             }
           },
+          "crewHours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobLabel": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobLabel",
+                "hours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -322979,6 +324836,7 @@
           "scheduleDays",
           "status",
           "lines",
+          "crewHours",
           "amount",
           "contractValue",
           "contractValueAfter",
@@ -323051,6 +324909,13 @@
             "format": "date-time"
           },
           "viewedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "expiredAsDraftAt": {
             "type": [
               "string",
               "null"
@@ -325661,6 +327526,37 @@
             ],
             "format": "uuid"
           },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "jobNumber": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "jobLabel": {
+                  "type": "string"
+                },
+                "crewHours": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                }
+              },
+              "required": [
+                "jobId",
+                "jobNumber",
+                "jobLabel",
+                "crewHours"
+              ]
+            }
+          },
           "amount": {
             "type": "string",
             "pattern": "^-?\\d+(\\.\\d{1,4})?$"
@@ -325804,6 +327700,7 @@
           "scheduleDays",
           "crewHours",
           "jobId",
+          "hours",
           "amount",
           "cost",
           "sentAt",

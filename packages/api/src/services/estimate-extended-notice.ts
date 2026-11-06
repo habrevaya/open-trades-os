@@ -1,6 +1,7 @@
 import type { Database } from "@opentradesos/db";
 import * as templates from "./message-templates";
 import type { TemplateInput } from "./message-templates";
+import { guardedRead, guardedWrite, ConflictError, type ServiceContext } from "./context";
 import { render } from "../lib/render";
 
 /**
@@ -82,3 +83,71 @@ export async function renderExtended(
     },
   };
 }
+
+/* ------------------------------------------------------- the screen's words */
+
+export interface ExtendedWords {
+  templates: {
+    code: typeof EXTENDED_CODES[keyof typeof EXTENDED_CODES];
+    channel: "sms" | "email";
+    name: string;
+    subject: string | null;
+    body: string;
+    /** No template is saved for this one, so the product's own wording is sent. */
+    isDefault: boolean;
+  }[];
+  variables: string[];
+}
+
+async function wordsWithin(tx: Database): Promise<ExtendedWords> {
+  const saved = await templates.byCodesWithin(tx, DEFAULT_EXTENDED.map((d) => d.code));
+  return {
+    templates: DEFAULT_EXTENDED.map((d) => {
+      const row = saved.find((t) => t.code === d.code && t.active);
+      return {
+        code: d.code,
+        channel: d.channel as "sms" | "email",
+        name: d.name,
+        subject: row ? row.subject : d.subject ?? null,
+        body: row ? row.body : d.body,
+        isDefault: !row,
+      };
+    }),
+    variables: [...EXTENDED_VARIABLES],
+  };
+}
+
+/** The words as the screen shows them. `settings:read`, the permission every message template is read under. */
+export function words(ctx: ServiceContext): Promise<ExtendedWords> {
+  return guardedRead(ctx, "settings:read", (tx) => wordsWithin(tx));
+}
+
+/**
+ * Change the words. `settings:write`, the permission that edits any message
+ * template; each is saved through the template service, so a placeholder that
+ * is not one of the notice's own is refused, because it would reach a customer
+ * as a hole in a sentence. A message already held for the morning keeps the
+ * words it was held with.
+ */
+export function updateWords(ctx: ServiceContext, input: {
+  templates: { code: string; subject?: string | null | undefined; body: string }[];
+}): Promise<ExtendedWords> {
+  return guardedWrite(ctx, "settings:write", async (tx) => {
+    for (const edit of input.templates) {
+      const base = DEFAULT_EXTENDED.find((d) => d.code === edit.code);
+      if (!base) throw new ConflictError(`"${edit.code}" is not one of the given-longer templates.`);
+      await templates.saveWithin(tx, ctx, {
+        ...base,
+        subject: base.channel === "email" ? (edit.subject ?? base.subject ?? null) : null,
+        body: edit.body,
+        variables: [...EXTENDED_VARIABLES],
+      });
+    }
+    return wordsWithin(tx);
+  });
+}
+
+export const handlers = {
+  getEstimateExtendedWords: (ctx: ServiceContext) => words(ctx),
+  updateEstimateExtendedWords: (ctx: ServiceContext, input: Parameters<typeof updateWords>[1]) => updateWords(ctx, input),
+} as const;

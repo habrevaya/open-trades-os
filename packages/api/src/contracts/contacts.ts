@@ -68,6 +68,41 @@ export const addCustomerContact = defineRoute({
   output: Contact,
 });
 
+export const listPropertyContacts = defineRoute({
+  method: "get",
+  path: "/v1/properties/{id}/contacts",
+  summary: "The people at an address",
+  description:
+    "Everybody tied to this address, whether or not they are also on a customer's account: the tenant at a rental, the site manager at a job nobody has made a customer for. Ordered the way the \"on the way\" text picks its recipient, so the first one listed is the person who would be told. `customerName` is the account a person is also on, when they are on one. A technician reads the people at addresses they have been sent to and is told another does not exist.",
+  module: "M03",
+  permissions: ["customer:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    contacts: z.array(Contact.extend({ noticeRank: z.number().int(), customerName: z.string().nullable() })),
+  }),
+});
+
+export const addPropertyContact = defineRoute({
+  method: "post",
+  path: "/v1/properties/{id}/contacts",
+  summary: "Add a person to an address",
+  description:
+    "For somebody at an address who is on no customer's account. The same rules as a customer's people: a phone or an email is required, the preferred channel has to be one they can be reached on, and `isPrimary` makes them the person told first at this address. Changing, removing and making them primary use the same routes as any contact. A retry with the same idempotency key returns the first answer.",
+  module: "M03",
+  permissions: ["customer:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    name: ContactFields.name,
+    title: ContactFields.title,
+    email: ContactFields.email,
+    phone: ContactFields.phone,
+    preferredChannel: ContactFields.preferredChannel,
+    isPrimary: z.boolean().optional(),
+  }),
+  output: Contact,
+});
+
 export const updateContact = defineRoute({
   method: "patch",
   path: "/v1/contacts/{id}",
@@ -115,5 +150,5 @@ export const makeContactPrimary = defineRoute({
 });
 
 export const contactRoutes = {
-  listCustomerContacts, addCustomerContact, updateContact, removeContact, makeContactPrimary,
+  listCustomerContacts, addCustomerContact, listPropertyContacts, addPropertyContact, updateContact, removeContact, makeContactPrimary,
 } as const;

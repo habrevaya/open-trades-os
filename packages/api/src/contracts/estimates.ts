@@ -77,6 +77,8 @@ export const Estimate = z.object({
   expiresOn: z.string().date().nullable(),
   sentAt: z.string().datetime().nullable(),
   viewedAt: z.string().datetime().nullable(),
+  /** When the worker marked it expired while it was still a draft: its date passed before it was ever sent. Null otherwise. */
+  expiredAsDraftAt: z.string().datetime().nullable().optional(),
   decidedAt: z.string().datetime().nullable(),
   /** When it was turned into a job and an invoice. Null until then. */
   convertedAt: z.string().datetime().nullable(),
@@ -658,8 +660,77 @@ export const extendEstimateExpiry = defineRoute({
       channels: z.array(z.enum(["email", "sms"])),
       /** Why it did not go, or why one of two did not, in words for the office. */
       explanation: z.string().nullable(),
+      /** A text was kept for the morning because it is the company's quiet hours; it goes once they end. */
+      heldForMorning: z.boolean(),
     }).nullable(),
   }),
+});
+
+export const listEstimateHeldTexts = defineRoute({
+  method: "get",
+  path: "/v1/estimates/{id}/held-texts",
+  summary: "Texts held for the morning on an estimate",
+  description:
+    "A text telling the customer they were given longer is not sent in the company's quiet hours; it is kept and the worker sends it once the hours end, once, after checking again that the customer may be texted, that the estimate is still open and still has the date the words name, and that it was not texted to the customer again by hand since. `waiting` has not gone yet; `sent`, `refused` (the customer could not be texted any more) and `cancelled` (it no longer made sense) say why in `reason`. The last five, newest first.",
+  module: "M07",
+  permissions: ["estimate:read"],
+  input: z.object({ id: Uuid }),
+  output: z.object({
+    heldTexts: z.array(z.object({
+      id: Uuid,
+      state: z.enum(["waiting", "sent", "refused", "cancelled"]),
+      expiresOn: z.string().date(),
+      reason: z.string().nullable(),
+      heldAt: z.string().datetime(),
+      resolvedAt: z.string().datetime().nullable(),
+    })),
+  }),
+});
+
+const ExtendedCode = z.enum(["estimate_extended.sms", "estimate_extended.email"]);
+
+const ExtendedWords = z.object({
+  templates: z.array(z.object({
+    code: ExtendedCode,
+    channel: z.enum(["sms", "email"]),
+    name: z.string(),
+    subject: z.string().nullable(),
+    body: z.string(),
+    /** No template is saved for this one, so the product's own wording is sent. */
+    isDefault: z.boolean(),
+  })),
+  /** What the words may use, as `{{ name }}`. */
+  variables: z.array(z.string()),
+});
+
+export const getEstimateExtendedWords = defineRoute({
+  method: "get",
+  path: "/v1/estimate-extended-words",
+  summary: "The words that tell a customer they were given longer",
+  description:
+    "The company's text and email for \"we are holding your price until\", the message templates `estimate_extended.sms` and `estimate_extended.email`. Where a company has written none, the product's own wording is what is sent and `isDefault` is true. The same templates can be read and written through the message templates routes; this is the one place for them on the screen.",
+  module: "M07",
+  permissions: ["settings:read"],
+  input: z.object({}),
+  output: ExtendedWords,
+});
+
+export const updateEstimateExtendedWords = defineRoute({
+  method: "put",
+  path: "/v1/estimate-extended-words",
+  summary: "Change the words that tell a customer they were given longer",
+  description:
+    "Only what is sent changes. The words are checked as every message template is: a placeholder that is not one of `variables` is refused, because it would reach a customer as a gap in a sentence. An email's `subject` is kept for an email and ignored for a text. A message already held for the morning keeps the words it was held with.",
+  module: "M07",
+  permissions: ["settings:write"],
+  input: z.object({
+    templates: z.array(z.object({
+      code: ExtendedCode,
+      subject: z.string().max(200).nullable().optional(),
+      body: z.string().min(1).max(2000),
+    })).min(1).max(2),
+  }),
+  output: ExtendedWords,
 });
 
 export const estimateRoutes = {
@@ -667,4 +738,5 @@ export const estimateRoutes = {
   createEstimate, getEstimate, listEstimates, sendEstimate,
   approveEstimate, declineEstimate, convertEstimate,
   requestDeposit, applyDeposit, refundDeposit, extendEstimateExpiry,
+  listEstimateHeldTexts, getEstimateExtendedWords, updateEstimateExtendedWords,
 } as const;
