@@ -385,7 +385,13 @@ export interface PriceBookEntry {
    * the unit its cost is per and its EPA number, which an application chosen
    * from the book carries. Absent from older servers and null for the rest.
    */
-  chemical?: { unit: string; epaRegistrationNumber: string | null } | null | undefined;
+  /**
+   * `units` when it is bought in one unit and used in another, so an
+   * application can be recorded in either. Absent from older servers.
+   */
+  chemical?: {
+    unit: string; epaRegistrationNumber: string | null; units?: { buy: string; use: string } | undefined;
+  } | null | undefined;
 }
 
 /**

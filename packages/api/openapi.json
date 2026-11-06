@@ -209743,6 +209743,21 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "units": {
+                      "type": "object",
+                      "properties": {
+                        "buy": {
+                          "type": "string"
+                        },
+                        "use": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "buy",
+                        "use"
+                      ]
                     }
                   },
                   "required": [

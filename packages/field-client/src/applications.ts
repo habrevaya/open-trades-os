@@ -20,9 +20,11 @@ export interface ChemicalChoice {
   id: string;
   code: string | null;
   name: string;
-  /** What its cost is per, and so the unit the amount is typed in. */
+  /** What its cost is per, and so the unit the amount is typed in unless another is picked. */
   unit: string;
   epaRegistrationNumber: string | null;
+  /** The units it is bought and used in, when they differ: an application can be recorded in either. */
+  units: { buy: string; use: string } | null;
 }
 
 /** The chemicals in the book the phone holds, by name. */
@@ -32,6 +34,7 @@ export function chemicalsIn(book: readonly PriceBookEntry[]): ChemicalChoice[] {
     .map((item) => ({
       id: item.id, code: item.code, name: item.name,
       unit: item.chemical!.unit, epaRegistrationNumber: item.chemical!.epaRegistrationNumber,
+      units: item.chemical!.units ?? null,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -61,14 +64,44 @@ export function checkApplied(typed: string): { ok: true; quantity: string } | { 
   return { ok: true, quantity: text };
 }
 
+/** A unit as two spellings of it are compared, as the server compares them: "Gal " is "gal". */
+const sameUnit = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * The units an application of this chemical can be recorded in: its own (what
+ * its cost is per) first, then the use and the buy unit of a chemical bought in
+ * one and used in another, each once. One unit for anything else, so there is
+ * nothing to pick.
+ */
+export function applicationUnits(chemical: ChemicalChoice): string[] {
+  const all = [chemical.unit, ...(chemical.units ? [chemical.units.use, chemical.units.buy] : [])];
+  return all.filter((unit, i) => all.findIndex((other) => sameUnit(other, unit)) === i);
+}
+
+/**
+ * The unit an application is recorded in, exactly as the server and the
+ * office's visit page decide it: the one picked when it is the chemical's buy
+ * or use unit, spelt as the book spells it, and otherwise the chemical's own.
+ * The amount is recorded as typed in that unit, never converted on the phone;
+ * the server values it at the cost, or the cost over how many use units are in
+ * a buy unit, as it does for the office.
+ */
+export function applicationUnitOf(chemical: ChemicalChoice, picked?: string | undefined): string {
+  if (picked === undefined || !chemical.units) return chemical.unit;
+  if (sameUnit(picked, chemical.units.buy)) return chemical.units.buy;
+  if (sameUnit(picked, chemical.units.use)) return chemical.units.use;
+  return chemical.unit;
+}
+
 /**
  * The payload of a `service_report.set_field` recording a product chosen from
  * the book, as the answer to one chemical question. The name, EPA number and
  * unit are sent so the screen shows them with no signal; the server replaces
- * them with the book's own.
+ * them with the book's own, keeping the unit picked when it is the buy or the
+ * use unit.
  */
 export function applicationFromBook(
-  question: Pick<ReportField, "key" | "label">, chemical: ChemicalChoice, quantity: string,
+  question: Pick<ReportField, "key" | "label">, chemical: ChemicalChoice, quantity: string, unit?: string | undefined,
 ): Record<string, unknown> {
   return {
     field: question.key, label: question.label, kind: "chemical",
@@ -77,6 +110,6 @@ export function applicationFromBook(
     productName: chemical.name,
     ...(chemical.epaRegistrationNumber ? { epaRegistrationNumber: chemical.epaRegistrationNumber } : {}),
     quantityApplied: quantity,
-    applicationUnit: chemical.unit,
+    applicationUnit: applicationUnitOf(chemical, unit),
   };
 }

@@ -9706,6 +9706,10 @@ export interface GetFieldSnapshotOutput {
     chemical?: {
       unit: string;
       epaRegistrationNumber: string | null;
+      units?: {
+        buy: string;
+        use: string;
+      };
     } | null;
   }>;
   openTimeEntry: {

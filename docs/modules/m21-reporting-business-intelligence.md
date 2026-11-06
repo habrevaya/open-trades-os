@@ -1466,9 +1466,8 @@ not read. Changing the chemical's own unit leaves its earlier applications out a
 not valued rather than converting them; an item that says it is bought in one unit
 and used in another values both, but only those two, and only from the version
 that says so: an application under an earlier version with no units is valued as
-it was, in the chemical's own unit. The phone still records a product chosen from
-the book in the chemical's own unit, because it has no place to pick the other; the
-office's visit page can record either.
+it was, in the chemical's own unit. The office's visit page, the phone app and
+`/my-day` can each record a product chosen from the book in either of its two units.
 
 Drain call conversion reads the drain call and the upsell items the company's
 trade pack marks, by code: a camera inspection sold under an item the company

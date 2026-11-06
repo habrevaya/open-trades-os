@@ -813,7 +813,15 @@ adds one the technician missed, chosen from the book onto the visit's report
 (`servicereport:read`) and `POST /v1/visits/{id}/products-applied`
 (`servicereport:write`, audited, refused for a published report). For a product
 bought in one unit and used in another, "In what" records it in either unit
-(`unit`); anything else is recorded in the chemical's own unit. The licence
+(`unit`); anything else is recorded in the chemical's own unit. The phone app and
+`/my-day` offer the same choice: the day's price book carries a chemical's buy and
+use units when its version in force has both (`chemical.units`, only the two names,
+never the ratio), the product picker offers the chemical's own unit first and then
+the other ("In what unit" on `/my-day`, a choice under the amount on the phone), and
+the amount goes as typed in the unit picked, never converted on the phone
+(`applicationUnit` on `service_report.set_field`). The server keeps it when it is the
+buy or the use unit, spelt as the book spells it, exactly as for the office, and the
+chemical cost per stop values it at the cost or the cost over the ratio. The licence
 and the target pest are kept as before. Pest control's chemical cost per stop
 (M21) values only what was chosen from the book.
 

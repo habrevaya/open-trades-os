@@ -503,7 +503,16 @@ export const getFieldSnapshot = defineRoute({
        * and its EPA registration number, carried onto an application chosen
        * from the book. Null for anything else; absent from older servers.
        */
-      chemical: z.object({ unit: z.string(), epaRegistrationNumber: z.string().nullable() }).nullable().optional(),
+      chemical: z.object({
+        unit: z.string(),
+        epaRegistrationNumber: z.string().nullable(),
+        /**
+         * The units its version in force is bought and used in, when it has
+         * both: an application can be recorded in either, as on the office's
+         * visit page. Absent when it has one unit, and from older servers.
+         */
+        units: z.object({ buy: z.string(), use: z.string() }).optional(),
+      }).nullable().optional(),
     })),
     openTimeEntry: z.object({
       id: Uuid,

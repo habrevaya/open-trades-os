@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import {
-  applicationFromBook, checkApplied, chemicalsIn, formatAmount, isOwing, outOfRange, parseAmount, readingValue,
+  applicationFromBook, applicationUnits, checkApplied, chemicalsIn, formatAmount, isOwing, outOfRange, parseAmount, readingValue,
   recordEquipment, resultLabel, searchChemicals, tipChoices,
   type ChemicalChoice, type DayReportField, type DayVisit,
 } from "@opentradesos/field-client";
@@ -199,10 +199,12 @@ function Reading({ field, locked, onSave }: {
 
 /**
  * A product applied, chosen from the chemicals in the company's price book:
- * find it by name, type how much, in the unit its cost is per. The book's
- * name, EPA number and unit go on the record, so nothing regulated is typed
- * twice and the office can cost what was applied. A product the book does
- * not hold is still typed, by the link under the list.
+ * find it by name, type how much, in the unit its cost is per or, for one
+ * bought in one unit and used in another, in either (gallons or ounces), as
+ * on the office's visit page. The book's name, EPA number and unit go on the
+ * record, so nothing regulated is typed twice and the office can cost what was
+ * applied. A product the book does not hold is still typed, by the link under
+ * the list.
  */
 function ChemicalFromBook({ field, chemicals, onSave, onType }: {
   field: DayReportField;
@@ -213,6 +215,8 @@ function ChemicalFromBook({ field, chemicals, onSave, onType }: {
   const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState<ChemicalChoice | null>(null);
   const [amount, setAmount] = useState("");
+  /** The unit picked for the amount; the chemical's own until another is tapped. */
+  const [unit, setUnit] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   const save = async () => {
@@ -223,24 +227,39 @@ function ChemicalFromBook({ field, chemicals, onSave, onType }: {
       return;
     }
     setProblem(null);
-    await onSave(applicationFromBook(field, chosen, checked.quantity));
+    await onSave(applicationFromBook(field, chosen, checked.quantity, unit ?? undefined));
     setChosen(null);
     setAmount("");
+    setUnit(null);
     setQuery("");
   };
 
   if (chosen) {
+    const units = applicationUnits(chosen);
+    const inUnit = unit ?? chosen.unit;
     return (
       <View>
         <Text style={type.body}>{chosen.name}{chosen.epaRegistrationNumber ? `, EPA ${chosen.epaRegistrationNumber}` : ""}</Text>
         <View style={styles.row}>
           <TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="How much"
                      placeholderTextColor={color.inkFaint} style={[styles.input, { flex: 1 }]}
-                     accessibilityLabel={`How much ${chosen.name} was applied, in ${chosen.unit}`} />
-          <Text style={[type.body, { width: 64 }]}>{chosen.unit}</Text>
+                     accessibilityLabel={`How much ${chosen.name} was applied, in ${inUnit}`} />
+          {units.length === 1 ? <Text style={[type.body, { width: 64 }]}>{inUnit}</Text> : null}
         </View>
+        {units.length > 1 ? (
+          <View style={styles.row} accessibilityRole="radiogroup" accessibilityLabel="In what unit">
+            {units.map((u) => (
+              <Pressable key={u} accessibilityRole="radio" accessibilityState={{ selected: u === inUnit }}
+                         accessibilityLabel={`In ${u}`} onPress={() => setUnit(u)}
+                         style={[styles.match, { flex: 1, alignItems: "center", borderWidth: 1, borderRadius: 6,
+                           borderColor: u === inUnit ? color.ink : color.line }]}>
+                <Text style={[type.body, u === inUnit ? { fontWeight: "600" } : null]}>{u}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <Button label="Save" kind="secondary" onPress={() => void save()} />
-        <Pressable accessibilityRole="button" onPress={() => setChosen(null)} style={styles.match}>
+        <Pressable accessibilityRole="button" onPress={() => { setChosen(null); setUnit(null); }} style={styles.match}>
           <Text style={type.soft}>Choose another product</Text>
         </Pressable>
         {problem ? <Text style={styles.problem} accessibilityLiveRegion="polite">{problem}</Text> : null}
@@ -256,7 +275,7 @@ function ChemicalFromBook({ field, chemicals, onSave, onType }: {
         <Pressable key={c.id} accessibilityRole="button" accessibilityLabel={`Applied ${c.name}`}
                    onPress={() => setChosen(c)} style={styles.match}>
           <Text style={type.body}>{c.name}</Text>
-          <Text style={type.soft}>per {c.unit}</Text>
+          <Text style={type.soft}>{c.units ? `per ${c.units.use} or ${c.units.buy}` : `per ${c.unit}`}</Text>
         </Pressable>
       ))}
       <Pressable accessibilityRole="button" onPress={onType} style={styles.match}>

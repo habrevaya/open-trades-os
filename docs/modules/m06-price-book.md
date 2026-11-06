@@ -175,8 +175,8 @@ line takes its cost from the book per use unit (`costPerUse` on the item, the
 cost over the ratio at four places), so a job line, an invoice line and an
 estimate line for 16 ounces of a 40.00 gallon are costed at 0.3125 an ounce, and
 job costing and the margin read that (M15). Pest control's chemical cost per stop
-values an application recorded in either unit (M21), and the office's visit page
-can record one in either. A supplier's file brought in with `updateItemCost`
+values an application recorded in either unit (M21), and the office's visit page,
+the phone app and `/my-day` can record one in either. A supplier's file brought in with `updateItemCost`
 gives the cost per our unit, the ounce, and the version keeps it per gallon. A
 version with no units, which is every version written before this, is costed
 exactly as before. Changing the units is a revision like a price, so a document
@@ -375,5 +375,6 @@ converts between those two only, at the ratio its version states: a third unit
 in the use unit, so ordering by the gallon is still purchasing's pack, not the
 version's units (M16). The cost per use unit is kept to four decimal places on a
 line, so a cost that does not divide evenly is a hundredth of a cent out per
-unit. The phone records a chosen product in the chemical's own unit and cannot
-pick the other.
+unit. The phone app and `/my-day` pick either of an item's two units for a
+product applied, as the office's visit page does, and never convert the amount on
+the phone; a third unit is recorded in the chemical's own, as from the office.
