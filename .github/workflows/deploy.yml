@@ -82,16 +82,16 @@ jobs:
       # A push migrates exactly the commit pushed. A manual run migrates the
       # head of the environment's branch, whatever branch it was started from,
       # because that is what the build hook will build.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         if: steps.secrets.outputs.configured == 'true'
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && env.BRANCH || github.sha }}
       - id: head
         if: steps.secrets.outputs.configured == 'true'
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: steps.secrets.outputs.configured == 'true'
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         if: steps.secrets.outputs.configured == 'true'
         with: { node-version: 22, cache: pnpm }
       - if: steps.secrets.outputs.configured == 'true'
