@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import postgres from "postgres";
 import { type Actor } from "@opentradesos/core";
-import { applicationFromBook, chemicalsIn, type PriceBookEntry } from "@opentradesos/field-client";
 import * as priceBook from "../src/services/pricebook";
 import * as kpis from "../src/services/kpis";
 import * as fieldOps from "../src/services/field";
@@ -135,18 +134,24 @@ run("a chemical chosen on the phone, in either unit", () => {
     /** A chemical with one unit carries nothing to pick. */
     expect(day.priceBook.find((p) => p.id === gel)?.chemical).toEqual({ unit: "oz", epaRegistrationNumber: "352-746" });
 
-    /** The phone builds the payload from what it was sent, as the app and /my-day do. */
-    const chosen = chemicalsIn(day.priceBook as PriceBookEntry[]).find((c) => c.id === concentrate)!;
-    const question = { key: "product_applied", label: "Product applied" };
+    /**
+     * The payload the phone's `applicationFromBook` builds (held to it by the
+     * field client's own tests): the book's name, EPA number, the amount as
+     * typed, and the unit picked.
+     */
+    const fromBook = (field: string, quantityApplied: string, applicationUnit: string) => ({
+      field, label: field, kind: "chemical", value: "Concentrate", priceBookItemId: concentrate,
+      productName: "Concentrate", epaRegistrationNumber: "100-1", quantityApplied, applicationUnit,
+    });
 
     const s1 = await stop("2026-06-10");
-    expect(await onThePhone(s1, applicationFromBook(question, chosen, "16", "oz"), "2026-06-10T18:00:00Z"))
+    expect(await onThePhone(s1, fromBook("product_applied", "16", "oz"), "2026-06-10T18:00:00Z"))
       .toMatchObject({ status: "applied" });
-    expect(await onThePhone(s1, applicationFromBook({ key: "second_product", label: "Second product applied" }, chosen, "0.5", "GAL"),
-      "2026-06-10T18:05:00Z")).toMatchObject({ status: "applied" });
+    expect(await onThePhone(s1, fromBook("second_product", "0.5", "GAL"), "2026-06-10T18:05:00Z"))
+      .toMatchObject({ status: "applied" });
     const s2 = await stop("2026-06-12");
     /** A unit that is neither is recorded in the chemical's own, as from the office. */
-    expect(await onThePhone(s2, { ...applicationFromBook(question, chosen, "32"), applicationUnit: "quart" }, "2026-06-12T18:00:00Z"))
+    expect(await onThePhone(s2, fromBook("product_applied", "32", "quart"), "2026-06-12T18:00:00Z"))
       .toMatchObject({ status: "applied" });
 
     const kept = await raw<{ key: string; quantity_applied: string; application_unit: string }[]>`
