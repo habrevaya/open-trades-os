@@ -266,11 +266,10 @@ export const payPortalInvoice = defineRoute({
   path: "/v1/portal/invoice/pay",
   summary: "Pay an invoice from the link",
   description:
-    "Takes no amount and no invoice id. The invoice comes from the grant and the amount is read from its balance, because the caller is a browser and a browser that can name both can name a number that suits it. It creates no payment: the processor's signed webhook is the only thing that marks money as having moved.",
+    "Takes no amount and no invoice id. The invoice comes from the grant and the amount is read from its balance, because the caller is a browser and a browser that can name both can name a number that suits it. It creates no payment: the processor's signed webhook is the only thing that marks money as having moved. Not repeatable: each request starts a fresh payment at the processor, and nothing is charged until the customer confirms one in the browser. A repeat leaves the earlier one unconfirmed.",
   module: "M13",
   permissions: [],
   authorization: "grant",
-  idempotent: true,
   input: z.object({
     token: z.string().min(20).max(200),
     /**

@@ -331,6 +331,18 @@ export const listAgreements = defineRoute({
   }),
 });
 
+export const getAgreementBookUnearned = defineRoute({
+  method: "get",
+  path: "/v1/agreement-book/unearned",
+  summary: "What the whole book holds deferred and not yet earned",
+  description:
+    "The total across every agreement of the price deferred and not yet earned: the same figure as \"Billed, not yet earned\" on the Agreements screen. An agreement's whole term price is deferred when it is sold, and earned as its visits are delivered. It is summed from the agreements' deferred revenue entries still waiting: neither recognised by a visit delivered, nor released at the end of a term or by a cancellation. One agreement's own figure is `unearned` on `GET /v1/agreements/{id}`. Agreements belong to the company rather than to one branch, so this is the whole company's, as the screen shows it.",
+  module: "M08",
+  permissions: ["membership:read"],
+  input: z.object({}),
+  output: z.object({ unearned: MoneyString, currency: z.literal("USD") }),
+});
+
 export const getAgreement = defineRoute({
   method: "get",
   path: "/v1/agreements/{id}",
@@ -566,7 +578,7 @@ export const updateAgreementRenewalNotices = defineRoute({
 
 export const agreementRoutes = {
   createAgreementPlan, listAgreementPlans, getAgreementPlan, updateAgreementPlan, retireAgreementPlan,
-  sellAgreement, listAgreements, getAgreement, renewAgreement, cancelAgreement, recordAgreementLapseReason, releaseAgreementTerm,
+  sellAgreement, listAgreements, getAgreementBookUnearned, getAgreement, renewAgreement, cancelAgreement, recordAgreementLapseReason, releaseAgreementTerm,
   listOwedAgreementVisits, bookAgreementVisit, deliverAgreementVisit, skipAgreementVisit, unskipAgreementVisit,
   invoiceAgreementInstalment,
   listAgreementRenewals, getMemberPricing,

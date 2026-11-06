@@ -39,7 +39,7 @@ export const setPortalCardAutopay = defineRoute({
   path: "/v1/portal/cards/{cardId}/autopay",
   summary: "Pay each bill automatically with a saved card, or stop",
   description:
-    "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card; the backups stay behind it, and a backup chosen here moves to the front. Turning it off needs no words, and stops the backups too.",
+    "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card; the backups stay behind it, and a backup chosen here moves to the front. Turning it off needs no words, and stops the backups too. Turning it on when it is on, or off when it is off, changes nothing.",
   module: "M13",
   permissions: [],
   authorization: "grant",

@@ -1,6 +1,6 @@
-import { and, eq, desc, lt, isNull, inArray, sql } from "drizzle-orm";
-import { schema } from "@opentradesos/db";
-import { assertCan, tags as tagRules } from "@opentradesos/core";
+import { and, eq, desc, lt, isNull, inArray, or, sql } from "drizzle-orm";
+import { schema, type Database } from "@opentradesos/db";
+import { assertCan, search as searchRules, tags as tagRules } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   type ServiceContext, guardedRead, guardedWrite, clean, cleanAll,
@@ -99,6 +99,63 @@ const inNotes = (ctx: ServiceContext): Searched => (match) => sql`exists (
     ${FIELD_SCOPES.has(scopeOf(ctx, "customer")) ? sql`and cn.for_field` : sql``}
     and ${match(sql`cn.body`)}
 )`;
+/** The note that put a customer on a searched list, as the row shows it. */
+export interface MatchedNote { id: string; excerpt: string; notedAt: string }
+
+/**
+ * WHY A CUSTOMER IS ON A SEARCHED LIST, WHEN THE ROW DOES NOT SAY.
+ *
+ * A customer found by their name, email or phone explains themselves on the
+ * row. One found only because a note says a word gets the note's few words
+ * around it, so "gate code" lists the account with "...the gate code is 4471..."
+ * under it rather than a name nobody can connect with what was typed.
+ *
+ * Only a note the caller may read: the customer is already one their scope
+ * lists, and at a field scope (a technician) only a note marked for the field,
+ * the same rule `inNotes` matches by. The newest note that says every word
+ * comes first, then the newest that says any of them.
+ */
+async function matchedNotes(
+  tx: Database,
+  ctx: ServiceContext,
+  ids: string[],
+  q: string,
+  close: boolean | undefined,
+): Promise<Map<string, MatchedNote>> {
+  const found = new Map<string, MatchedNote>();
+  const words = searchRules.searchTerms(q).words;
+  if (ids.length === 0 || words.length === 0) return found;
+  const explained = textFilter(q, [schema.customer.name, schema.customer.email, schema.customer.phone], undefined, { close });
+  const unexplained = await tx.select({ id: schema.customer.id }).from(schema.customer)
+    .where(and(inArray(schema.customer.id, ids), explained ? sql`not coalesce((${explained}), false)` : undefined));
+  if (unexplained.length === 0) return found;
+
+  const fieldOnly = FIELD_SCOPES.has(scopeOf(ctx, "customer"));
+  const every = textFilter(q, [schema.customerNote.body], undefined, { close }) ?? sql`false`;
+  const any = or(...words.map((word) => textFilter(word, [schema.customerNote.body], undefined, { close }))) ?? sql`false`;
+  const rows = await tx.selectDistinctOn([schema.customerNote.customerId], {
+    id: schema.customerNote.id,
+    customerId: schema.customerNote.customerId,
+    body: schema.customerNote.body,
+    notedAt: schema.customerNote.notedAt,
+  }).from(schema.customerNote)
+    .where(and(
+      inArray(schema.customerNote.customerId, unexplained.map((row) => row.id)),
+      fieldOnly ? eq(schema.customerNote.forField, true) : undefined,
+      any,
+    ))
+    .orderBy(
+      schema.customerNote.customerId,
+      sql`(${every}) desc`,
+      desc(schema.customerNote.notedAt),
+      desc(schema.customerNote.id),
+    );
+  for (const row of rows) {
+    found.set(row.customerId, { id: row.id, excerpt: searchRules.excerpt(row.body, q, 100), notedAt: row.notedAt.toISOString() });
+  }
+  return found;
+}
+
 export async function list(ctx: ServiceContext, input: ListInput & Looking) {
   return guardedRead(ctx, "customer:read", async (tx) => {
     if (input.close) await closeMatching(tx);
@@ -142,7 +199,16 @@ export async function list(ctx: ServiceContext, input: ListInput & Looking) {
       .limit(input.limit + 1);
 
     const page = paginate(rows, input.limit, (r) => r.createdAt.toISOString());
-    return { ...page, data: cleanAll(ctx, "customer", page.data).map(asCustomer) };
+    const notes = input.q && input.q.trim() !== ""
+      ? await matchedNotes(tx, ctx, page.data.map((row) => row.id), input.q, input.close)
+      : new Map<string, MatchedNote>();
+    return {
+      ...page,
+      data: cleanAll(ctx, "customer", page.data).map((row) => ({
+        ...asCustomer(row),
+        matchedNote: notes.get(String(row["id"])) ?? null,
+      })),
+    };
   });
 }
 

@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { eventText } from "@opentradesos/api/http";
 import { EventStreamParser, OpenTradesOS, OpenTradesOSError, type StreamEvent } from "../src/index";
+import { OPERATIONS } from "../src/generated";
 
 /**
  * READING AN ANSWER AS IT IS WRITTEN, AGAINST A FAKE SERVER
@@ -275,12 +276,23 @@ describe("events()", () => {
   });
 
   it("does not ask again for an operation that takes no idempotency key, since that would be a second question", async () => {
+    /**
+     * The website chat's message was the example of an operation with no
+     * key, until the document said what the dispatcher had done for a while:
+     * the key reaches the open routes, and the chat keys one message and one
+     * answer on it (M26). Both streaming operations take a key now, so the
+     * rule is checked against the chat with its flag taken off for the test.
+     */
+    const spec = OPERATIONS.sayInChat as { idempotent: boolean };
+    spec.idempotent = false;
     handlers.push((_req, res) => {
       res.writeHead(201, SSE);
       res.write(eventText("writing", { text: "Hello." }));
       setTimeout(() => res.socket?.destroy(), 10);
     });
-    const error = await all(client().events("sayInChat", { companyKey: "k", token: "t", text: "Hi" })).catch((e: unknown) => e);
+    const error = await all(client().events("sayInChat", { companyKey: "k", token: "t", text: "Hi" }))
+      .catch((e: unknown) => e)
+      .finally(() => { spec.idempotent = true; });
     expect(error).toBeInstanceOf(OpenTradesOSError);
     expect((error as Error).message).toMatch(/cannot be asked again safely/);
     expect(seen).toHaveLength(1);

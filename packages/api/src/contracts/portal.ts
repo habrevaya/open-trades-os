@@ -106,6 +106,8 @@ export const approvePortalEstimate = defineRoute({
   method: "post",
   path: "/v1/portal/estimate/approve",
   summary: "Approve an estimate",
+  description:
+    "Approving again on the option already approved returns the approval that stands; approving a different option is refused.",
   module: "M05",
   permissions: [],
   authorization: "grant",
@@ -132,7 +134,7 @@ export const declinePortalEstimate = defineRoute({
   path: "/v1/portal/estimate/decline",
   summary: "Decline an estimate",
   description:
-    "The reason is optional and worth asking for anyway. Decline reasons are the only direct signal a company gets about its own pricing.",
+    "The reason is optional and worth asking for anyway. Decline reasons are the only direct signal a company gets about its own pricing. Declining one already declined changes nothing and tells the office nothing new.",
   module: "M05",
   permissions: [],
   authorization: "grant",

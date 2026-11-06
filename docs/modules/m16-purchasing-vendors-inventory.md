@@ -209,7 +209,8 @@ said so. `POST /v1/vendor-catalogue/preview` and
 `pricebook:write`, because an import writes both; an item's own cost is shown
 beside the vendor's only to whoever holds `pricebook.cost:read`.
 
-**A workbook.** The file can be an `.xlsx` as well as a CSV. On the screen the
+**A workbook.** The file can be an `.xlsx`, or an `.ods` as LibreOffice and
+OpenOffice save one, as well as a CSV. On the screen the
 person picks it and is asked which sheet holds the prices (a cover sheet or a
 sheet that is not a list is shown with why it cannot be chosen); through the API
 it is sent as `workbook` (base64) with the `sheet` to read, and
@@ -667,8 +668,8 @@ question about it is what to bill.
 
 ## What is not built
 
-A catalogue import reads a CSV or an `.xlsx` workbook (one sheet at a time), not
-an older `.xls`, `.ods` or `.numbers` file, a workbook with a password, a
+A catalogue import reads a CSV or an `.xlsx` or `.ods` workbook (one sheet at a
+time), not an older `.xls` or a `.numbers` file, a workbook with a password, a
 supplier's API or an EDI feed, and at most five thousand rows at a time. A part
 number typed as a number in the spreadsheet has lost its leading zeros before
 this sees it, so the column has to be formatted as text there. It adds the vendors a file

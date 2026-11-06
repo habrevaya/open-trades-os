@@ -508,10 +508,12 @@ everybody who is here, saying so.
 **Visits and messages.** A visit is a group for `visit:read`, found through its
 job under the reader's own visit scope exactly as the visit's page is opened: by
 what is written in either of its notes (the technician's and what the office chose
-to show the customer), the job's summary and number, or the customer's name. A hit
+to show the customer), the job's summary and number, the customer's name, the name
+of anybody assigned to it, or the name of the crew it is booked to. A hit
 reads "Visit 2 on job 1042: Furnace check", the customer and the day of the visit
 in the company's own calendar ("not scheduled" for a visit with no window yet), and
-opens the visit's own page (`/visits/{id}`). A technician finds the visits they could
+opens the visit's own page (`/visits/{id}`). The hit does not name who is on the
+visit, so one found by a technician's or a crew's name says so only on its page. A technician finds the visits they could
 open and no others. A message is a group for `message:read`, found through its
 conversation under the reader's conversation scope exactly as the inbox lists it:
 a technician finds words only in threads attached to a job they can see or to a
@@ -856,7 +858,12 @@ they are. The box lists visits and messages
 find the visit's job; it does not read the text of an attached file, a call's
 recording, or an email's attachments, and a message is found by its body and subject
 only, not by who it was from. A visit is searched by its two notes, its job's summary and
-number and the customer's name, not by its crew or its technician.
+number, the customer's name, the name of anybody assigned to it and the name of the crew
+it is booked to, all inside the reader's own visit scope: a branch manager naming another
+branch's technician finds none of that branch's visits, and a technician naming a
+colleague finds none of the colleague's. A crew visit is found by the crew's name, not by
+the names of the people in the crew, because who is in a crew changes and a past visit
+would be found by somebody who joined since.
 Addresses and units are narrowed by scope in the search box only: the address
 list (`GET /v1/properties`) and a unit's page read the whole company for anybody
 holding `property:read` or `equipment:read`, as they did before, and narrowing

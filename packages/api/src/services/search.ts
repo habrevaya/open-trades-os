@@ -51,8 +51,8 @@ import * as comms from "./comms";
  *
  * VISITS AND MESSAGES are groups behind the permissions that read them.
  * A visit (`visit:read`, through its job and the reader's visit scope) is found
- * by both of its notes, its job's summary and number and the customer's name,
- * and opens its own page. A message (`message:read`, through the conversation's
+ * by both of its notes, its job's summary and number, the customer's name, who
+ * is assigned to it and the crew it is booked to, and opens its own page. A message (`message:read`, through the conversation's
  * scope) is found by its body and its subject, and opens its thread. Neither has
  * a list screen the words could be handed to, so each group's "See all" is this
  * page showing that group alone, as addresses' is.
@@ -92,16 +92,8 @@ function inWords(day: string): string {
     .format(new Date(`${day}T12:00:00Z`));
 }
 
-/** A note as one line: the start of it, or the part around the first word typed when that is further in. */
-export function excerpt(body: string, q: string, width = 120): string {
-  const flat = body.replace(/\s+/g, " ").trim();
-  if (flat.length <= width) return flat;
-  const first = terms.searchTerms(q).words[0];
-  const at = first ? flat.toLowerCase().indexOf(first) : -1;
-  const start = at > width / 2 ? at - Math.floor(width / 3) : 0;
-  const piece = flat.slice(start, start + width).trim();
-  return `${start > 0 ? "..." : ""}${piece}${start + width < flat.length ? "..." : ""}`;
-}
+/** A note as one line: the start of it, or the part around a word typed when that is further in (core's `search.excerpt`). */
+export const excerpt = (body: string, q: string, width = 120): string => terms.excerpt(body, q, width);
 
 /**
  * Read a group as typed, then, when that came up short, close: the second
@@ -145,7 +137,10 @@ export async function everything(
     add({
       key: "customers", label: "Customers", more: found.more, seeAll: listed("/customers"),
       hits: found.rows.map(({ row: c, close }) => ({
-        id: c.id, title: c.name, detail: c.email ?? c.phone ?? null, href: `/customers/${c.id}`, close,
+        id: c.id, title: c.name,
+        /** Found by a note and nothing else on them: the note's words say why. */
+        detail: c.matchedNote ? `From a note: ${c.matchedNote.excerpt}` : c.email ?? c.phone ?? null,
+        href: `/customers/${c.id}`, close,
       })),
     });
   }

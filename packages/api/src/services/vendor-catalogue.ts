@@ -309,7 +309,7 @@ export async function removeLink(ctx: ServiceContext, input: { id: string }): Pr
 export interface CatalogueInput {
   /** The file, as text. Send this or `workbook`. */
   csv?: string | undefined;
-  /** An .xlsx workbook, as base64. Send this or `csv`. */
+  /** An .xlsx or .ods workbook, as base64. Send this or `csv`. */
   workbook?: string | undefined;
   /** The sheet of the workbook to read. Needed when it has more than one. */
   sheet?: string | undefined;

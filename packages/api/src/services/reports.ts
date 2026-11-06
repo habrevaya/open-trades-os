@@ -6,6 +6,7 @@ import {
 } from "./context";
 import { assertCan } from "@opentradesos/core";
 import { refusingDuplicate } from "./duplicates";
+import { replayed, remember } from "./once";
 import { CATALOGUE } from "./report-catalogue";
 import { catalogueFor, OBJECT_DATASET_PREFIX } from "./report-company";
 import { recordVisibility } from "./custom-objects";
@@ -715,6 +716,17 @@ export async function save(
     }
 
     /**
+     * A retried save through the API (the same idempotency key) is answered
+     * with the report the first one saved, not refused as a duplicate name.
+     * The screens send no key, so for them nothing changes.
+     */
+    const prior = await replayed<{ id: string }>(tx, ctx, "report.create");
+    if (prior) {
+      const [first] = await tx.select().from(schema.report).where(eq(schema.report.id, prior.id)).limit(1);
+      if (first) return first;
+    }
+
+    /**
      * The name is unique per company, and a name is a thing a person types.
      * Two people saving "Monthly revenue" is the ordinary case, not a bug, so it
      * is a sentence rather than a crashed screen. `services/duplicates.ts`.
@@ -733,6 +745,7 @@ export async function save(
     );
 
     await audit(tx, ctx, "report.created", "report", created!.id, null, created);
+    await remember(tx, ctx, "report.create", created!.id, { id: created!.id });
     return created!;
   });
 }
@@ -783,6 +796,7 @@ function definitionFromWire(input: {
   orderBy?: string | undefined;
   limit?: number | undefined;
   fieldMatch?: "all" | "any" | undefined;
+  branchId?: string | undefined;
 }): reporting.ReportDefinition {
   return {
     dataset: input.dataset,
@@ -794,6 +808,27 @@ function definitionFromWire(input: {
     ...(input.orderBy ? { orderBy: input.orderBy } : {}),
     ...(input.limit ? { limit: input.limit } : {}),
     ...(input.fieldMatch ? { fieldMatch: input.fieldMatch } : {}),
+    /**
+     * The contract has always taken a branch, and the screens pass one; it
+     * was dropped here, so a drill through the API counted every branch the
+     * caller could see. A narrowing inside the caller's scope, never wider.
+     */
+    ...(input.branchId ? { branchId: input.branchId } : {}),
+  };
+}
+
+type WireDefinition = Parameters<typeof definitionFromWire>[0];
+
+/** A saved report as the API shows it: no tenant column, no soft delete, times as text. */
+function savedOnWire(row: typeof schema.report.$inferSelect) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    definition: row.definition as unknown as reporting.ReportDefinition,
+    createdByUserId: row.createdByUserId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
@@ -803,9 +838,90 @@ export const handlers = {
     match: Record<string, string | null>;
     page?: number | undefined;
     perPage?: number | undefined;
-  }): Promise<DrillResult> => drill(ctx, {
+  }): Promise<DrillResult> => {
+    /**
+     * The screen asks for `report:read` before it drills, and the route
+     * declares it; the drill itself checked only the dataset's own
+     * permission, so somebody who could read jobs but not reports could drill
+     * through the API. Asked here, as the screen asks.
+     */
+    assertCan(ctx.actor, "report:read");
+    return drill(ctx, {
     definition: definitionFromWire(input.definition), match: input.match,
     ...(input.page ? { page: input.page } : {}),
     ...(input.perPage ? { perPage: input.perPage } : {}),
-  }),
+    });
+  },
+
+  /** The same two lists the Reports screen shows, each trimmed the same way. */
+  listReports: async (ctx: ServiceContext, _input: Record<string, never>) => {
+    const saved = await list(ctx);
+    return {
+      builtIn: builtIn(ctx).map((r) => ({ slug: r.slug, name: r.name, question: r.question, definition: r.definition })),
+      saved: saved.map(savedOnWire),
+    };
+  },
+
+  /**
+   * The builder's list. `report:read` is enough here, as it is for the drill,
+   * which already takes any definition: it lists only what the caller may
+   * use, and running is checked again on its own.
+   */
+  getReportCatalogue: async (ctx: ServiceContext, _input: Record<string, never>) => {
+    assertCan(ctx.actor, "report:read");
+    return { datasets: await available(ctx) };
+  },
+
+  /** `run` checks the dataset's own permission; the screens ask for `report:read` first, and so does this. */
+  runReport: (ctx: ServiceContext, input: { definition: WireDefinition }) => {
+    assertCan(ctx.actor, "report:read");
+    return run(ctx, definitionFromWire(input.definition));
+  },
+
+  /**
+   * As the saved report's screen runs it: the stored definition with this
+   * run's dates and branch over it, and checked against whoever is running it.
+   */
+  runSavedReport: async (ctx: ServiceContext, input: {
+    id: string; from?: string | undefined; to?: string | undefined; branchId?: string | undefined;
+  }) => {
+    const [saved] = await guardedRead(ctx, "report:read", async (tx) =>
+      tx.select().from(schema.report)
+        .where(and(eq(schema.report.id, input.id), isNull(schema.report.deletedAt))).limit(1));
+    if (!saved) throw new NotFoundError("Report");
+    const stored = saved.definition as unknown as reporting.ReportDefinition;
+    const definition: reporting.ReportDefinition = {
+      ...stored,
+      ...(input.from ? { from: input.from } : {}),
+      ...(input.to ? { to: input.to } : {}),
+      ...(input.branchId ? { branchId: input.branchId } : {}),
+    };
+    return { report: savedOnWire(saved), result: await run(ctx, definition) };
+  },
+
+  createReport: async (ctx: ServiceContext, input: { name: string; description?: string | undefined; definition: WireDefinition }) => {
+    assertCan(ctx.actor, "report:build");
+    return savedOnWire(await save(ctx, {
+      name: input.name,
+      definition: definitionFromWire(input.definition),
+      ...(input.description ? { description: input.description } : {}),
+    }));
+  },
+
+  updateReport: async (ctx: ServiceContext, input: {
+    id: string; name: string; description?: string | undefined; definition: WireDefinition;
+  }) => {
+    assertCan(ctx.actor, "report:build");
+    return savedOnWire(await save(ctx, {
+      id: input.id,
+      name: input.name,
+      definition: definitionFromWire(input.definition),
+      ...(input.description ? { description: input.description } : {}),
+    }));
+  },
+
+  deleteReport: async (ctx: ServiceContext, input: { id: string }) => {
+    await remove(ctx, input);
+    return { ok: true as const };
+  },
 } as const;

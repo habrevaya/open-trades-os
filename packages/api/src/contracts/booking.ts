@@ -131,6 +131,8 @@ export const createBookingRequest = defineRoute({
   method: "post",
   path: "/v1/public/bookings",
   summary: "Book from the website",
+  description:
+    "A repeat with the same `idempotency-key` is the first booking, not a second one.",
   module: "M05",
   permissions: [],
   authorization: "public",

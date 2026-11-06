@@ -331,6 +331,20 @@ describe("money routes are idempotent", () => {
    * whole module is built to avoid.
    */
   const NOT_REPLAYABLE: Record<string, string> = {
+    "/v1/portal/invoice/pay":
+      "Starts a payment at the processor and creates none here: each request "
+      + "is a fresh payment the customer then confirms in the browser, so a repeat "
+      + "leaves the earlier one unconfirmed and nothing is charged twice. It was "
+      + "declared idempotent while a repeat was never answered with the first.",
+    "/v1/portal/account/pay":
+      "The same as the invoice link's Pay, from a sign in: each request starts "
+      + "a fresh payment the customer confirms in the browser, and a repeat leaves "
+      + "the earlier one unconfirmed. Declared idempotent while it never was.",
+    "/v1/portal/cards/{cardId}/pay":
+      "Charged on the spot, and the processor is asked with each attempt's own "
+      + "id, so a repeat before the webhook lands is a second charge request "
+      + "whatever key it carries (saved-cards.integration.test.ts shows it). Not "
+      + "marked idempotent, so the SDK never repeats it on its own.",
     "/v1/public/portal/{organizationSlug}/sign-in":
       "The response is the customer's session token and only its hash is "
       + "stored, so a replay has nothing to return. The code is spent by the "

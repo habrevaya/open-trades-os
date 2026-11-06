@@ -109,6 +109,22 @@ Authorise the job with an amount, who granted it and their reference. Leave
 the amount off for "bill what it costs". A supplement is another
 authorisation, which supersedes the first and keeps its consumption.
 
+On the job's page this is the "Authorised" section. Through the API it is
+`PUT /v1/jobs/{id}/authorization` (`job:write`): `amount` (null for no
+limit), `grantedByName` or `grantedByPartyId` (one of the job's own parties,
+refused otherwise), `externalReference`, `expiresAt` and `scopeNotes`. A job
+that already has one gets a supplement. A ceiling less than nothing is
+refused. A retry with the same `Idempotency-Key` gets the first answer back
+and records no second supplement. Each authorisation writes an audit row on
+the job (`authorization.granted`) with what it replaced.
+
+`GET /v1/jobs/{id}/authorization` (`job:read`) reads it back: `current` is the
+one in force with the ceiling, what invoices have billed against it and what
+is left, or null when nobody set one; `history` is every authorisation the
+job has had, newest first, each supplement naming the one it superseded. Both
+read the job in the caller's scope, so another branch's job, or a job a
+technician is not on, is not found.
+
 ### Invoice it
 
 Invoicing checks both: the right party, and the ceiling. It consumes the
@@ -263,7 +279,9 @@ client's to say, and the office sets it on the job when it is.
 **No adapter for any of these networks.** Not Corrigo, not ServiceChannel, not
 a warranty administrator's API. Each is a vendor approval and a contract rather
 than code, and one written against documentation without a sandbox looks
-finished and has never run. Everything above is reachable through the API, so
+finished and has never run. Everything above is reachable through the API (the
+job's cast at `PUT /v1/jobs/{id}/parties` and its ceiling at
+`/v1/jobs/{id}/authorization`, beside the orders themselves), so
 an integration or a middleware can drive it today, and the day a sandbox exists
 the adapter has somewhere to write to.
 
@@ -797,7 +815,8 @@ is the same, under `contract:read`.
 ## Permissions
 
 The cast and the ceiling are decisions about the job, so both need
-`job:write`. Reading either needs `job:read`. So does naming the job's
+`job:write`. Reading either needs `job:read`, and the ceiling is read in the
+caller's own scope, like the job. So does naming the job's
 contract, and reading its deadlines.
 
 A card's prices and rules are the price book's business: `pricebook:write`
@@ -862,6 +881,11 @@ is how one arrives. The browser test does the same, which is also the honest sha
 of the test: there is no adapter for any network, so the API is the only way in.
 
 ## What is not built
+
+**A client saying no is not recorded.** The service can mark the ceiling in
+force as denied, but no screen and no route does: a refusal is written in the
+scope notes of the next authorisation, or on the job. Nothing on the job page
+lists earlier authorisations either; the history is on the API only.
 
 **No EDI, cXML or network submission.** The file export is for a person to
 upload to the payer's system. Nothing here connects to an EDI network, an

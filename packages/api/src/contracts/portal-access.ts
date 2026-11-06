@@ -200,7 +200,7 @@ export const requestPortalBooking = defineRoute({
   path: "/v1/portal/booking",
   summary: "Ask for a visit from the customer's own account",
   description:
-    "From a sign in only. Writes a booking request already carrying the customer and the property, checked against the window and the technician's day inside the same transaction. The office books it; booking it with its visit puts the technician asked for on it when they are still free and qualified.",
+    "From a sign in only. Writes a booking request already carrying the customer and the property, checked against the window and the technician's day inside the same transaction. The office books it; booking it with its visit puts the technician asked for on it when they are still free and qualified. A repeat with the same `idempotency-key` is the first request, not a second one.",
   module: "M05",
   permissions: [],
   authorization: "grant",

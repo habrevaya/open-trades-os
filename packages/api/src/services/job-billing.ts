@@ -1061,6 +1061,27 @@ export async function coverageFromEquipment(
 
 /* --------------------------------------------------------------- handlers */
 
+/** A job's ceiling as the API shows it: the one in force, and every one it has had. */
+async function authorizationOnWire(ctx: ServiceContext, jobId: string) {
+  const current = await commercial.authorizationFor(ctx, { jobId });
+  const history = await commercial.authorizationHistory(ctx, { jobId });
+  return {
+    current: current
+      ? {
+          id: current.id,
+          state: current.state,
+          amount: current.amount,
+          consumed: current.consumed,
+          remaining: current.remaining,
+          grantedByName: current.grantedByName,
+          externalReference: current.externalReference,
+          expiresAt: current.expiresAt ? current.expiresAt.toISOString() : null,
+        }
+      : null,
+    history,
+  };
+}
+
 type PartyRole = Parameters<typeof commercial.setParties>[1]["parties"][number]["role"];
 
 export const handlers = {
@@ -1108,6 +1129,23 @@ export const handlers = {
         sharePercent: row.sharePercent, shareAmount: row.shareAmount,
       })),
     };
+  },
+  getJobAuthorization: (ctx: ServiceContext, input: { id: string }) => authorizationOnWire(ctx, input.id),
+  setJobAuthorization: async (ctx: ServiceContext, input: {
+    id: string; amount: string | null;
+    grantedByPartyId?: string | undefined; grantedByName?: string | undefined;
+    externalReference?: string | undefined; expiresAt?: string | undefined; scopeNotes?: string | undefined;
+  }) => {
+    await commercial.authorize(ctx, {
+      jobId: input.id,
+      amount: input.amount,
+      ...(input.grantedByPartyId ? { grantedByPartyId: input.grantedByPartyId } : {}),
+      ...(input.grantedByName?.trim() ? { grantedByName: input.grantedByName.trim() } : {}),
+      ...(input.externalReference?.trim() ? { externalReference: input.externalReference.trim() } : {}),
+      ...(input.expiresAt ? { expiresAt: new Date(input.expiresAt) } : {}),
+      ...(input.scopeNotes?.trim() ? { scopeNotes: input.scopeNotes.trim() } : {}),
+    });
+    return authorizationOnWire(ctx, input.id);
   },
   setJobCoverage: async (ctx: ServiceContext, input: {
     id: string;

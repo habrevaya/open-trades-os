@@ -103,6 +103,19 @@ marked for the field, on the customers they were sent to, the same as the notes
 list and the search box's notes. `/customers` is the same list with the same
 search.
 
+A customer on the list only because of a note says so: under the name, "From a
+note:" and the note's few words around the first word typed that it holds, so
+"4471" lists the account with "...The gate code is 4471 and the dog is
+friendly." under it. A customer whose name, email or phone says every word shows
+no note, because the row already explains itself. The words come from the newest
+note that says every word typed, or failing that the newest that says one of
+them, and only from a note the person searching could open: a technician sees a
+field note's words and never an office note's, and a customer outside a branch
+manager's branch is not on their list at all. On the API each row of a searched
+`GET /v1/customers` carries `matchedNote` (its id, those words and when it was
+written), null when the row explains itself or the list was not searched. The
+search box's customer hits say the same in place of the email.
+
 ### See everything about one account
 
 `/customers/{id}` is the account page: the properties, the contacts, the jobs,
@@ -532,10 +545,11 @@ that hangs off a customer; "any" is one choice for every field applied, not a mi
 A customer note is never deleted and, after its writer's 15 minutes, never
 changed: a wrong note stays, with its correction beside it. The customer
 list's search and the search box at the top of the menu both read notes (M29),
-through the customer's scope, a technician only the notes marked for the field;
-a note that matches shows nowhere on the list that it was the note that matched,
-so a customer found by a word the list row does not show reads as unexplained
-until the note is opened. The phone app shows the notes marked
+through the customer's scope, a technician only the notes marked for the field.
+A customer found by a note shows that note's words on the list (above), one note
+per customer: a second note that also matches is not shown, and the words are
+the part around the first word typed that the note holds, not every word. The
+phone app shows the notes marked
 for the field and cannot add, pin or fix one; that is the office's. A
 note is on a customer, not on an address or a job.
 

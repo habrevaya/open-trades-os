@@ -2,8 +2,27 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { authorization as authz, money as m, parties as partyRoles } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext,
+  audit, guardedRead, guardedWrite, scopeOf, ConflictError, NotFoundError, type ServiceContext,
 } from "./context";
+import { jobScopeFilter } from "./scope";
+import { replayed, remember } from "./once";
+
+/**
+ * The job, if the caller may see it: their branch's, or their own work.
+ *
+ * The ceiling is a fact about the job, so it is out of reach exactly where
+ * the job is, and reads as not found rather than as forbidden.
+ */
+async function visibleJob(tx: Database, ctx: ServiceContext, jobId: string): Promise<{ id: string }> {
+  const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
+    .where(and(
+      eq(schema.job.id, jobId),
+      isNull(schema.job.deletedAt),
+      jobScopeFilter(scopeOf(ctx, "job"), ctx.actor),
+    )).limit(1);
+  if (!job) throw new NotFoundError("Job");
+  return job;
+}
 
 /**
  * THE COMMERCIAL ARRANGEMENT
@@ -167,9 +186,33 @@ export interface AuthorizationInput {
  */
 export async function authorize(ctx: ServiceContext, input: AuthorizationInput) {
   return guardedWrite(ctx, "job:write", async (tx) => {
-    const [job] = await tx.select({ id: schema.job.id }).from(schema.job)
-      .where(and(eq(schema.job.id, input.jobId), isNull(schema.job.deletedAt))).limit(1);
-    if (!job) throw new NotFoundError("Job");
+    /** Another branch's job reads as missing, as it does everywhere else. */
+    await visibleJob(tx, ctx, input.jobId);
+
+    /**
+     * A retry through the API with the same idempotency key gets the
+     * authorisation the first one recorded. Without this a retried supplement
+     * would supersede itself: the same ceiling, but a second row in the
+     * history and a second audit entry for one decision.
+     */
+    const prior = await replayed<{ id: string }>(tx, ctx, "authorization.granted");
+    if (prior) {
+      const [first] = await tx.select().from(schema.authorization).where(eq(schema.authorization.id, prior.id)).limit(1);
+      if (first) return first;
+    }
+
+    if (input.grantedByPartyId) {
+      /**
+       * Who said yes is one of this job's own parties. A party from another
+       * job would name somebody who has nothing to do with this one.
+       */
+      const [party] = await tx.select({ id: schema.jobParty.id }).from(schema.jobParty)
+        .where(and(eq(schema.jobParty.id, input.grantedByPartyId), eq(schema.jobParty.jobId, input.jobId))).limit(1);
+      if (!party) throw new ConflictError("Whoever granted it has to be one of the people on this job. Add them to the job first.");
+    }
+    if (input.amount && m.isNegative(usd(input.amount))) {
+      throw new ConflictError("A ceiling cannot be less than nothing. Leave the amount off for no limit.");
+    }
 
     const [current] = await tx.select().from(schema.authorization)
       .where(and(
@@ -206,6 +249,7 @@ export async function authorize(ctx: ServiceContext, input: AuthorizationInput) 
     }).returning();
 
     await audit(tx, ctx, "authorization.granted", "job", input.jobId, current ?? null, row);
+    await remember(tx, ctx, "authorization.granted", row!.id, { id: row!.id });
     return row!;
   });
 }
@@ -282,6 +326,7 @@ export async function consume(
 
 export async function authorizationFor(ctx: ServiceContext, input: { jobId: string }) {
   return guardedRead(ctx, "job:read", async (tx) => {
+    await visibleJob(tx, ctx, input.jobId);
     const found = await ceilingFor(tx, input.jobId);
     if (!found) return null;
     const left = authz.remaining(found.terms);
@@ -302,6 +347,33 @@ export async function authorizationFor(ctx: ServiceContext, input: { jobId: stri
       expiresAt: found.terms.expiresAt ?? null,
       externalReference: found.terms.externalReference ?? null,
     };
+  });
+}
+
+/**
+ * Every authorisation a job has had, newest first: the one in force, and
+ * each it superseded, so a supplement is read with what it replaced.
+ */
+export async function authorizationHistory(ctx: ServiceContext, input: { jobId: string }) {
+  return guardedRead(ctx, "job:read", async (tx) => {
+    await visibleJob(tx, ctx, input.jobId);
+    const rows = await tx.select().from(schema.authorization)
+      .where(eq(schema.authorization.jobId, input.jobId))
+      .orderBy(desc(schema.authorization.createdAt), desc(schema.authorization.id));
+    return rows.map((row) => ({
+      id: row.id,
+      state: row.state,
+      amount: row.amount ? m.toString(usd(row.amount)) : null,
+      consumed: m.toString(usd(row.consumedAmount)),
+      grantedByPartyId: row.grantedByPartyId,
+      grantedByName: row.grantedByName,
+      externalReference: row.externalReference,
+      grantedAt: row.grantedAt ? row.grantedAt.toISOString() : null,
+      expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+      supersedesId: row.supersedesId,
+      scopeNotes: row.scopeNotes,
+      recordedAt: row.createdAt.toISOString(),
+    }));
   });
 }
 

@@ -28,7 +28,7 @@ export const requestPortalCode = defineRoute({
   path: "/v1/public/portal/{organizationSlug}/codes",
   summary: "Send a customer a sign in code",
   description:
-    "Takes the email address or mobile number the company has for the customer, and sends a six digit code there through the company's own email or text sender, under their consent rules. Answers the same whether or not the address is on file, so it cannot be used to find out who is a customer. Counted per address and per network address before anything is sent; past the ceiling it answers 429 and sends nothing. A new code ends the one before it.",
+    "Takes the email address or mobile number the company has for the customer, and sends a six digit code there through the company's own email or text sender, under their consent rules. Answers the same whether or not the address is on file, so it cannot be used to find out who is a customer. Counted per address and per network address before anything is sent; past the ceiling it answers 429 and sends nothing. A new code ends the one before it. A repeat with the same `idempotency-key` while its code is still good sends nothing new, so the code on its way keeps working.",
   module: "M05",
   permissions: [],
   authorization: "public",
@@ -77,7 +77,7 @@ export const signOutOfPortal = defineRoute({
   method: "post",
   path: "/v1/portal/sign-out",
   summary: "End a customer's sign in",
-  description: "Ends the session everywhere it is held. Only a sign in can be ended here; an account link somebody was sent is withdrawn by the office.",
+  description: "Ends the session everywhere it is held. Only a sign in can be ended here; an account link somebody was sent is withdrawn by the office. Signing out again is refused as a sign in that no longer works; the session stays ended.",
   module: "M05",
   permissions: [],
   authorization: "grant",
@@ -276,11 +276,10 @@ export const payPortalAccountInvoice = defineRoute({
   path: "/v1/portal/account/pay",
   summary: "Pay one of the customer's invoices, from their account",
   description:
-    "The invoice has to be this customer's or billed to them; any other id is the same not found as one that does not exist. The amount is the invoice's balance, read here, plus a tip when the company takes tips and somebody is recorded on the job to receive it. Creates no payment: the processor's signed webhook is the only thing that does.",
+    "The invoice has to be this customer's or billed to them; any other id is the same not found as one that does not exist. The amount is the invoice's balance, read here, plus a tip when the company takes tips and somebody is recorded on the job to receive it. Creates no payment: the processor's signed webhook is the only thing that does. Not repeatable: each request starts a fresh payment at the processor, and nothing is charged until the customer confirms one in the browser. A repeat leaves the earlier one unconfirmed.",
   module: "M13",
   permissions: [],
   authorization: "grant",
-  idempotent: true,
   input: z.object({
     token: Token,
     invoiceId: Uuid,
@@ -373,7 +372,7 @@ export const startPortalCardSetup = defineRoute({
   path: "/v1/portal/card-setup",
   summary: "Start saving a card or a bank account",
   description:
-    "From a sign in only. Returns what the processor's own element needs to collect the card, or to verify a bank account by signing in to the bank, in the browser. The details go to the processor and never to this server. A bank account only when the company has turned bank payments on.",
+    "From a sign in only. Returns what the processor's own element needs to collect the card, or to verify a bank account by signing in to the bank, in the browser. The details go to the processor and never to this server. A bank account only when the company has turned bank payments on. A repeat with the same `idempotency-key` is the same setup at the processor.",
   module: "M13",
   permissions: [],
   authorization: "grant",
@@ -418,11 +417,10 @@ export const payPortalInvoiceWithCard = defineRoute({
   path: "/v1/portal/cards/{cardId}/pay",
   summary: "Pay one invoice with a saved card",
   description:
-    "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. A saved bank account always answers processing: it is pending for a few business days, the invoice cannot be paid again meanwhile, and a failure is told to the office. The invoice shows paid when the processor's signed webhook says the money moved.",
+    "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. A saved bank account always answers processing: it is pending for a few business days, the invoice cannot be paid again meanwhile, and a failure is told to the office. The invoice shows paid when the processor's signed webhook says the money moved. Not repeatable: the card is charged on the spot, and a second request while the invoice still shows a balance (before the processor's webhook arrives) charges it again, whatever `idempotency-key` it carries. Do not retry it on your own; read the invoice first.",
   module: "M13",
   permissions: [],
   authorization: "grant",
-  idempotent: true,
   input: z.object({
     token: Token,
     cardId: Uuid,

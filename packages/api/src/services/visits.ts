@@ -3,7 +3,7 @@ import { schema } from "@opentradesos/db";
 import { can, reporting, time, work } from "@opentradesos/core";
 import { guardedRead, NotFoundError, scopeOf, timezoneOf, type ServiceContext } from "./context";
 import { jobVisibility } from "./scope";
-import { closeMatching, textFilter } from "./text-search";
+import { closeMatching, textFilter, type Searched } from "./text-search";
 import { shopNames } from "./visit-shop";
 
 /**
@@ -217,11 +217,28 @@ export interface FoundVisit {
 }
 
 /**
+ * The people on a visit and its crew, as places a word can be found. Each is
+ * an `exists` tied to the visit being listed, so it only ever narrows the
+ * visits the reader's scope already lets them open: naming another branch's
+ * technician finds nothing of that branch.
+ */
+const assignedTo: Searched = (match) => sql`exists (
+  select 1 from public.visit_assignment search_assignment
+  join public.technician search_technician on search_technician.id = search_assignment.technician_id
+  where search_assignment.visit_id = ${schema.visit.id} and ${match(sql`search_technician.display_name`)}
+)`;
+const bookedToCrew: Searched = (match) => sql`exists (
+  select 1 from public.crew search_crew
+  where search_crew.id = ${schema.visit.crewId} and ${match(sql`search_crew.name`)}
+)`;
+
+/**
  * THE VISITS A WORD FINDS, for the search box.
  *
  * A visit is found by the words on it and on its job: both notes on the visit
  * (the technician's, and what the office chose to show the customer), the
- * job's summary and its number, and the customer's name. Read under the same
+ * job's summary and its number, the customer's name, the name of anybody
+ * assigned to it, and the name of the crew it is booked to. Read under the same
  * rule as one visit on its own (`get`): `visit:read`, through the visit's job
  * and the reader's own visit scope, so a technician finds the visits they could
  * open and no others, and a job out of scope is a visit that is not there.
@@ -252,7 +269,10 @@ export async function find(
         jobVisibility(scopeOf(ctx, "visit"), ctx.actor, sql`${schema.job.id}`),
         textFilter(
           input.q,
-          [schema.visit.technicianNotes, schema.visit.customerNotes, schema.job.summary, schema.customer.name],
+          [
+            schema.visit.technicianNotes, schema.visit.customerNotes, schema.job.summary, schema.customer.name,
+            assignedTo, bookedToCrew,
+          ],
           schema.job.number,
           { close: input.close },
         ) ?? sql`false`,

@@ -427,6 +427,12 @@ export async function declineEstimate(db: Database, input: z.infer<typeof declin
     if (current.status === "approved" || current.status === "converted") {
       throw new ConflictError("This estimate has already been approved.");
     }
+    /**
+     * The route is declared idempotent, and a second press of Decline was
+     * recorded again: a second line on the office's timeline and a second
+     * "declined" event for every automation listening. Declined is declined.
+     */
+    if (current.status === "declined") return { ok: true as const };
 
     await tx.update(schema.estimate).set({
       status: "declined",
