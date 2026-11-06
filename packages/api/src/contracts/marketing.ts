@@ -459,7 +459,7 @@ export const submitForm = defineRoute({
   path: "/v1/public/forms/{formSlug}",
   summary: "Fill in a lead form",
   description:
-    "Every field is checked and ALL the refusals come back together. Returning the first makes somebody fix their phone number, submit, and be told about the address, which is where a homeowner with a leak rings the next company on the list. A refused submission is stored with its refusals, because a form that silently drops what it cannot parse is a form whose owner believes it works.",
+    "Every field is checked and ALL the refusals come back together. Returning the first makes somebody fix their phone number, submit, and be told about the address, which is where a homeowner with a leak rings the next company on the list. A refused submission is stored with its refusals, because a form that silently drops what it cannot parse is a form whose owner believes it works. A repeat with the same `idempotency-key` answers with the first submission's outcome rather than making a second lead.",
   module: "M19",
   permissions: [],
   authorization: "public",

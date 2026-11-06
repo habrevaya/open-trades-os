@@ -253,18 +253,23 @@ export function buildOpenApiDocument(
     const authorization: Authorization = route.authorization ?? "session";
 
     /**
-     * The idempotency key is a HEADER and never a body field, and the
-     * dispatcher only reads it inside the session branch. Documenting it on an
-     * idempotent grant or public route would promise a retry safety that
-     * nothing implements.
+     * The idempotency key is a HEADER and never a body field. The dispatcher
+     * hands it to every route (src/http/dispatch.ts): a session route gets it
+     * on its context, and a grant or public route in its request meta, where
+     * the service keys its replay on it narrowed by what the caller holds
+     * (the form, the chat, the sign in), because a key a stranger chose must
+     * not fetch somebody else's answer. So it is documented on every route
+     * that declares itself idempotent, whoever may call it; a route whose
+     * repeat is not a no-op does not declare it, and says why.
      */
-    if (route.idempotent === true && authorization === "session") {
+    if (route.idempotent === true) {
       parameters.push({
         name: "idempotency-key",
         in: "header",
         required: false,
-        description:
-          "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+        description: authorization === "session"
+          ? "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge."
+          : "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
         schema: { type: "string" },
       });
     }
@@ -407,12 +412,6 @@ function describe(route: RouteDefinition, authorization: Authorization): string 
   } else {
     lines.push(
       "Open to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
-    );
-  }
-
-  if (route.idempotent === true && authorization !== "session") {
-    lines.push(
-      "Declared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
     );
   }
 

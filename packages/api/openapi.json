@@ -104269,7 +104269,7 @@
       "post": {
         "operationId": "payPortalAccountInvoice",
         "summary": "Pay one of the customer's invoices, from their account",
-        "description": "The invoice has to be this customer's or billed to them; any other id is the same not found as one that does not exist. The amount is the invoice's balance, read here, plus a tip when the company takes tips and somebody is recorded on the job to receive it. Creates no payment: the processor's signed webhook is the only thing that does.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "The invoice has to be this customer's or billed to them; any other id is the same not found as one that does not exist. The amount is the invoice's balance, read here, plus a tip when the company takes tips and somebody is recorded on the job to receive it. Creates no payment: the processor's signed webhook is the only thing that does. Not repeatable: each request starts a fresh payment at the processor, and nothing is charged until the customer confirms one in the browser. A repeat leaves the earlier one unconfirmed.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -104434,9 +104434,20 @@
       "post": {
         "operationId": "requestPortalBooking",
         "summary": "Ask for a visit from the customer's own account",
-        "description": "From a sign in only. Writes a booking request already carrying the customer and the property, checked against the window and the technician's day inside the same transaction. The office books it; booking it with its visit puts the technician asked for on it when they are still free and qualified.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. Writes a booking request already carrying the customer and the property, checked against the window and the technician's day inside the same transaction. The office books it; booking it with its visit puts the technician asked for on it when they are still free and qualified. A repeat with the same `idempotency-key` is the first request, not a second one.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -104651,9 +104662,20 @@
       "post": {
         "operationId": "startPortalCardSetup",
         "summary": "Start saving a card or a bank account",
-        "description": "From a sign in only. Returns what the processor's own element needs to collect the card, or to verify a bank account by signing in to the bank, in the browser. The details go to the processor and never to this server. A bank account only when the company has turned bank payments on.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. Returns what the processor's own element needs to collect the card, or to verify a bank account by signing in to the bank, in the browser. The details go to the processor and never to this server. A bank account only when the company has turned bank payments on. A repeat with the same `idempotency-key` is the same setup at the processor.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -104740,9 +104762,20 @@
       "post": {
         "operationId": "confirmPortalCardSetup",
         "summary": "Record a card the processor says was saved",
-        "description": "From a sign in only, for a setup this customer started. The setup is read from the processor with the company's key, and the card is recorded only when the processor says the setup succeeded for this customer. Running it twice records the card once.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only, for a setup this customer started. The setup is read from the processor with the company's key, and the card is recorded only when the processor says the setup succeeded for this customer. Running it twice records the card once.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -104910,9 +104943,20 @@
       "put": {
         "operationId": "orderPortalCardAutopayBackups",
         "summary": "Put the backup cards for paying automatically in a new order",
-        "description": "From a sign in only. `cardIds` is every backup card there is, once each, in the order they should be tried when the card paying automatically does not go through. Nothing is stopped and no words are asked again: each backup was agreed as a backup in words that name no place, and keeps its agreement; only where it stands changes. A list that does not name exactly the backups there are (one chosen or stopped in another window since) is refused, asking for a refresh. The card paying automatically is not in it. The order before and after is audited.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. `cardIds` is every backup card there is, once each, in the order they should be tried when the card paying automatically does not go through. Nothing is stopped and no words are asked again: each backup was agreed as a backup in words that name no place, and keeps its agreement; only where it stands changes. A list that does not name exactly the backups there are (one chosen or stopped in another window since) is refused, asking for a refresh. The card paying automatically is not in it. The order before and after is audited.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -104999,7 +105043,7 @@
       "post": {
         "operationId": "agreeToPortalCardCharges",
         "summary": "Let the company charge a saved card without pressing Pay",
-        "description": "From a sign in only. `wording` is the text the customer was shown for this card (from `GET /v1/portal/cards`), and is refused when it is not the words the server builds for it now. Records the words, when, from which sign in, as which contact and from where. Agreeing to a card already agreed returns the agreement that stands.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. `wording` is the text the customer was shown for this card (from `GET /v1/portal/cards`), and is refused when it is not the words the server builds for it now. Records the words, when, from which sign in, as which contact and from where. Agreeing to a card already agreed returns the agreement that stands.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -105011,6 +105055,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -105099,7 +105152,7 @@
       "post": {
         "operationId": "withdrawPortalCardAgreement",
         "summary": "Stop the company charging a saved card",
-        "description": "From a sign in only. Ends the agreement and paying automatically at once; the card stays saved for paying by pressing Pay. Withdrawing when there is nothing to withdraw changes nothing.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. Ends the agreement and paying automatically at once; the card stays saved for paying by pressing Pay. Withdrawing when there is nothing to withdraw changes nothing.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -105111,6 +105164,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -105199,7 +105261,7 @@
       "post": {
         "operationId": "setPortalCardAutopay",
         "summary": "Pay each bill automatically with a saved card, or stop",
-        "description": "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card; the backups stay behind it, and a backup chosen here moves to the front. Turning it off needs no words, and stops the backups too.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only, for a card the customer already lets the company charge. Turning it on needs the autopay words shown for this card, checked as the agreement's are; it then pays each bill issued from now on, a plan's instalments included, and turns it off on any other card; the backups stay behind it, and a backup chosen here moves to the front. Turning it off needs no words, and stops the backups too. Turning it on when it is on, or off when it is off, changes nothing.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -105211,6 +105273,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -105299,7 +105370,7 @@
       "post": {
         "operationId": "setPortalCardAutopayBackup",
         "summary": "Keep a saved card as a backup for paying automatically, or stop",
-        "description": "From a sign in only, for a card the customer already lets the company charge and that is not the card paying automatically. Turning it on needs the backup words shown for this card (`wording.backup` on `GET /v1/portal/cards`), checked as the agreement's are, and a card already paying automatically; it goes behind the backups there are, up to two. When an automatic charge on the first card does not go through, each backup is tried once, in order, in the same run, and the customer is told which card paid. Backups are never tried on the next day's try, and stop when paying automatically stops. Turning it off needs no words and leaves the other backups where they are.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only, for a card the customer already lets the company charge and that is not the card paying automatically. Turning it on needs the backup words shown for this card (`wording.backup` on `GET /v1/portal/cards`), checked as the agreement's are, and a card already paying automatically; it goes behind the backups there are, up to two. When an automatic charge on the first card does not go through, each backup is tried once, in order, in the same run, and the customer is told which card paid. Backups are never tried on the next day's try, and stop when paying automatically stops. Turning it off needs no words and leaves the other backups where they are.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -105311,6 +105382,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -105399,7 +105479,7 @@
       "post": {
         "operationId": "payPortalInvoiceWithCard",
         "summary": "Pay one invoice with a saved card",
-        "description": "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. A saved bank account always answers processing: it is pending for a few business days, the invoice cannot be paid again meanwhile, and a failure is told to the office. The invoice shows paid when the processor's signed webhook says the money moved.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only, for an invoice this customer is the one paying. Confirmed with the card on the spot, so the answer is succeeded, processing, or requires_action when the bank wants to check it is them; the client secret finishes that in the browser. A saved bank account always answers processing: it is pending for a few business days, the invoice cannot be paid again meanwhile, and a failure is told to the office. The invoice shows paid when the processor's signed webhook says the money moved. Not repeatable: the card is charged on the spot, and a second request while the invoice still shows a balance (before the processor's webhook arrives) charges it again, whatever `idempotency-key` it carries. Do not retry it on your own; read the invoice first.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -105499,7 +105579,7 @@
       "post": {
         "operationId": "removePortalCard",
         "summary": "Remove a saved card",
-        "description": "The processor is told to forget it first. Removing a card already removed changes nothing.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "The processor is told to forget it first. Removing a card already removed changes nothing.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -105511,6 +105591,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -105680,9 +105769,20 @@
       "post": {
         "operationId": "approvePortalChangeOrder",
         "summary": "Approve and sign a change order",
-        "description": "Spends the link. The signature is recorded with a hash of the change order as sent, the address and the browser, and the contract moves in the same transaction. A change order edited after sending, or one that can no longer be agreed as written, is refused.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "Spends the link. The signature is recorded with a hash of the change order as sent, the address and the browser, and the contract moves in the same transaction. A change order edited after sending, or one that can no longer be agreed as written, is refused. Approving one already approved returns it as it stands, while the link still works.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M12"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -105769,9 +105869,20 @@
       "post": {
         "operationId": "declinePortalChangeOrder",
         "summary": "Decline a change order",
-        "description": "Authorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "Declining one already declined changes nothing, while the link still works.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M12"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -105948,9 +106059,20 @@
       "post": {
         "operationId": "closePortalChat",
         "summary": "Close the signed in customer's chat",
-        "description": "From a sign in only. Ends the conversation the customer has open, whoever has it: the inbox shows it as closed and says the customer closed it, and the office can no longer reply into it. Nothing the office has not read is marked read, so what the customer wrote stays in front of the office. The next message the customer writes opens a new conversation. Closing a chat that is already closed, or before one was started, changes nothing. The answer is the chat as the customer now sees it: status `closed` and no messages until they write again.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. Ends the conversation the customer has open, whoever has it: the inbox shows it as closed and says the customer closed it, and the office can no longer reply into it. Nothing the office has not read is marked read, so what the customer wrote stays in front of the office. The next message the customer writes opens a new conversation. Closing a chat that is already closed, or before one was started, changes nothing. The answer is the chat as the customer now sees it: status `closed` and no messages until they write again.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -106037,9 +106159,20 @@
       "post": {
         "operationId": "sayInPortalChat",
         "summary": "Write to the company from the customer's account",
-        "description": "From a sign in only. The message goes on the customer's own conversation in the inbox, under the customer the sign in names (or the contact signed in as them). The automated assistant answers only when the company turned it on for customer accounts and nobody in the office has taken the conversation; otherwise it waits for a person, unread, with a task when it goes from read to unread. A message with a picture always goes to a person, because the assistant cannot see it. Twelve a minute and sixty an hour per customer. Words, pictures or both: up to three photos (JPEG, PNG, HEIC or WebP, by their bytes) and 5 MB in a message, 25 MB a day, and the twenty an hour a file added to a job counts against. Any picture refused refuses the whole message.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. The message goes on the customer's own conversation in the inbox, under the customer the sign in names (or the contact signed in as them). The automated assistant answers only when the company turned it on for customer accounts and nobody in the office has taken the conversation; otherwise it waits for a person, unread, with a task when it goes from read to unread. A message with a picture always goes to a person, because the assistant cannot see it. Twelve a minute and sixty an hour per customer. Words, pictures or both: up to three photos (JPEG, PNG, HEIC or WebP, by their bytes) and 5 MB in a message, 25 MB a day, and the twenty an hour a file added to a job counts against. Any picture refused refuses the whole message. A repeat with the same `idempotency-key` is one message.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -106229,7 +106362,7 @@
       "post": {
         "operationId": "removePortalChatPicture",
         "summary": "Take back a picture the signed in customer sent in their chat",
-        "description": "From a sign in only. Lets go of the customer's own picture at that position on that message, until somebody in the company has opened it (the inbox fetching it records who and when); after that it is refused in words, because it is the company's record of what it was sent. The picture is gone for both sides: the customer's page no longer shows it (a message that was only that picture goes with it), and the thread tells the office \"The customer took this picture back before anyone opened it.\" in its place. The message's words stay. Another customer's picture, a picture the office sent, a position with nothing kept and a made up id are the same not found. Taking back one already taken back changes nothing. The answer is the chat as the customer now sees it.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. Lets go of the customer's own picture at that position on that message, until somebody in the company has opened it (the inbox fetching it records who and when); after that it is refused in words, because it is the company's record of what it was sent. The picture is gone for both sides: the customer's page no longer shows it (a message that was only that picture goes with it), and the thread tells the office \"The customer took this picture back before anyone opened it.\" in its place. The message's words stay. Another customer's picture, a picture the office sent, a position with nothing kept and a made up id are the same not found. Taking back one already taken back changes nothing. The answer is the chat as the customer now sees it.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
         ],
@@ -106254,6 +106387,15 @@
               ],
               "minimum": 0,
               "maximum": 2
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -106504,9 +106646,20 @@
       "post": {
         "operationId": "approvePortalEstimate",
         "summary": "Approve an estimate",
-        "description": "Authorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "Approving again on the option already approved returns the approval that stands; approving a different option is refused.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -106593,9 +106746,20 @@
       "post": {
         "operationId": "declinePortalEstimate",
         "summary": "Decline an estimate",
-        "description": "The reason is optional and worth asking for anyway. Decline reasons are the only direct signal a company gets about its own pricing.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "The reason is optional and worth asking for anyway. Decline reasons are the only direct signal a company gets about its own pricing. Declining one already declined changes nothing and tells the office nothing new.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -106683,9 +106847,20 @@
       "post": {
         "operationId": "addPortalFile",
         "summary": "Add a photograph or a PDF to one of the customer's own jobs or visits",
-        "description": "From a sign in only. Refused for a cancelled job or visit, for a program by its name, claimed type or bytes, for anything that is not a photograph (JPEG, PNG, HEIC, WebP) or a PDF by its bytes, over 5 MB, past 10 files or 25 MB on one job, and past 20 an hour for one customer. The office sees it on the job and the technician on the visit; the customer sees it in their list, never on the job link. The same bytes on the same job or visit are one file.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. Refused for a cancelled job or visit, for a program by its name, claimed type or bytes, for anything that is not a photograph (JPEG, PNG, HEIC, WebP) or a PDF by its bytes, over 5 MB, past 10 files or 25 MB on one job, and past 20 an hour for one customer. The office sees it on the job and the technician on the visit; the customer sees it in their list, never on the job link. The same bytes on the same job or visit are one file.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -106847,7 +107022,7 @@
       "post": {
         "operationId": "removePortalFile",
         "summary": "Take back a file the customer added, before the company has opened it",
-        "description": "From a sign in only. Only a file this customer added, and only until somebody in the company has opened it; after that it stays with the job. A file the office added is never the customer's to remove and is the same not found as one that does not exist. Removing one already removed changes nothing.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From a sign in only. Only a file this customer added, and only until somebody in the company has opened it; after that it stays with the job. A file the office added is never the customer's to remove and is the same not found as one that does not exist. Removing one already removed changes nothing.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
         ],
@@ -106859,6 +107034,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -107295,7 +107479,7 @@
       "post": {
         "operationId": "payPortalInvoice",
         "summary": "Pay an invoice from the link",
-        "description": "Takes no amount and no invoice id. The invoice comes from the grant and the amount is read from its balance, because the caller is a browser and a browser that can name both can name a number that suits it. It creates no payment: the processor's signed webhook is the only thing that marks money as having moved.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "Takes no amount and no invoice id. The invoice comes from the grant and the amount is read from its balance, because the caller is a browser and a browser that can name both can name a number that suits it. It creates no payment: the processor's signed webhook is the only thing that marks money as having moved. Not repeatable: each request starts a fresh payment at the processor, and nothing is charged until the customer confirms one in the browser. A repeat leaves the earlier one unconfirmed.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M13"
         ],
@@ -107789,9 +107973,20 @@
       "post": {
         "operationId": "signOutOfPortal",
         "summary": "End a customer's sign in",
-        "description": "Ends the session everywhere it is held. Only a sign in can be ended here; an account link somebody was sent is withdrawn by the office.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "Ends the session everywhere it is held. Only a sign in can be ended here; an account link somebody was sent is withdrawn by the office. Signing out again is refused as a sign in that no longer works; the session stays ended.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -108063,9 +108258,20 @@
       "post": {
         "operationId": "requestPortalVisitChange",
         "summary": "Ask to move or cancel a visit",
-        "description": "Never moves anything. Writes a request the office approves or declines, raises it in the office queue, and checks a move against the windows online booking would offer at this moment. A cancellation needs a reason. Sending the same request again returns the first one; a different one while one is waiting is refused.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "Never moves anything. Writes a request the office approves or declines, raises it in the office queue, and checks a move against the windows online booking would offer at this moment. A cancellation needs a reason. Sending the same request again returns the first one; a different one while one is waiting is refused.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -108152,9 +108358,20 @@
       "post": {
         "operationId": "answerPortalVisitChangeProposal",
         "summary": "Take or turn down the time the office offered",
-        "description": "From the same link the customer asked from, or the link the office's offer was sent with. Yes moves the visit to the offered time, takes it off whoever had it and puts it on the board for that day; no leaves it where it was. Either raises a task in the office queue. The same answer twice returns the first.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "From the same link the customer asked from, or the link the office's offer was sent with. Yes moves the visit to the offered time, takes it off whoever had it and puts it on the board for that day; no leaves it where it was. Either raises a task in the office queue. The same answer twice returns the first.\n\nAuthorized by a capability grant, held by a customer with no account and no session. The grant IS the permission: it is scoped to one record and expires. Its token travels in the `token` request body field, so it is part of the request shape rather than an HTTP credential.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -118726,9 +118943,20 @@
       "post": {
         "operationId": "createBookingRequest",
         "summary": "Book from the website",
-        "description": "Open to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "A repeat with the same `idempotency-key` is the first booking, not a second one.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M05"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -118896,9 +119124,20 @@
       "post": {
         "operationId": "sayInChat",
         "summary": "Say something in a website chat, and get the answer",
-        "description": "The visitor's words go into the company's inbox first. Then the assistant answers from the company's own facts, or a person is asked to: when the visitor asks for one, when the assistant is unsure, would have quoted a price the company has not published, or has reached its limit. A repeat of the same idempotency key is one message and one answer. Sent with `Accept: text/event-stream`, it answers as Server-Sent Events: `writing` events with the reply so far, whole sentences naming only published prices, then one `answer` event with exactly the transcript this route otherwise answers, which replaces what was shown and may be a hand over to a person. Counted per address and per chat the same way either way.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "The visitor's words go into the company's inbox first. Then the assistant answers from the company's own facts, or a person is asked to: when the visitor asks for one, when the assistant is unsure, would have quoted a price the company has not published, or has reached its limit. A repeat of the same idempotency key is one message and one answer. Sent with `Accept: text/event-stream`, it answers as Server-Sent Events: `writing` events with the reply so far, whole sentences naming only published prices, then one `answer` event with exactly the transcript this route otherwise answers, which replaces what was shown and may be a hand over to a person. Counted per address and per chat the same way either way.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M27"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -119081,9 +119320,20 @@
       "post": {
         "operationId": "readChat",
         "summary": "Read a website chat",
-        "description": "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox. While the assistant is answering, `writing` holds its reply so far; the widget reads it about once a second only when it could not read the answer as a stream from the messages route.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "A POST so the chat's token travels in the body rather than in an address a proxy logs. A read, so a repeat is the same answer. `after` returns only what is newer, which is how the widget sees a person's reply from the inbox. While the assistant is answering, `writing` holds its reply so far; the widget reads it about once a second only when it could not read the answer as a stream from the messages route.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M27"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -119288,7 +119538,7 @@
       "post": {
         "operationId": "submitForm",
         "summary": "Fill in a lead form",
-        "description": "Every field is checked and ALL the refusals come back together. Returning the first makes somebody fix their phone number, submit, and be told about the address, which is where a homeowner with a leak rings the next company on the list. A refused submission is stored with its refusals, because a form that silently drops what it cannot parse is a form whose owner believes it works.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "Every field is checked and ALL the refusals come back together. Returning the first makes somebody fix their phone number, submit, and be told about the address, which is where a homeowner with a leak rings the next company on the list. A refused submission is stored with its refusals, because a form that silently drops what it cannot parse is a form whose owner believes it works. A repeat with the same `idempotency-key` answers with the first submission's outcome rather than making a second lead.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M19"
         ],
@@ -119301,6 +119551,15 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 100
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -119551,7 +119810,7 @@
       "post": {
         "operationId": "requestPortalCode",
         "summary": "Send a customer a sign in code",
-        "description": "Takes the email address or mobile number the company has for the customer, and sends a six digit code there through the company's own email or text sender, under their consent rules. Answers the same whether or not the address is on file, so it cannot be used to find out who is a customer. Counted per address and per network address before anything is sent; past the ceiling it answers 429 and sends nothing. A new code ends the one before it.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "Takes the email address or mobile number the company has for the customer, and sends a six digit code there through the company's own email or text sender, under their consent rules. Answers the same whether or not the address is on file, so it cannot be used to find out who is a customer. Counted per address and per network address before anything is sent; past the ceiling it answers 429 and sends nothing. A new code ends the one before it. A repeat with the same `idempotency-key` while its code is still good sends nothing new, so the code on its way keeps working.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M05"
         ],
@@ -119564,6 +119823,15 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 100
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -119843,9 +120111,20 @@
       "post": {
         "operationId": "recordPublicTouch",
         "summary": "A visitor arrived on the company's website",
-        "description": "Posted by the website snippet. Only attribution is kept: the utm tags, the click ids (gclid, gbraid, wbraid, fbclid, msclkid), a referral code, the page's path and the referring host. Counted per company, per address and per visitor and refused past a ceiling. The same arrival from the same visitor within half an hour is recognised and not counted twice, which is what makes a retry safe.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "Posted by the website snippet. Only attribution is kept: the utm tags, the click ids (gclid, gbraid, wbraid, fbclid, msclkid), a referral code, the page's path and the referring host. Counted per company, per address and per visitor and refused past a ceiling. The same arrival from the same visitor within half an hour is recognised and not counted twice, which is what makes a retry safe.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M19"
+        ],
+        "parameters": [
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -119933,7 +120212,7 @@
       "post": {
         "operationId": "confirmUnsubscribe",
         "summary": "Unsubscribe from marketing email",
-        "description": "RFC 8058 one click: this is what a mailbox provider POSTs when somebody presses the unsubscribe control Gmail draws next to the sender's name. Writes a suppression for email MARKETING and a consent revocation, never a blanket suppression: somebody who stops wanting promotions has not stopped wanting their invoice or their appointment confirmation, and reading unsubscribe as never-contact-again breaks the company's ability to do business with a customer who is still a customer. Idempotent, and a second press is answered with the same page rather than an error, because somebody clicking twice is somebody who is not sure it worked. There is no expiry, ever: telling somebody their unsubscribe link has expired sends them to the spam button, which costs the sending domain more than ten unsubscribes.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "RFC 8058 one click: this is what a mailbox provider POSTs when somebody presses the unsubscribe control Gmail draws next to the sender's name. Writes a suppression for email MARKETING and a consent revocation, never a blanket suppression: somebody who stops wanting promotions has not stopped wanting their invoice or their appointment confirmation, and reading unsubscribe as never-contact-again breaks the company's ability to do business with a customer who is still a customer. Idempotent, and a second press is answered with the same page rather than an error, because somebody clicking twice is somebody who is not sure it worked. There is no expiry, ever: telling somebody their unsubscribe link has expired sends them to the spam button, which costs the sending domain more than ten unsubscribes.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M19"
         ],
@@ -119946,6 +120225,15 @@
               "type": "string",
               "minLength": 16,
               "maxLength": 200
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -120028,7 +120316,7 @@
       "get": {
         "operationId": "describeUnsubscribe",
         "summary": "What this unsubscribe link is about",
-        "description": "WRITES NOTHING, and that asymmetry with the POST is the whole design. Every link prefetcher, corporate mail scanner, security product and chat preview follows URLs in inbound mail with a GET. If GET unsubscribed, a company's whole list would be opted out by software over a few months with no human having clicked anything. An unknown or expired token gets the same answer as one that never existed, so this cannot be used to test whether a token is live.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.\n\nDeclared idempotent, but the dispatcher only applies an `idempotency-key` header on session authorized routes, so a retry of this route is NOT currently a no-op.",
+        "description": "WRITES NOTHING, and that asymmetry with the POST is the whole design. Every link prefetcher, corporate mail scanner, security product and chat preview follows URLs in inbound mail with a GET. If GET unsubscribed, a company's whole list would be opted out by software over a few months with no human having clicked anything. An unknown or expired token gets the same answer as one that never existed, so this cannot be used to test whether a token is live.\n\nOpen to anybody, with no credential of any kind. It returns nothing about any identified person. A connected application's bearer token is accepted here for attribution only, and never as a reason to refuse the request.",
         "tags": [
           "M19"
         ],
@@ -120041,6 +120329,15 @@
               "type": "string",
               "minLength": 16,
               "maxLength": 200
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect: the first answer, or the state it already set, as the description says. Only ever matched with what this caller already holds, never with another caller's request.",
+            "schema": {
+              "type": "string"
             }
           }
         ],

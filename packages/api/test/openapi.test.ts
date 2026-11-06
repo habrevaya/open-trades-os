@@ -281,16 +281,18 @@ describe("authorization", () => {
     expect(Object.keys((schema?.["properties"] ?? {}) as Record<string, unknown>)).not.toContain("idempotencyKey");
 
     /**
-     * And NOT on a grant or public route. dispatch.ts only reads the header
-     * inside the session branch, so documenting it on the portal's idempotent
-     * routes would promise a retry safety nothing implements.
+     * On EVERY idempotent route, grant and public ones included, and on no
+     * other. dispatch.ts used to read the header inside the session branch
+     * only, and this asserted it was absent from the portal's routes; it now
+     * hands the key to every route, and the open routes key their replay on
+     * it (a form, a booking, a chat message, a sign in code), so leaving it
+     * off told the SDK not to send one and not to retry.
      */
-    for (const { operation } of operationsOf(document)) {
-      if (operation["x-authorization"] === "session") continue;
-      expect(
-        operation.parameters?.map((p) => p.name) ?? [],
-        `${operation.operationId} is not session authorized, so its idempotency-key header is ignored`,
-      ).not.toContain("idempotency-key");
+    const declared = new Map(routeList.map((r) => [`${r.method} ${r.path}`, r.idempotent === true]));
+    for (const { path, method, operation } of operationsOf(document)) {
+      const takesKey = (operation.parameters?.map((p) => p.name) ?? []).includes("idempotency-key");
+      expect(takesKey, `${operation.operationId}: the header is documented exactly where the route is idempotent`)
+        .toBe(declared.get(`${method} ${path}`) ?? false);
     }
   });
 });

@@ -293,7 +293,7 @@ export const approvePortalChangeOrder = defineRoute({
   path: "/v1/portal/change-order/approve",
   summary: "Approve and sign a change order",
   description:
-    "Spends the link. The signature is recorded with a hash of the change order as sent, the address and the browser, and the contract moves in the same transaction. A change order edited after sending, or one that can no longer be agreed as written, is refused.",
+    "Spends the link. The signature is recorded with a hash of the change order as sent, the address and the browser, and the contract moves in the same transaction. A change order edited after sending, or one that can no longer be agreed as written, is refused. Approving one already approved returns it as it stands, while the link still works.",
   module: "M12",
   permissions: [],
   authorization: "grant",
@@ -310,6 +310,8 @@ export const declinePortalChangeOrder = defineRoute({
   method: "post",
   path: "/v1/portal/change-order/decline",
   summary: "Decline a change order",
+  description:
+    "Declining one already declined changes nothing, while the link still works.",
   module: "M12",
   permissions: [],
   authorization: "grant",

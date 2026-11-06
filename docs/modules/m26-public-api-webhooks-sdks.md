@@ -196,6 +196,38 @@ The open routes, and only they, answer a browser's preflight and mark
 their answers readable from any origin, which is safe because they read no
 cookie and hold no session for another page to borrow.
 
+### Retry without doing it twice
+
+A route that declares itself idempotent takes an `Idempotency-Key` header, and
+the reference marks the header on exactly those routes, whoever may call them.
+Repeat the same key and the request is not done twice: the first answer comes
+back, or the state the first one set. The key is a header and never a body field,
+because a client that rebuilds its body on a retry would rebuild a key inside it.
+
+A session route gets the key on its context and the service keeps the first
+answer against it. A route with no session (the portal's link and sign in routes,
+the booking widget, the hosted forms, the website chat) gets it too
+(`src/http/dispatch.ts` hands it to every route), and its service matches it only
+with what that caller already holds: a form submission on that form, a chat
+message on that chat, a sign in code for that address, a booking for that
+customer. A key a stranger guesses never returns somebody else's answer. The rest
+of the open idempotent routes set a state (unsubscribe, approve or decline an
+estimate or a change order, close a chat, turn autopay on), so doing one twice
+changes nothing; each route's description says which it is.
+
+Three portal routes that touch a card are not idempotent and do not take the
+key: Pay on an invoice link (`POST /v1/portal/invoice/pay`) and on a signed in
+account (`POST /v1/portal/account/pay`) each start a fresh payment the customer
+confirms in the browser, so a repeat leaves the earlier one unconfirmed and
+nothing is charged twice; and paying with a saved card
+(`POST /v1/portal/cards/{cardId}/pay`) charges on the spot, so a repeat before
+the processor's webhook lands is a second charge. The SDK only repeats a route
+that takes a key, so it never repeats these.
+
+`idempotency-open-routes.integration.test.ts` posts a public form twice with one
+key and declines an estimate twice from its link, through the dispatcher, and
+checks the reference marks the header on every idempotent route and no other.
+
 ### Read an answer as it is written
 
 A route that answers with something a model writes can send it as it is
@@ -342,8 +374,10 @@ stream that ends before its answer, a 429 or a 5xx is asked again after a pause
 server sent, up to `maxReconnects` (5) times in a row. The server's ids say how much
 of the answer it had, so a resume while the answer is still being written joins it
 and is sent only the sentences after the id; its behaviour did not otherwise change. It asks again only for an
-operation that takes an idempotency key, so the website chat's message, which takes
-none, is never sent twice: a drop there is thrown. An abort `signal` stops it at
+operation that takes an idempotency key. Both that stream take one, and for the
+website chat's message the same key is one message and one answer, so a resume
+joins the reply rather than sending the visitor's words again; a drop on an
+operation without a key is thrown. An abort `signal` stops it at
 once, mid stream or mid pause, and closes the connection, as leaving the loop early
 does. `lastEventId` with your own `idempotencyKey` resumes a stream another process
 was reading. A server that answers JSON instead is read as one `answer`. The parser
@@ -415,10 +449,7 @@ to retry.
 ## What is not built
 
 Only the field assistant and the website chat's messages answer as they are
-written; every other route answers whole. The SDK resumes only the field assistant:
-the OpenAPI document does not mark the open chat route as taking an idempotency key,
-so `events()` never asks it again, though a widget or any caller sending the same
-key and `Last-Event-ID` is joined to the reply. Joining reads the record about
+written; every other route answers whole. Joining reads the record about
 every half second, so a joined stream can be a sentence behind the first, and a
 first answer given as JSON (not a stream) writes no sentences onto the record, so a
 stream joining it waits for the whole answer. A resume that reaches a different
@@ -426,6 +457,13 @@ server while the first is still answering joins it the same way, through the
 database, not the first server's memory. A sentence is sent only once it is
 finished, so a long first sentence arrives late, and on a model connection that does
 not stream (see M27) the stream holds only the `answer` event.
+
+Paying from the portal is not repeatable with a key (above). Paying with a saved
+card twice before the processor's webhook arrives charges the card twice, whatever
+key the two requests carry: the processor is asked with each attempt's own id.
+Making a repeat return the first charge means the payment record keeping one
+attempt per key, which is a change to how every card payment is recorded, and it
+is not made here.
 
 The SDK is TypeScript only, and it is not published to a package registry: it is
 used from this repository, and its package is marked private until the licensing

@@ -284,6 +284,25 @@ run("paying with a saved card", () => {
     expect(after[0]).toEqual({ status: "paid", balance: "0.0000" });
   });
 
+  it("is not repeatable: a repeat with the same key asks the processor for a second charge", async () => {
+    /**
+     * Why `payPortalInvoiceWithCard` is not marked idempotent in its contract
+     * (M26). The key reaches the service, but the processor is asked with
+     * each attempt's own id, so a repeat before the webhook lands is a
+     * second charge request. The SDK only repeats a route marked idempotent,
+     * so it never repeats this one; the day a repeat is answered with the
+     * first charge, this test and the contract change together.
+     */
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "40.00");
+    const meta = { idempotencyKey: `cards-repeat-${Date.now()}` };
+    await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, meta, deps());
+    await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, meta, deps());
+    expect(stripe.charges).toHaveLength(2);
+    expect(stripe.charges[0]!.idempotencyKey).not.toBe(stripe.charges[1]!.idempotencyKey);
+  });
+
   it("does not pay an invoice somebody else is billed for", async () => {
     const token = await signedIn(dana);
     const card = await saveACard(token);
