@@ -1377,15 +1377,27 @@ the permissions named.
 
 ## API
 
-`reports.run(ctx, definition)` takes a definition and returns columns and
-rows. `reports.drill(ctx, { definition, match })` returns the records behind one
-row. `reports.available(ctx)` returns the catalogue trimmed to what the
-caller holds, which is what the builder is drawn from. `reports.builtIn(ctx)`,
-`list`, `save`, `remove` and `runSaved` cover the rest.
+Everything the Reports and Dashboards screens do is on the API, through the
+same service functions the screens call, so a report run through the API
+counts exactly what the screen counts for the same person: a technician's own
+work, a branch manager's own branch, money only for somebody who may see money.
 
 | Call | Needs |
 |---|---|
+| `GET /v1/reports` | `report:read`. The reports that ship that the caller may run, and every saved report |
+| `GET /v1/reports/catalogue` | `report:read`. What a report can be built from, trimmed to what the caller holds |
+| `POST /v1/reports/run` | `report:read`, and the dataset's own permission. Takes a definition, returns columns and rows |
+| `POST /v1/reports/{id}/run` | `report:read`, checked against the person running it. `from`, `to` and `branchId` change this run only |
+| `POST /v1/reports` | `report:build`. Save a report |
+| `PATCH /v1/reports/{id}` | `report:build`. Change one: name, description and definition |
+| `DELETE /v1/reports/{id}` | `report:build` |
 | `POST /v1/reports/drill` | `report:read` |
+| `GET /v1/dashboards` | `report:read`. The dashboards that ship that have a tile the caller may see, and every saved one |
+| `GET /v1/dashboards/built-in/{slug}` | `report:read`. A dashboard that ships, drawn for the caller |
+| `GET /v1/dashboards/{id}` | `report:read`. A saved dashboard, drawn for the caller, with its tiles as stored |
+| `POST /v1/dashboards` | `report:build`. Start a dashboard, empty |
+| `PUT /v1/dashboards/{id}/tiles` | `report:build`. Every tile, in order |
+| `DELETE /v1/dashboards/{id}` | `report:build` |
 | `GET /v1/kpis` | `report:read` |
 | `GET /v1/kpi-records` | `report:read`, and see above |
 | `GET /v1/kpi-breakdown` | `report:read`, and refused where the records are |
@@ -1398,8 +1410,29 @@ caller holds, which is what the builder is drawn from. `reports.builtIn(ctx)`,
 | `DELETE /v1/report-schedules/{id}` | `report:build` |
 | `GET /v1/report-deliveries` | `report:read` |
 
-A dashboard has no API of its own: a schedule names one that ships by its
-slug (`operations`, `money`) or a saved one by the id in its address.
+A definition is the same object everywhere: a dataset, its groupings
+(`dimensions`), what it counts (`measures`), any `filters`, `from` (inclusive)
+and `to` (exclusive), and `branchId`, which narrows to one branch inside the
+caller's own scope and never widens it. A branch manager naming another branch
+gets nothing back, not that branch's work. The keys come from
+`GET /v1/reports/catalogue`, and a definition built only from it runs.
+
+A dashboard tile drawn through the API carries what it drew (`result`) and the
+report behind it (`definition`), so a number on it opens with
+`POST /v1/reports/drill`, as on the screen. A tile the caller may not see is
+left out and named in `leftOut`. A saved dashboard's tiles are written whole,
+in the order they are drawn, as the screen writes them: each points at one
+report, saved (`reportId`) or shipped (`builtIn`), and is refused if that
+report does not exist or cannot be drawn that way. A schedule names a
+dashboard that ships by its slug (`operations`, `money`) or a saved one by its
+id.
+
+Saving a report or starting a dashboard takes an `Idempotency-Key`: a retry
+with the same key gets back what the first one made. Without a key, a second
+one with the same name is refused, so a retry never makes two. Saving,
+changing and deleting a report or a dashboard each writes an audit row
+(`report.created`, `report.updated`, `report.deleted`, and the same for
+`dashboard`). Running a report writes nothing.
 
 The worker sends what is due on every pass (`docs/self-hosting/worker.md`), and
 then hands that company's outbox to its mail provider.
@@ -1637,5 +1670,9 @@ dashboard's own screen and its "Download as PDF" have no date box: the days come
 a schedule or an automation step, so a dashboard looked at is always as it stands now.
 The days are the schedule's five (the day before, the seven days before, the month
 before, this month so far, or none) and not a range typed in.
+The API returns a report and a dashboard as data; the PDF of either is
+downloaded from its screen, or emailed by a schedule, and no route returns the
+file. A report that ships is run over the API by sending the definition
+`GET /v1/reports` lists for it; there is no route that runs one by its slug.
 No cross company report
 other than the four network aggregates, which are `docs/concepts/networks.md`.

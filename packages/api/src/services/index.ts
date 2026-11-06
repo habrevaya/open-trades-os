@@ -62,6 +62,7 @@ export * as contractLateRise from "./contract-late-rise";
 export * as statements from "./statements";
 export * as reports from "./reports";
 export * as dashboards from "./dashboards";
+export * as dashboardApi from "./dashboard-api";
 export * as deliverySchedules from "./delivery-schedules";
 export * as reportDelivery from "./report-delivery";
 export * as statementDelivery from "./statement-delivery";

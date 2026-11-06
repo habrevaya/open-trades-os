@@ -3704,6 +3704,33 @@ export interface CreateCustomerOutput {
   updatedAt: string;
 }
 
+export interface CreateDashboardInput {
+  name: string;
+  description?: string;
+}
+
+export interface CreateDashboardOutput {
+  id: string;
+  name: string;
+  description: string | null;
+  tiles: Array<{
+    key: string;
+    kind: "number" | "bars" | "trend";
+    width: 3 | 6 | 12;
+    reportId?: string;
+    builtIn?: string;
+    title?: string;
+    caption?: string;
+    breakdown?: "stacked" | "grouped";
+    splitBy?: string;
+    secondMeasure?: string;
+    followsDates?: boolean;
+  }>;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CreateDispatchPlanInput {
   date: string;
 }
@@ -4927,6 +4954,52 @@ export interface CreateRecurringScheduleOutput {
   id: string;
   label: string;
   nextDueOn: string | null;
+}
+
+export interface CreateReportInput {
+  name: string;
+  description?: string;
+  definition: {
+    dataset: string;
+    dimensions: string[];
+    measures: string[];
+    filters?: Array<{
+      dimension: string;
+      op: "eq" | "neq" | "in";
+      value: string | string[];
+    }>;
+    fieldMatch?: "all" | "any";
+    from?: string;
+    to?: string;
+    orderBy?: string;
+    limit?: number;
+    branchId?: string;
+  };
+}
+
+export interface CreateReportOutput {
+  id: string;
+  name: string;
+  description: string | null;
+  definition: {
+    dataset: string;
+    dimensions: string[];
+    measures: string[];
+    filters?: Array<{
+      dimension: string;
+      op: "eq" | "neq" | "in";
+      value: string | string[];
+    }>;
+    fieldMatch?: "all" | "any";
+    from?: string;
+    to?: string;
+    orderBy?: string;
+    limit?: number;
+    branchId?: string;
+  };
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreateReportScheduleInput {
@@ -6301,6 +6374,12 @@ export interface DeleteCustomRecordOutput {
   removed: true;
 }
 
+export type DeleteDashboardInput = Record<string, unknown>;
+
+export interface DeleteDashboardOutput {
+  ok: true;
+}
+
 export type DeleteImportMappingInput = Record<string, unknown>;
 
 export interface DeleteImportMappingOutput {
@@ -6400,6 +6479,12 @@ export interface DeleteRecordingOutput {
   attributionSource: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type DeleteReportInput = Record<string, unknown>;
+
+export interface DeleteReportOutput {
+  ok: true;
 }
 
 export type DeleteReportScheduleInput = Record<string, unknown>;
@@ -7792,6 +7877,83 @@ export interface GetBudgetReportOutput {
   };
 }
 
+export interface GetBuiltInDashboardOutput {
+  definition: {
+    slug: string;
+    title: string;
+    description: string;
+  };
+  tiles: Array<{
+    key: string;
+    title: string;
+    caption?: string;
+    kind: "number" | "bars" | "trend";
+    width: number;
+    measure?: {
+      key: string;
+      label: string;
+      type: string;
+    };
+    dimension?: {
+      key: string;
+      label: string;
+      type: string;
+      sortPrefix?: boolean;
+    };
+    breakdown?: {
+      key: string;
+      label: string;
+      type: string;
+      sortPrefix?: boolean;
+      arrange: "stacked" | "grouped";
+    };
+    additive?: boolean;
+    second?: {
+      key: string;
+      label: string;
+      type: string;
+    };
+    alsoCanDraw?: Array<{
+      key: string;
+      label: string;
+    }>;
+    followsDates?: boolean;
+    cuts?: Array<{
+      key: string;
+      label: string;
+    }>;
+    result?: {
+      columns: Array<{
+        key: string;
+        label: string;
+        type: string;
+        role: "dimension" | "measure";
+        sortPrefix?: boolean;
+      }>;
+      rows: Array<Record<string, string | number | null>>;
+      truncated: boolean;
+    };
+    definition?: {
+      dataset: string;
+      dimensions: string[];
+      measures: string[];
+      filters?: Array<{
+        dimension: string;
+        op: "eq" | "neq" | "in";
+        value: string | string[];
+      }>;
+      fieldMatch?: "all" | "any";
+      from?: string;
+      to?: string;
+      orderBy?: string;
+      limit?: number;
+      branchId?: string;
+    };
+    problem?: string;
+  }>;
+  leftOut: string[];
+}
+
 export interface GetCallAssistantOutput {
   status: "waiting" | "talking" | "transferred" | "ended" | "dropped";
   turns: Array<{
@@ -8796,6 +8958,96 @@ export interface GetCustomerStatementOutput {
     balance: string;
     daysOverdue: number;
   }>;
+}
+
+export interface GetDashboardOutput {
+  definition: {
+    id: string;
+    name: string;
+    description: string | null;
+  };
+  stored: Array<{
+    key: string;
+    kind: "number" | "bars" | "trend";
+    width: 3 | 6 | 12;
+    reportId?: string;
+    builtIn?: string;
+    title?: string;
+    caption?: string;
+    breakdown?: "stacked" | "grouped";
+    splitBy?: string;
+    secondMeasure?: string;
+    followsDates?: boolean;
+  }>;
+  tiles: Array<{
+    key: string;
+    title: string;
+    caption?: string;
+    kind: "number" | "bars" | "trend";
+    width: number;
+    measure?: {
+      key: string;
+      label: string;
+      type: string;
+    };
+    dimension?: {
+      key: string;
+      label: string;
+      type: string;
+      sortPrefix?: boolean;
+    };
+    breakdown?: {
+      key: string;
+      label: string;
+      type: string;
+      sortPrefix?: boolean;
+      arrange: "stacked" | "grouped";
+    };
+    additive?: boolean;
+    second?: {
+      key: string;
+      label: string;
+      type: string;
+    };
+    alsoCanDraw?: Array<{
+      key: string;
+      label: string;
+    }>;
+    followsDates?: boolean;
+    cuts?: Array<{
+      key: string;
+      label: string;
+    }>;
+    result?: {
+      columns: Array<{
+        key: string;
+        label: string;
+        type: string;
+        role: "dimension" | "measure";
+        sortPrefix?: boolean;
+      }>;
+      rows: Array<Record<string, string | number | null>>;
+      truncated: boolean;
+    };
+    definition?: {
+      dataset: string;
+      dimensions: string[];
+      measures: string[];
+      filters?: Array<{
+        dimension: string;
+        op: "eq" | "neq" | "in";
+        value: string | string[];
+      }>;
+      fieldMatch?: "all" | "any";
+      from?: string;
+      to?: string;
+      orderBy?: string;
+      limit?: number;
+      branchId?: string;
+    };
+    problem?: string;
+  }>;
+  leftOut: string[];
 }
 
 export interface GetDiscountPolicyOutput {
@@ -13271,6 +13523,23 @@ export interface GetRentalOverageOutput {
   total: string;
 }
 
+export interface GetReportCatalogueOutput {
+  datasets: Array<{
+    key: string;
+    label: string;
+    description: string;
+    dimensions: Array<{
+      key: string;
+      label: string;
+      field?: true;
+    }>;
+    measures: Array<{
+      key: string;
+      label: string;
+    }>;
+  }>;
+}
+
 export interface GetReviewPolicyOutput {
   policy: {
     timeZone: string;
@@ -16267,6 +16536,35 @@ export interface ListCustomersOutput {
   hasMore: boolean;
 }
 
+export interface ListDashboardsOutput {
+  builtIn: Array<{
+    slug: string;
+    title: string;
+    description: string;
+  }>;
+  saved: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    tiles: Array<{
+      key: string;
+      kind: "number" | "bars" | "trend";
+      width: 3 | 6 | 12;
+      reportId?: string;
+      builtIn?: string;
+      title?: string;
+      caption?: string;
+      breakdown?: "stacked" | "grouped";
+      splitBy?: string;
+      secondMeasure?: string;
+      followsDates?: boolean;
+    }>;
+    createdByUserId: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}
+
 export interface ListDeclaredSubmissionsOutput {
   submissions: Array<{
     kind: string;
@@ -18776,6 +19074,54 @@ export interface ListReportingLoopsOutput {
       active: boolean;
     }>;
     sentence: string;
+  }>;
+}
+
+export interface ListReportsOutput {
+  builtIn: Array<{
+    slug: string;
+    name: string;
+    question: string;
+    definition: {
+      dataset: string;
+      dimensions: string[];
+      measures: string[];
+      filters?: Array<{
+        dimension: string;
+        op: "eq" | "neq" | "in";
+        value: string | string[];
+      }>;
+      fieldMatch?: "all" | "any";
+      from?: string;
+      to?: string;
+      orderBy?: string;
+      limit?: number;
+      branchId?: string;
+    };
+  }>;
+  saved: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    definition: {
+      dataset: string;
+      dimensions: string[];
+      measures: string[];
+      filters?: Array<{
+        dimension: string;
+        op: "eq" | "neq" | "in";
+        value: string | string[];
+      }>;
+      fieldMatch?: "all" | "any";
+      from?: string;
+      to?: string;
+      orderBy?: string;
+      limit?: number;
+      branchId?: string;
+    };
+    createdByUserId: string | null;
+    createdAt: string;
+    updatedAt: string;
   }>;
 }
 
@@ -25727,6 +26073,37 @@ export interface RunCollectionsOutput {
   sent: number;
 }
 
+export interface RunReportInput {
+  definition: {
+    dataset: string;
+    dimensions: string[];
+    measures: string[];
+    filters?: Array<{
+      dimension: string;
+      op: "eq" | "neq" | "in";
+      value: string | string[];
+    }>;
+    fieldMatch?: "all" | "any";
+    from?: string;
+    to?: string;
+    orderBy?: string;
+    limit?: number;
+    branchId?: string;
+  };
+}
+
+export interface RunReportOutput {
+  columns: Array<{
+    key: string;
+    label: string;
+    type: string;
+    role: "dimension" | "measure";
+    sortPrefix?: boolean;
+  }>;
+  rows: Array<Record<string, string | number | null>>;
+  truncated: boolean;
+}
+
 export type RunRetentionPurgeInput = Record<string, unknown>;
 
 export interface RunRetentionPurgeOutput {
@@ -25742,6 +26119,50 @@ export interface RunRetentionPurgeOutput {
     entityId: string;
     reason: string;
   }>;
+}
+
+export interface RunSavedReportInput {
+  from?: string;
+  to?: string;
+  branchId?: string;
+}
+
+export interface RunSavedReportOutput {
+  report: {
+    id: string;
+    name: string;
+    description: string | null;
+    definition: {
+      dataset: string;
+      dimensions: string[];
+      measures: string[];
+      filters?: Array<{
+        dimension: string;
+        op: "eq" | "neq" | "in";
+        value: string | string[];
+      }>;
+      fieldMatch?: "all" | "any";
+      from?: string;
+      to?: string;
+      orderBy?: string;
+      limit?: number;
+      branchId?: string;
+    };
+    createdByUserId: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  result: {
+    columns: Array<{
+      key: string;
+      label: string;
+      type: string;
+      role: "dimension" | "measure";
+      sortPrefix?: boolean;
+    }>;
+    rows: Array<Record<string, string | number | null>>;
+    truncated: boolean;
+  };
 }
 
 export interface SatisfyObligationInput {
@@ -26904,6 +27325,44 @@ export interface SetCustomerTagsInput {
 export interface SetCustomerTagsOutput {
   id: string;
   tags: string[];
+}
+
+export interface SetDashboardTilesInput {
+  tiles: Array<{
+    key: string;
+    kind: "number" | "bars" | "trend";
+    width: 3 | 6 | 12;
+    reportId?: string;
+    builtIn?: string;
+    title?: string;
+    caption?: string;
+    breakdown?: "stacked" | "grouped";
+    splitBy?: string;
+    secondMeasure?: string;
+    followsDates?: boolean;
+  }>;
+}
+
+export interface SetDashboardTilesOutput {
+  id: string;
+  name: string;
+  description: string | null;
+  tiles: Array<{
+    key: string;
+    kind: "number" | "bars" | "trend";
+    width: 3 | 6 | 12;
+    reportId?: string;
+    builtIn?: string;
+    title?: string;
+    caption?: string;
+    breakdown?: "stacked" | "grouped";
+    splitBy?: string;
+    secondMeasure?: string;
+    followsDates?: boolean;
+  }>;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SetDeficiencyStatusInput {
@@ -31429,6 +31888,52 @@ export interface UpdateProposalTemplateOutput {
   updatedAt: string;
 }
 
+export interface UpdateReportInput {
+  name: string;
+  description?: string;
+  definition: {
+    dataset: string;
+    dimensions: string[];
+    measures: string[];
+    filters?: Array<{
+      dimension: string;
+      op: "eq" | "neq" | "in";
+      value: string | string[];
+    }>;
+    fieldMatch?: "all" | "any";
+    from?: string;
+    to?: string;
+    orderBy?: string;
+    limit?: number;
+    branchId?: string;
+  };
+}
+
+export interface UpdateReportOutput {
+  id: string;
+  name: string;
+  description: string | null;
+  definition: {
+    dataset: string;
+    dimensions: string[];
+    measures: string[];
+    filters?: Array<{
+      dimension: string;
+      op: "eq" | "neq" | "in";
+      value: string | string[];
+    }>;
+    fieldMatch?: "all" | "any";
+    from?: string;
+    to?: string;
+    orderBy?: string;
+    limit?: number;
+    branchId?: string;
+  };
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UpdateReportScheduleInput {
   builtIn?: string;
   reportId?: string;
@@ -33564,6 +34069,10 @@ export interface DeleteCustomRecordParams {
   id: string;
 }
 
+export interface DeleteDashboardParams {
+  id: string;
+}
+
 export interface DeleteImportMappingParams {
   id: string;
 }
@@ -33601,6 +34110,10 @@ export interface DeleteProposalTemplateParams {
 }
 
 export interface DeleteRecordingParams {
+  id: string;
+}
+
+export interface DeleteReportParams {
   id: string;
 }
 
@@ -33822,6 +34335,10 @@ export interface GetBudgetReportInput {
   jobTypeId?: string;
 }
 
+export interface GetBuiltInDashboardInput {
+  slug: string;
+}
+
 export interface GetCallInput {
   id: string;
 }
@@ -33953,6 +34470,10 @@ export interface GetCustomerStatementInput {
   id: string;
   from?: string;
   to?: string;
+}
+
+export interface GetDashboardInput {
+  id: string;
 }
 
 export type GetDiscountPolicyInput = Record<string, never>;
@@ -34418,6 +34939,8 @@ export type GetRentalDispatchInput = Record<string, never>;
 export interface GetRentalOverageInput {
   id: string;
 }
+
+export type GetReportCatalogueInput = Record<string, never>;
 
 export type GetReviewPolicyInput = Record<string, never>;
 
@@ -34903,6 +35426,8 @@ export interface ListCustomersInput {
   externalSource?: string;
   externalId?: string;
 }
+
+export type ListDashboardsInput = Record<string, never>;
 
 export type ListDeclaredSubmissionsInput = Record<string, never>;
 
@@ -35414,6 +35939,8 @@ export type ListReportSchedulesInput = Record<string, never>;
 export type ListReportingLinesInput = Record<string, never>;
 
 export type ListReportingLoopsInput = Record<string, never>;
+
+export type ListReportsInput = Record<string, never>;
 
 export type ListRestockSuggestionsInput = Record<string, never>;
 
@@ -36401,6 +36928,10 @@ export interface RotateWebhookSecretParams {
   id: string;
 }
 
+export interface RunSavedReportParams {
+  id: string;
+}
+
 export interface SatisfyObligationParams {
   id: string;
 }
@@ -36534,6 +37065,10 @@ export interface SetCustomerReferrerParams {
 }
 
 export interface SetCustomerTagsParams {
+  id: string;
+}
+
+export interface SetDashboardTilesParams {
   id: string;
 }
 
@@ -36997,6 +37532,10 @@ export interface UpdateProposalTemplateParams {
   id: string;
 }
 
+export interface UpdateReportParams {
+  id: string;
+}
+
 export interface UpdateReportScheduleParams {
   id: string;
 }
@@ -37317,6 +37856,7 @@ export interface OperationTypes {
   createCrew: { input: CreateCrewInput; output: CreateCrewOutput };
   createCustomRecord: { input: CreateCustomRecordInput; output: CreateCustomRecordOutput };
   createCustomer: { input: CreateCustomerInput; output: CreateCustomerOutput };
+  createDashboard: { input: CreateDashboardInput; output: CreateDashboardOutput };
   createDispatchPlan: { input: CreateDispatchPlanInput; output: CreateDispatchPlanOutput };
   createDisposalFacility: { input: CreateDisposalFacilityInput; output: CreateDisposalFacilityOutput };
   createEstimate: { input: CreateEstimateInput; output: CreateEstimateOutput };
@@ -37342,6 +37882,7 @@ export interface OperationTypes {
   createPurchaseOrder: { input: CreatePurchaseOrderInput; output: CreatePurchaseOrderOutput };
   createRateCard: { input: CreateRateCardInput; output: CreateRateCardOutput };
   createRecurringSchedule: { input: CreateRecurringScheduleInput; output: CreateRecurringScheduleOutput };
+  createReport: { input: CreateReportInput; output: CreateReportOutput };
   createReportSchedule: { input: CreateReportScheduleInput; output: CreateReportScheduleOutput };
   createRetentionPolicy: { input: CreateRetentionPolicyInput; output: CreateRetentionPolicyOutput };
   createRingGroup: { input: CreateRingGroupInput; output: CreateRingGroupOutput };
@@ -37393,6 +37934,7 @@ export interface OperationTypes {
   deleteCustomField: { input: DeleteCustomFieldParams & DeleteCustomFieldInput; output: DeleteCustomFieldOutput };
   deleteCustomObject: { input: DeleteCustomObjectParams & DeleteCustomObjectInput; output: DeleteCustomObjectOutput };
   deleteCustomRecord: { input: DeleteCustomRecordParams & DeleteCustomRecordInput; output: DeleteCustomRecordOutput };
+  deleteDashboard: { input: DeleteDashboardParams & DeleteDashboardInput; output: DeleteDashboardOutput };
   deleteImportMapping: { input: DeleteImportMappingParams & DeleteImportMappingInput; output: DeleteImportMappingOutput };
   deleteInvoice: { input: DeleteInvoiceParams & DeleteInvoiceInput; output: DeleteInvoiceOutput };
   deleteJobHoldNudgeRule: { input: DeleteJobHoldNudgeRuleParams & DeleteJobHoldNudgeRuleInput; output: DeleteJobHoldNudgeRuleOutput };
@@ -37403,6 +37945,7 @@ export interface OperationTypes {
   deleteProjectLienRecord: { input: DeleteProjectLienRecordParams & DeleteProjectLienRecordInput; output: DeleteProjectLienRecordOutput };
   deleteProposalTemplate: { input: DeleteProposalTemplateParams & DeleteProposalTemplateInput; output: DeleteProposalTemplateOutput };
   deleteRecording: { input: DeleteRecordingParams & DeleteRecordingInput; output: DeleteRecordingOutput };
+  deleteReport: { input: DeleteReportParams & DeleteReportInput; output: DeleteReportOutput };
   deleteReportSchedule: { input: DeleteReportScheduleParams & DeleteReportScheduleInput; output: DeleteReportScheduleOutput };
   deleteRingGroup: { input: DeleteRingGroupParams & DeleteRingGroupInput; output: DeleteRingGroupOutput };
   deleteSecret: { input: DeleteSecretParams & DeleteSecretInput; output: DeleteSecretOutput };
@@ -37468,6 +38011,7 @@ export interface OperationTypes {
   getBranchNumbering: { input: GetBranchNumberingInput; output: GetBranchNumberingOutput };
   getBranchOverview: { input: GetBranchOverviewInput; output: GetBranchOverviewOutput };
   getBudgetReport: { input: GetBudgetReportInput; output: GetBudgetReportOutput };
+  getBuiltInDashboard: { input: GetBuiltInDashboardInput; output: GetBuiltInDashboardOutput };
   getCall: { input: GetCallInput; output: GetCallOutput };
   getCallAssistant: { input: GetCallAssistantInput; output: GetCallAssistantOutput };
   getCallTrackingConnection: { input: GetCallTrackingConnectionInput; output: GetCallTrackingConnectionOutput };
@@ -37501,6 +38045,7 @@ export interface OperationTypes {
   getCustomerMerges: { input: GetCustomerMergesInput; output: GetCustomerMergesOutput };
   getCustomerReferral: { input: GetCustomerReferralInput; output: GetCustomerReferralOutput };
   getCustomerStatement: { input: GetCustomerStatementInput; output: GetCustomerStatementOutput };
+  getDashboard: { input: GetDashboardInput; output: GetDashboardOutput };
   getDiscountPolicy: { input: GetDiscountPolicyInput; output: GetDiscountPolicyOutput };
   getDispatchBoard: { input: GetDispatchBoardInput; output: GetDispatchBoardOutput };
   getDispatchMap: { input: GetDispatchMapInput; output: GetDispatchMapOutput };
@@ -37617,6 +38162,7 @@ export interface OperationTypes {
   getRental: { input: GetRentalInput; output: GetRentalOutput };
   getRentalDispatch: { input: GetRentalDispatchInput; output: GetRentalDispatchOutput };
   getRentalOverage: { input: GetRentalOverageInput; output: GetRentalOverageOutput };
+  getReportCatalogue: { input: GetReportCatalogueInput; output: GetReportCatalogueOutput };
   getReviewPolicy: { input: GetReviewPolicyInput; output: GetReviewPolicyOutput };
   getReviewReminders: { input: GetReviewRemindersInput; output: GetReviewRemindersOutput };
   getReviewWorkList: { input: GetReviewWorkListInput; output: GetReviewWorkListOutput };
@@ -37745,6 +38291,7 @@ export interface OperationTypes {
   listCustomerPortalSessions: { input: ListCustomerPortalSessionsInput; output: ListCustomerPortalSessionsOutput };
   listCustomerTags: { input: ListCustomerTagsInput; output: ListCustomerTagsOutput };
   listCustomers: { input: ListCustomersInput; output: ListCustomersOutput };
+  listDashboards: { input: ListDashboardsInput; output: ListDashboardsOutput };
   listDeclaredSubmissions: { input: ListDeclaredSubmissionsInput; output: ListDeclaredSubmissionsOutput };
   listDeficiencies: { input: ListDeficienciesInput; output: ListDeficienciesOutput };
   listDeliveries: { input: ListDeliveriesInput; output: ListDeliveriesOutput };
@@ -37862,6 +38409,7 @@ export interface OperationTypes {
   listReportSchedules: { input: ListReportSchedulesInput; output: ListReportSchedulesOutput };
   listReportingLines: { input: ListReportingLinesInput; output: ListReportingLinesOutput };
   listReportingLoops: { input: ListReportingLoopsInput; output: ListReportingLoopsOutput };
+  listReports: { input: ListReportsInput; output: ListReportsOutput };
   listRestockSuggestions: { input: ListRestockSuggestionsInput; output: ListRestockSuggestionsOutput };
   listRestorableCopies: { input: ListRestorableCopiesInput; output: ListRestorableCopiesOutput };
   listRestores: { input: ListRestoresInput; output: ListRestoresOutput };
@@ -38185,7 +38733,9 @@ export interface OperationTypes {
   runAccountingSync: { input: RunAccountingSyncInput; output: RunAccountingSyncOutput };
   runAiCompletion: { input: RunAiCompletionInput; output: RunAiCompletionOutput };
   runCollections: { input: RunCollectionsInput; output: RunCollectionsOutput };
+  runReport: { input: RunReportInput; output: RunReportOutput };
   runRetentionPurge: { input: RunRetentionPurgeInput; output: RunRetentionPurgeOutput };
+  runSavedReport: { input: RunSavedReportParams & RunSavedReportInput; output: RunSavedReportOutput };
   satisfyObligation: { input: SatisfyObligationParams & SatisfyObligationInput; output: SatisfyObligationOutput };
   saveForm: { input: SaveFormParams & SaveFormInput; output: SaveFormOutput };
   sayInChat: { input: SayInChatInput; output: SayInChatOutput };
@@ -38240,6 +38790,7 @@ export interface OperationTypes {
   setCustomerPreferredDays: { input: SetCustomerPreferredDaysParams & SetCustomerPreferredDaysInput; output: SetCustomerPreferredDaysOutput };
   setCustomerReferrer: { input: SetCustomerReferrerParams & SetCustomerReferrerInput; output: SetCustomerReferrerOutput };
   setCustomerTags: { input: SetCustomerTagsParams & SetCustomerTagsInput; output: SetCustomerTagsOutput };
+  setDashboardTiles: { input: SetDashboardTilesParams & SetDashboardTilesInput; output: SetDashboardTilesOutput };
   setDeficiencyStatus: { input: SetDeficiencyStatusParams & SetDeficiencyStatusInput; output: SetDeficiencyStatusOutput };
   setDiscountPolicy: { input: SetDiscountPolicyInput; output: SetDiscountPolicyOutput };
   setDisposalBilling: { input: SetDisposalBillingInput; output: SetDisposalBillingOutput };
@@ -38422,6 +38973,7 @@ export interface OperationTypes {
   updateProjectApplication: { input: UpdateProjectApplicationParams & UpdateProjectApplicationInput; output: UpdateProjectApplicationOutput };
   updateProperty: { input: UpdatePropertyParams & UpdatePropertyInput; output: UpdatePropertyOutput };
   updateProposalTemplate: { input: UpdateProposalTemplateParams & UpdateProposalTemplateInput; output: UpdateProposalTemplateOutput };
+  updateReport: { input: UpdateReportParams & UpdateReportInput; output: UpdateReportOutput };
   updateReportSchedule: { input: UpdateReportScheduleParams & UpdateReportScheduleInput; output: UpdateReportScheduleOutput };
   updateRetentionPolicy: { input: UpdateRetentionPolicyParams & UpdateRetentionPolicyInput; output: UpdateRetentionPolicyOutput };
   updateRingGroup: { input: UpdateRingGroupParams & UpdateRingGroupInput; output: UpdateRingGroupOutput };
@@ -38615,6 +39167,7 @@ export const OPERATIONS = {
   createCrew: { method: "POST", path: "/v1/crews", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:dispatch"] },
   createCustomRecord: { method: "POST", path: "/v1/custom-records", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read","record:write"] },
   createCustomer: { method: "POST", path: "/v1/customers", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
+  createDashboard: { method: "POST", path: "/v1/dashboards", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   createDispatchPlan: { method: "POST", path: "/v1/ai/dispatch/plans", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   createDisposalFacility: { method: "POST", path: "/v1/disposal-facilities", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
   createEstimate: { method: "POST", path: "/v1/estimates", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:write"] },
@@ -38640,6 +39193,7 @@ export const OPERATIONS = {
   createPurchaseOrder: { method: "POST", path: "/v1/purchase-orders", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["po:write"] },
   createRateCard: { method: "POST", path: "/v1/rate-cards", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
   createRecurringSchedule: { method: "POST", path: "/v1/recurring-schedules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  createReport: { method: "POST", path: "/v1/reports", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   createReportSchedule: { method: "POST", path: "/v1/report-schedules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   createRetentionPolicy: { method: "POST", path: "/v1/compliance/retention/rules", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   createRingGroup: { method: "POST", path: "/v1/ring-groups", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -38691,6 +39245,7 @@ export const OPERATIONS = {
   deleteCustomField: { method: "DELETE", path: "/v1/custom-fields/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
   deleteCustomObject: { method: "DELETE", path: "/v1/custom-objects/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["customfield:write"] },
   deleteCustomRecord: { method: "DELETE", path: "/v1/custom-records/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["record:read","record:write"] },
+  deleteDashboard: { method: "DELETE", path: "/v1/dashboards/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   deleteImportMapping: { method: "DELETE", path: "/v1/import-mappings/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   deleteInvoice: { method: "DELETE", path: "/v1/invoices/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   deleteJobHoldNudgeRule: { method: "DELETE", path: "/v1/job-hold-nudge-rules/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -38701,6 +39256,7 @@ export const OPERATIONS = {
   deleteProjectLienRecord: { method: "DELETE", path: "/v1/project-lien-records/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   deleteProposalTemplate: { method: "DELETE", path: "/v1/proposal-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   deleteRecording: { method: "DELETE", path: "/v1/calls/{id}/recording", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:send"] },
+  deleteReport: { method: "DELETE", path: "/v1/reports/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   deleteReportSchedule: { method: "DELETE", path: "/v1/report-schedules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   deleteRingGroup: { method: "DELETE", path: "/v1/ring-groups/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   deleteSecret: { method: "DELETE", path: "/v1/secrets/{name}", pathParams: ["name"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:write"] },
@@ -38766,6 +39322,7 @@ export const OPERATIONS = {
   getBranchNumbering: { method: "GET", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBranchOverview: { method: "GET", path: "/v1/branch-overview", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getBudgetReport: { method: "GET", path: "/v1/budgets/{year}", pathParams: ["year"], queryParams: ["businessUnitId","jobTypeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report.financial:read"] },
+  getBuiltInDashboard: { method: "GET", path: "/v1/dashboards/built-in/{slug}", pathParams: ["slug"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getCall: { method: "GET", path: "/v1/calls/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getCallAssistant: { method: "GET", path: "/v1/calls/{id}/assistant", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   getCallTrackingConnection: { method: "GET", path: "/v1/call-tracking", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -38799,6 +39356,7 @@ export const OPERATIONS = {
   getCustomerMerges: { method: "GET", path: "/v1/customers/{id}/merges", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:merge"] },
   getCustomerReferral: { method: "GET", path: "/v1/customers/{id}/referral", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   getCustomerStatement: { method: "GET", path: "/v1/customers/{id}/statement", pathParams: ["id"], queryParams: ["from","to"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
+  getDashboard: { method: "GET", path: "/v1/dashboards/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getDiscountPolicy: { method: "GET", path: "/v1/estimate-discount-policy", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   getDispatchBoard: { method: "GET", path: "/v1/dispatch/board", pathParams: [], queryParams: ["date","businessUnitId","territoryId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   getDispatchMap: { method: "GET", path: "/v1/dispatch/map", pathParams: [], queryParams: ["date"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
@@ -38915,6 +39473,7 @@ export const OPERATIONS = {
   getRental: { method: "GET", path: "/v1/rentals/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalDispatch: { method: "GET", path: "/v1/rental-dispatch", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   getRentalOverage: { method: "GET", path: "/v1/rentals/{id}/overage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
+  getReportCatalogue: { method: "GET", path: "/v1/reports/catalogue", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getReviewPolicy: { method: "GET", path: "/v1/reviews/policy", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getReviewReminders: { method: "GET", path: "/v1/reviews/reminders", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   getReviewWorkList: { method: "GET", path: "/v1/reviews/work-list", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
@@ -39043,6 +39602,7 @@ export const OPERATIONS = {
   listCustomerPortalSessions: { method: "GET", path: "/v1/customers/{id}/portal-sessions", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["portal:read"] },
   listCustomerTags: { method: "GET", path: "/v1/customer-tags", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:read"] },
   listCustomers: { method: "GET", path: "/v1/customers", pathParams: [], queryParams: ["cursor","limit","q","type","tag","tags","tagMatch","businessUnitId","fieldKey","fieldValue","fields","fieldMatch","includeInactive","externalSource","externalId"], idempotent: false, dryRun: false, paginated: true, authorization: "session", permissions: ["customer:read"] },
+  listDashboards: { method: "GET", path: "/v1/dashboards", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listDeclaredSubmissions: { method: "GET", path: "/v1/compliance/submissions/declared", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listDeficiencies: { method: "GET", path: "/v1/inspection-deficiencies", pathParams: [], queryParams: ["propertyId","customerId","includeSettled","now"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
   listDeliveries: { method: "GET", path: "/v1/deliveries", pathParams: [], queryParams: ["customerId","propertyId","equipmentId","product","from","to","partialOnly","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read"] },
@@ -39160,6 +39720,7 @@ export const OPERATIONS = {
   listReportSchedules: { method: "GET", path: "/v1/report-schedules", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listReportingLines: { method: "GET", path: "/v1/reporting-lines", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listReportingLoops: { method: "GET", path: "/v1/reporting-lines/loops", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
+  listReports: { method: "GET", path: "/v1/reports", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listRestockSuggestions: { method: "GET", path: "/v1/stock/restock-suggestions", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
   listRestorableCopies: { method: "POST", path: "/v1/restores/available", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
   listRestores: { method: "GET", path: "/v1/restores", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["data:import"] },
@@ -39483,7 +40044,9 @@ export const OPERATIONS = {
   runAccountingSync: { method: "POST", path: "/v1/accounting/sync", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   runAiCompletion: { method: "POST", path: "/v1/ai/completions", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["agent:configure"] },
   runCollections: { method: "POST", path: "/v1/ai/collections/run", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:send"] },
+  runReport: { method: "POST", path: "/v1/reports/run", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   runRetentionPurge: { method: "POST", path: "/v1/compliance/retention/purges", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
+  runSavedReport: { method: "POST", path: "/v1/reports/{id}/run", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   satisfyObligation: { method: "POST", path: "/v1/obligations/{id}/satisfy", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["task:write"] },
   saveForm: { method: "PUT", path: "/v1/marketing/forms/{slug}", pathParams: ["slug"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:write"] },
   sayInChat: { method: "POST", path: "/v1/public/chat/messages", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "public", permissions: [] },
@@ -39538,6 +40101,7 @@ export const OPERATIONS = {
   setCustomerPreferredDays: { method: "PUT", path: "/v1/customers/{id}/preferred-days", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   setCustomerReferrer: { method: "PUT", path: "/v1/customers/{id}/referrer", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
   setCustomerTags: { method: "POST", path: "/v1/customers/{id}/tags", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["customer:write"] },
+  setDashboardTiles: { method: "PUT", path: "/v1/dashboards/{id}/tiles", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   setDeficiencyStatus: { method: "POST", path: "/v1/inspection-deficiencies/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setDiscountPolicy: { method: "PUT", path: "/v1/estimates/discount-policy", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setDisposalBilling: { method: "PUT", path: "/v1/disposal-billing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -39720,6 +40284,7 @@ export const OPERATIONS = {
   updateProjectApplication: { method: "PATCH", path: "/v1/project-applications/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   updateProperty: { method: "PATCH", path: "/v1/properties/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["property:write"] },
   updateProposalTemplate: { method: "PATCH", path: "/v1/proposal-templates/{id}", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  updateReport: { method: "PATCH", path: "/v1/reports/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   updateReportSchedule: { method: "PATCH", path: "/v1/report-schedules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:build"] },
   updateRetentionPolicy: { method: "PATCH", path: "/v1/compliance/retention/rules/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   updateRingGroup: { method: "PUT", path: "/v1/ring-groups/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -41051,6 +41616,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Start a dashboard.
+   *
+   * POST /v1/dashboards. Needs report:build.
+   */
+  createDashboard(input: CreateDashboardInput, options?: CallOptions): Promise<CreateDashboardOutput> {
+    return this.call("createDashboard", input, options);
+  }
+
+  /**
    * Ask the copilot who should take the day's open visits.
    *
    * POST /v1/ai/dispatch/plans. Needs visit:read.
@@ -41273,6 +41847,15 @@ export abstract class GeneratedOperations {
    */
   createRecurringSchedule(input: CreateRecurringScheduleInput, options?: CallOptions): Promise<CreateRecurringScheduleOutput> {
     return this.call("createRecurringSchedule", input, options);
+  }
+
+  /**
+   * Save a report.
+   *
+   * POST /v1/reports. Needs report:build.
+   */
+  createReport(input: CreateReportInput, options?: CallOptions): Promise<CreateReportOutput> {
+    return this.call("createReport", input, options);
   }
 
   /**
@@ -41735,6 +42318,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Delete a dashboard.
+   *
+   * DELETE /v1/dashboards/{id}. Needs report:build.
+   */
+  deleteDashboard(input: DeleteDashboardParams & DeleteDashboardInput, options?: CallOptions): Promise<DeleteDashboardOutput> {
+    return this.call("deleteDashboard", input, options);
+  }
+
+  /**
    * Forget a saved mapping.
    *
    * DELETE /v1/import-mappings/{id}. Needs data:import.
@@ -41822,6 +42414,15 @@ export abstract class GeneratedOperations {
    */
   deleteRecording(input: DeleteRecordingParams & DeleteRecordingInput, options?: CallOptions): Promise<DeleteRecordingOutput> {
     return this.call("deleteRecording", input, options);
+  }
+
+  /**
+   * Delete a saved report.
+   *
+   * DELETE /v1/reports/{id}. Needs report:build.
+   */
+  deleteReport(input: DeleteReportParams & DeleteReportInput, options?: CallOptions): Promise<DeleteReportOutput> {
+    return this.call("deleteReport", input, options);
   }
 
   /**
@@ -42410,6 +43011,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Draw a dashboard that ships.
+   *
+   * GET /v1/dashboards/built-in/{slug}. Needs report:read.
+   */
+  getBuiltInDashboard(input: GetBuiltInDashboardInput, options?: CallOptions): Promise<GetBuiltInDashboardOutput> {
+    return this.call("getBuiltInDashboard", input, options);
+  }
+
+  /**
    * Get a call.
    *
    * GET /v1/calls/{id}. Needs message:read.
@@ -42704,6 +43314,15 @@ export abstract class GeneratedOperations {
    */
   getCustomerStatement(input: GetCustomerStatementInput, options?: CallOptions): Promise<GetCustomerStatementOutput> {
     return this.call("getCustomerStatement", input, options);
+  }
+
+  /**
+   * Draw a dashboard somebody assembled.
+   *
+   * GET /v1/dashboards/{id}. Needs report:read.
+   */
+  getDashboard(input: GetDashboardInput, options?: CallOptions): Promise<GetDashboardOutput> {
+    return this.call("getDashboard", input, options);
   }
 
   /**
@@ -43748,6 +44367,15 @@ export abstract class GeneratedOperations {
    */
   getRentalOverage(input: GetRentalOverageInput, options?: CallOptions): Promise<GetRentalOverageOutput> {
     return this.call("getRentalOverage", input, options);
+  }
+
+  /**
+   * What a report can be built from.
+   *
+   * GET /v1/reports/catalogue. Needs report:read.
+   */
+  getReportCatalogue(input: GetReportCatalogueInput = {} as GetReportCatalogueInput, options?: CallOptions): Promise<GetReportCatalogueOutput> {
+    return this.call("getReportCatalogue", input, options);
   }
 
   /**
@@ -44903,6 +45531,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The dashboards that ship and the ones the company assembled.
+   *
+   * GET /v1/dashboards. Needs report:read.
+   */
+  listDashboards(input: ListDashboardsInput = {} as ListDashboardsInput, options?: CallOptions): Promise<ListDashboardsOutput> {
+    return this.call("listDashboards", input, options);
+  }
+
+  /**
    * What this company's trade pack says it has to produce, and for whom.
    *
    * GET /v1/compliance/submissions/declared. Needs compliance:read.
@@ -45953,6 +46590,15 @@ export abstract class GeneratedOperations {
    */
   listReportingLoops(input: ListReportingLoopsInput = {} as ListReportingLoopsInput, options?: CallOptions): Promise<ListReportingLoopsOutput> {
     return this.call("listReportingLoops", input, options);
+  }
+
+  /**
+   * The reports that ship and the ones the company saved.
+   *
+   * GET /v1/reports. Needs report:read.
+   */
+  listReports(input: ListReportsInput = {} as ListReportsInput, options?: CallOptions): Promise<ListReportsOutput> {
+    return this.call("listReports", input, options);
   }
 
   /**
@@ -48863,12 +49509,30 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Run a report.
+   *
+   * POST /v1/reports/run. Needs report:read.
+   */
+  runReport(input: RunReportInput, options?: CallOptions): Promise<RunReportOutput> {
+    return this.call("runReport", input, options);
+  }
+
+  /**
    * Purge now.
    *
    * POST /v1/compliance/retention/purges. Needs compliance:write.
    */
   runRetentionPurge(input: RunRetentionPurgeInput = {} as RunRetentionPurgeInput, options?: CallOptions): Promise<RunRetentionPurgeOutput> {
     return this.call("runRetentionPurge", input, options);
+  }
+
+  /**
+   * Run a saved report.
+   *
+   * POST /v1/reports/{id}/run. Needs report:read.
+   */
+  runSavedReport(input: RunSavedReportParams & RunSavedReportInput, options?: CallOptions): Promise<RunSavedReportOutput> {
+    return this.call("runSavedReport", input, options);
   }
 
   /**
@@ -49355,6 +50019,15 @@ export abstract class GeneratedOperations {
    */
   setCustomerTags(input: SetCustomerTagsParams & SetCustomerTagsInput, options?: CallOptions): Promise<SetCustomerTagsOutput> {
     return this.call("setCustomerTags", input, options);
+  }
+
+  /**
+   * Set a dashboard's tiles.
+   *
+   * PUT /v1/dashboards/{id}/tiles. Needs report:build.
+   */
+  setDashboardTiles(input: SetDashboardTilesParams & SetDashboardTilesInput, options?: CallOptions): Promise<SetDashboardTilesOutput> {
+    return this.call("setDashboardTiles", input, options);
   }
 
   /**
@@ -50993,6 +51666,15 @@ export abstract class GeneratedOperations {
    */
   updateProposalTemplate(input: UpdateProposalTemplateParams & UpdateProposalTemplateInput, options?: CallOptions): Promise<UpdateProposalTemplateOutput> {
     return this.call("updateProposalTemplate", input, options);
+  }
+
+  /**
+   * Change a saved report.
+   *
+   * PATCH /v1/reports/{id}. Needs report:build.
+   */
+  updateReport(input: UpdateReportParams & UpdateReportInput, options?: CallOptions): Promise<UpdateReportOutput> {
+    return this.call("updateReport", input, options);
   }
 
   /**
