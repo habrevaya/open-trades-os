@@ -64,7 +64,9 @@ function Seasons({ seasons, owner, businessUnitId, start, writes, note }: {
                 <span className="font-normal text-ink-700">{season.when}</span>
                 {season.inForceToday ? <Chip tone="info">In force today</Chip> : null}
               </p>
-              <p className="mt-1 text-sm text-ink-700">{weekWords(season.days)}.</p>
+              <p className="mt-1 text-sm text-ink-700">
+                {weekWords(season.days)}.{season.onlySomeDays ? " Every other day keeps the normal hours." : ""}
+              </p>
               {writes ? (
                 <>
                   <details className="mt-2">

@@ -300,9 +300,20 @@ export interface AddExpenseReceiptOutput {
 
 export interface AddHoursSeasonInput {
   name: string;
-  startsOn: string;
-  endsOn: string;
+  startsOn?: string;
+  endsOn?: string;
   repeatsYearly?: boolean;
+  startsRule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  endsRule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  onlySomeDays?: boolean;
   days: Array<{
     dayOfWeek: number;
     opensAt: string | null;
@@ -320,6 +331,17 @@ export interface AddHoursSeasonOutput {
   startsOn: string;
   endsOn: string;
   repeatsYearly: boolean;
+  startsRule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  endsRule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  onlySomeDays: boolean;
   when: string;
   days: Array<{
     dayOfWeek: number;
@@ -2345,9 +2367,20 @@ export interface CancelWebhookReplayOutput {
 
 export interface ChangeHoursSeasonInput {
   name: string;
-  startsOn: string;
-  endsOn: string;
+  startsOn?: string;
+  endsOn?: string;
   repeatsYearly?: boolean;
+  startsRule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  endsRule?: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  onlySomeDays?: boolean;
   days: Array<{
     dayOfWeek: number;
     opensAt: string | null;
@@ -2364,6 +2397,17 @@ export interface ChangeHoursSeasonOutput {
   startsOn: string;
   endsOn: string;
   repeatsYearly: boolean;
+  startsRule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  endsRule: {
+    month: number;
+    weekday: number;
+    week: 1 | 2 | 3 | 4 | "last";
+  } | null;
+  onlySomeDays: boolean;
   when: string;
   days: Array<{
     dayOfWeek: number;
@@ -16867,6 +16911,17 @@ export interface ListHoursSeasonsOutput {
     startsOn: string;
     endsOn: string;
     repeatsYearly: boolean;
+    startsRule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    endsRule: {
+      month: number;
+      weekday: number;
+      week: 1 | 2 | 3 | 4 | "last";
+    } | null;
+    onlySomeDays: boolean;
     when: string;
     days: Array<{
       dayOfWeek: number;

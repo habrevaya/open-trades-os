@@ -15830,7 +15830,7 @@
       "post": {
         "operationId": "addHoursSeason",
         "summary": "Add a season: hours kept between two dates",
-        "description": "All seven days, as for the week. Without `businessUnitId` it is the company's, read by every branch on the company's week; with one, that branch's own. A season that would be in force on a date another of the same owner's is (two dated ones whose dates meet, or a yearly one whose months and days meet another's) is refused in words naming the other. A holiday on a date in a season still wins. Somebody who sees only their own branch's work keeps only its seasons.\n\nRequires a session holding: booking:configure.",
+        "description": "All seven days, as for the week, or with `onlySomeDays` the days it changes, every other weekday keeping the week beneath it. Either end of a yearly season can be a day of the week in a month (`startsRule`, `endsRule`), worked out for each year; its ends must fall in the same order every year. Without `businessUnitId` it is the company's, read by every branch on the company's week; with one, that branch's own. A season that would be in force on a date another of the same owner's is (two dated ones whose dates meet, or a yearly one whose months and days meet another's) is refused in words naming the other. A holiday on a date in a season still wins. Somebody who sees only their own branch's work keeps only its seasons.\n\nRequires a session holding: booking:configure.",
         "tags": [
           "M02"
         ],
@@ -160898,6 +160898,123 @@
           "repeatsYearly": {
             "type": "boolean"
           },
+          "startsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "endsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "onlySomeDays": {
+            "type": "boolean"
+          },
           "days": {
             "type": "array",
             "items": {
@@ -160932,7 +161049,9 @@
                 "closesAt",
                 "closed"
               ]
-            }
+            },
+            "minItems": 1,
+            "maxItems": 7
           },
           "businessUnitId": {
             "type": [
@@ -160944,8 +161063,6 @@
         },
         "required": [
           "name",
-          "startsOn",
-          "endsOn",
           "days"
         ]
       },
@@ -160979,6 +161096,123 @@
             "type": "string"
           },
           "repeatsYearly": {
+            "type": "boolean"
+          },
+          "startsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "endsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "onlySomeDays": {
             "type": "boolean"
           },
           "when": {
@@ -161032,6 +161266,9 @@
           "startsOn",
           "endsOn",
           "repeatsYearly",
+          "startsRule",
+          "endsRule",
+          "onlySomeDays",
           "when",
           "days",
           "inForceToday"
@@ -171384,6 +171621,123 @@
           "repeatsYearly": {
             "type": "boolean"
           },
+          "startsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "endsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "onlySomeDays": {
+            "type": "boolean"
+          },
           "days": {
             "type": "array",
             "items": {
@@ -171418,13 +171772,13 @@
                 "closesAt",
                 "closed"
               ]
-            }
+            },
+            "minItems": 1,
+            "maxItems": 7
           }
         },
         "required": [
           "name",
-          "startsOn",
-          "endsOn",
           "days"
         ]
       },
@@ -171458,6 +171812,123 @@
             "type": "string"
           },
           "repeatsYearly": {
+            "type": "boolean"
+          },
+          "startsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "endsRule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "weekday": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 6
+              },
+              "week": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      2
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      3
+                    ]
+                  },
+                  {
+                    "type": "number",
+                    "enum": [
+                      4
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "last"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "month",
+              "weekday",
+              "week"
+            ]
+          },
+          "onlySomeDays": {
             "type": "boolean"
           },
           "when": {
@@ -171511,6 +171982,9 @@
           "startsOn",
           "endsOn",
           "repeatsYearly",
+          "startsRule",
+          "endsRule",
+          "onlySomeDays",
           "when",
           "days",
           "inForceToday"
@@ -247538,6 +248012,123 @@
                 "repeatsYearly": {
                   "type": "boolean"
                 },
+                "startsRule": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "month": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 12
+                    },
+                    "weekday": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "week": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            2
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            3
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            4
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "last"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "month",
+                    "weekday",
+                    "week"
+                  ]
+                },
+                "endsRule": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "month": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 12
+                    },
+                    "weekday": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "week": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "enum": [
+                            1
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            2
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            3
+                          ]
+                        },
+                        {
+                          "type": "number",
+                          "enum": [
+                            4
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "last"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "month",
+                    "weekday",
+                    "week"
+                  ]
+                },
+                "onlySomeDays": {
+                  "type": "boolean"
+                },
                 "when": {
                   "type": "string"
                 },
@@ -247589,6 +248180,9 @@
                 "startsOn",
                 "endsOn",
                 "repeatsYearly",
+                "startsRule",
+                "endsRule",
+                "onlySomeDays",
                 "when",
                 "days",
                 "inForceToday"

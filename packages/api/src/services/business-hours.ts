@@ -34,7 +34,10 @@ import { loadHolidays } from "./holidays";
  * their seven rows here. Every reader that asks about a date reads the week
  * in force on it (core's `holidays.weekOn`, `hoursOnDate`, `bookedAt` and
  * the working calendar all take the seasons `loadWeek` hands them). An
- * owner's seasons never overlap: one that would is refused in words.
+ * owner's seasons never overlap: one that would is refused in words. A
+ * season can change only some weekdays (rows for those days alone, the rest
+ * kept by the week beneath it), and a yearly one can start or end on a day
+ * of the week in a month, worked out for each year by core.
  */
 
 type Row = typeof schema.businessHours.$inferSelect;
@@ -62,6 +65,7 @@ export async function seasonRows(db: Database, organizationId: string): Promise<
 const seasonDef = (row: SeasonRow): rules.SeasonDef => ({
   id: row.id, businessUnitId: row.businessUnitId, name: row.name,
   startsOn: row.startsOn, endsOn: row.endsOn, repeatsYearly: row.repeatsYearly,
+  startsRule: row.startsRule ?? null, endsRule: row.endsRule ?? null, onlySomeDays: row.onlySomeDays,
 });
 
 /**
@@ -353,9 +357,15 @@ export interface SeasonView {
   startsOn: string;
   endsOn: string;
   repeatsYearly: boolean;
+  /** A yearly season starting on a day of the week in a month, or null for one starting on `startsOn`. */
+  startsRule: rules.WeekdayRule | null;
+  /** A yearly season ending on a day of the week in a month, or null for one ending on `endsOn`. */
+  endsRule: rules.WeekdayRule | null;
+  /** True when it changes only the days listed and the rest keep the week beneath it. */
+  onlySomeDays: boolean;
   /** When it runs, in words: "June 1 to August 31, every year". */
   when: string;
-  /** Its seven days. */
+  /** Its seven days, or the days it changes when `onlySomeDays`. */
   days: DayView[];
   /** Whether it is in force today, in the company's zone. */
   inForceToday: boolean;
@@ -363,10 +373,16 @@ export interface SeasonView {
 
 export interface SeasonInput {
   name: string;
-  /** `YYYY-MM-DD`. For one that repeats, only the month and day are read. */
-  startsOn: string;
-  endsOn: string;
+  /** `YYYY-MM-DD`. For one that repeats, only the month and day are read. Not needed for an end given by a rule. */
+  startsOn?: string | undefined;
+  endsOn?: string | undefined;
   repeatsYearly?: boolean | undefined;
+  /** A yearly season starting on a day of the week in a month (the last Monday of May). */
+  startsRule?: rules.WeekdayRule | null | undefined;
+  /** A yearly season ending on a day of the week in a month (the first Monday of September). */
+  endsRule?: rules.WeekdayRule | null | undefined;
+  /** Change only the days sent; the rest keep the week beneath it. Absent or false sends all seven. */
+  onlySomeDays?: boolean | undefined;
   /** A branch's own season. Absent or null is the company's. */
   businessUnitId?: string | null | undefined;
   days: WeekInput["days"];
@@ -388,6 +404,9 @@ async function seasonViews(tx: Database, ctx: ServiceContext, rows: SeasonRow[])
     startsOn: row.startsOn,
     endsOn: row.endsOn,
     repeatsYearly: row.repeatsYearly,
+    startsRule: row.startsRule ?? null,
+    endsRule: row.endsRule ?? null,
+    onlySomeDays: row.onlySomeDays,
     when: rules.describeSeason(row),
     days: sorted(days.filter((d) => d.seasonId === row.id)),
     inForceToday: rules.seasonCovers(row, today),
@@ -410,15 +429,56 @@ export async function listSeasons(ctx: ServiceContext): Promise<{ seasons: Seaso
   });
 }
 
-/** The dates and the week, checked, in words when they are wrong. */
-function checkedSeason(input: SeasonInput): { name: string; startsOn: string; endsOn: string; repeatsYearly: boolean } {
-  const season = {
-    name: input.name.trim(), startsOn: input.startsOn, endsOn: input.endsOn, repeatsYearly: input.repeatsYearly ?? false,
-  };
-  const check = rules.checkSeason(season);
+/** The kept shape of a season: its dates (worked out from its rules where it has some), its rules and whether it changes some days only. */
+interface CheckedSeason {
+  name: string; startsOn: string; endsOn: string; repeatsYearly: boolean;
+  startsRule: rules.WeekdayRule | null; endsRule: rules.WeekdayRule | null; onlySomeDays: boolean;
+}
+
+/**
+ * The dates and the week, checked, in words when they are wrong. An end given
+ * by a rule is kept as the date the rule gives in the company's current year
+ * (the end in the year after when the season runs across the new year), so
+ * the stored dates always run forward; core reads the rule, not the date.
+ */
+function checkedSeason(input: SeasonInput, today: string): CheckedSeason {
+  const startsRule = input.startsRule ?? null;
+  const endsRule = input.endsRule ?? null;
+  const year = Number(today.slice(0, 4));
+  if (!startsRule && !input.startsOn) throw new ConflictError("Give the first day, or the day of the week in a month it starts on.");
+  if (!endsRule && !input.endsOn) throw new ConflictError("Give the last day, or the day of the week in a month it ends on.");
+  const ruled = { startsRule, endsRule, repeatsYearly: input.repeatsYearly ?? false, startsOn: input.startsOn ?? "", endsOn: input.endsOn ?? "" };
+  const check = rules.checkSeason({ name: input.name.trim(), ...ruled });
   if (!check.ok) throw new ConflictError(check.message);
-  checkWeek(input.days);
-  return season;
+  let startsOn = input.startsOn ?? "";
+  let endsOn = input.endsOn ?? "";
+  if (startsRule || endsRule) {
+    const on = (y: number, rule: rules.WeekdayRule | null, date: string) =>
+      rule ? rules.weekdayOfMonth(y, rule) : `${String(y).padStart(4, "0")}${date.slice(4)}`;
+    startsOn = on(year, startsRule, startsOn);
+    endsOn = on(year, endsRule, endsOn);
+    if (endsOn < startsOn) endsOn = on(year + 1, endsRule, input.endsOn ?? "");
+  }
+  const onlySomeDays = input.onlySomeDays === true;
+  if (onlySomeDays) checkSomeDays(input.days);
+  else checkWeek(input.days);
+  return { name: input.name.trim(), startsOn, endsOn, repeatsYearly: ruled.repeatsYearly, startsRule, endsRule, onlySomeDays };
+}
+
+/** The days a season changing only some days changes: at least one, each once, each open with hours or closed. */
+function checkSomeDays(days: WeekInput["days"]): void {
+  if (days.length === 0) throw new ConflictError("Choose at least one day for the season to change.");
+  const seen = new Set(days.map((d) => d.dayOfWeek));
+  if (seen.size !== days.length) throw new ConflictError("A day is given twice. Give each day once.");
+  for (const day of days) {
+    if (day.closed) continue;
+    if (!day.opensAt || !day.closesAt) {
+      throw new ConflictError(`Day ${day.dayOfWeek} is open and has no hours. Say when, or mark it closed.`);
+    }
+    if (day.closesAt <= day.opensAt) {
+      throw new ConflictError(`Day ${day.dayOfWeek} closes at ${day.closesAt} and opens at ${day.opensAt}.`);
+    }
+  }
 }
 
 /**
@@ -481,7 +541,7 @@ export async function addSeason(ctx: ServiceContext, input: SeasonInput): Promis
     if (seen) return seen;
     const branchId = input.businessUnitId ?? null;
     await mayKeep(tx, ctx, branchId);
-    const season = checkedSeason(input);
+    const season = checkedSeason(input, time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)));
     await refuseOverlap(tx, ctx.actor.organizationId, branchId, season, null);
     const [row] = await tx.insert(schema.businessHoursSeason)
       .values({ organizationId: ctx.actor.organizationId, businessUnitId: branchId, ...season }).returning();
@@ -502,7 +562,7 @@ export async function changeSeason(ctx: ServiceContext, input: Omit<SeasonInput,
   return guardedWrite(ctx, "booking:configure", async (tx) => {
     const before = await seasonWithin(tx, ctx, input.id);
     await mayKeep(tx, ctx, before.businessUnitId);
-    const season = checkedSeason(input);
+    const season = checkedSeason(input, time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId)));
     await refuseOverlap(tx, ctx.actor.organizationId, before.businessUnitId, season, before.id);
     const [beforeView] = await seasonViews(tx, ctx, [before]);
     const [row] = await tx.update(schema.businessHoursSeason)

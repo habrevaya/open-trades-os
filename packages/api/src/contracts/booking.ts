@@ -395,16 +395,34 @@ export const clearBranchHours = defineRoute({
  * the board, a route's fit, the rebalance, the phones, the after hours rate,
  * the crew check and task escalation. A branch on the company's week reads
  * the company's seasons too; a branch with a week of its own reads only its
- * own. An owner's seasons may not overlap.
+ * own. An owner's seasons may not overlap. A season can change only some
+ * weekdays and leave the rest to the week beneath it, and a yearly one can
+ * start or end on a day of the week in a month.
  */
+const SeasonRule = z.object({
+  month: z.number().int().min(1).max(12),
+  /** 0 for Sunday through 6 for Saturday. */
+  weekday: z.number().int().min(0).max(6),
+  /** The first to fourth such weekday of the month, or the last. */
+  week: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal("last")]),
+});
+
 const SeasonFields = z.object({
   name: z.string().min(1).max(80),
-  /** `YYYY-MM-DD`, both days kept. For one that repeats, only the month and day are read. */
-  startsOn: z.string().date(),
-  endsOn: z.string().date(),
+  /** `YYYY-MM-DD`, both days kept. For one that repeats, only the month and day are read. Left out when `startsRule` gives the start. */
+  startsOn: z.string().date().optional(),
+  /** Left out when `endsRule` gives the end. */
+  endsOn: z.string().date().optional(),
   /** Every year on the same month and day. It may run across the new year. */
   repeatsYearly: z.boolean().optional(),
-  days: z.array(WeekDay).length(7),
+  /** A yearly season starting on a day of the week in a month (the last Monday of May), worked out for each year. */
+  startsRule: SeasonRule.nullable().optional(),
+  /** A yearly season ending on a day of the week in a month (the first Monday of September). */
+  endsRule: SeasonRule.nullable().optional(),
+  /** Change only the days sent; every other weekday keeps the week beneath the season. Absent or false: all seven days. */
+  onlySomeDays: z.boolean().optional(),
+  /** All seven days, or with `onlySomeDays` the days it changes. */
+  days: z.array(WeekDay).min(1).max(7),
 });
 
 const Season = z.object({
@@ -416,7 +434,13 @@ const Season = z.object({
   startsOn: z.string(),
   endsOn: z.string(),
   repeatsYearly: z.boolean(),
-  /** When it runs, in words: "June 1 to August 31, every year". */
+  /** A yearly season starting on a day of the week in a month; `startsOn` is then the date it gave the year it was saved. */
+  startsRule: SeasonRule.nullable(),
+  /** A yearly season ending on a day of the week in a month. */
+  endsRule: SeasonRule.nullable(),
+  /** True when it changes only the days in `days`, and every other weekday keeps the week beneath it. */
+  onlySomeDays: z.boolean(),
+  /** When it runs, in words: "June 1 to August 31, every year" or "Last Monday of May to the first Monday of September, every year". */
   when: z.string(),
   days: z.array(WeekDay),
   /** In force today, in the company's zone. */
@@ -440,7 +464,7 @@ export const addHoursSeason = defineRoute({
   path: "/v1/booking/seasons",
   summary: "Add a season: hours kept between two dates",
   description:
-    "All seven days, as for the week. Without `businessUnitId` it is the company's, read by every branch on the company's week; with one, that branch's own. A season that would be in force on a date another of the same owner's is (two dated ones whose dates meet, or a yearly one whose months and days meet another's) is refused in words naming the other. A holiday on a date in a season still wins. Somebody who sees only their own branch's work keeps only its seasons.",
+    "All seven days, as for the week, or with `onlySomeDays` the days it changes, every other weekday keeping the week beneath it. Either end of a yearly season can be a day of the week in a month (`startsRule`, `endsRule`), worked out for each year; its ends must fall in the same order every year. Without `businessUnitId` it is the company's, read by every branch on the company's week; with one, that branch's own. A season that would be in force on a date another of the same owner's is (two dated ones whose dates meet, or a yearly one whose months and days meet another's) is refused in words naming the other. A holiday on a date in a season still wins. Somebody who sees only their own branch's work keeps only its seasons.",
   module: "M02",
   permissions: ["booking:configure"],
   idempotent: true,

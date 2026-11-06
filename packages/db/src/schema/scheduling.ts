@@ -85,6 +85,18 @@ export const businessHoursSeason = pgTable("business_hours_season", {
   startsOn: date("starts_on").notNull(),
   endsOn: date("ends_on").notNull(),
   repeatsYearly: boolean("repeats_yearly").notNull().default(false),
+  /**
+   * A yearly season starting or ending on a day of the week in a month (the
+   * last Monday of May), worked out for each year by core; `starts_on` and
+   * `ends_on` then hold the dates it gave in the year it was saved.
+   */
+  startsRule: jsonb("starts_rule").$type<{ month: number; weekday: number; week: 1 | 2 | 3 | 4 | "last" }>(),
+  endsRule: jsonb("ends_rule").$type<{ month: number; weekday: number; week: 1 | 2 | 3 | 4 | "last" }>(),
+  /**
+   * The season changes only the weekdays it has rows for, and the rest keep
+   * the week beneath it. False is a whole week of seven rows, as always.
+   */
+  onlySomeDays: boolean("only_some_days").notNull().default(false),
   /** Removed outright when the company takes one off; the audit log keeps what it said. */
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

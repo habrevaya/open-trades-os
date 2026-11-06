@@ -356,6 +356,37 @@ comes back every year on the same month and day ("June 1 to August 31, every
 year"), and a yearly one may run across the new year. A holiday on a date in a
 season still wins, because it is the more particular thing somebody said.
 
+**A season that changes only some days.** A season can say hours for some
+weekdays and leave the rest to the week beneath it: Saturday mornings in
+summer, and every other day as usual (`onlySomeDays` with only those days in
+`days` on `POST /v1/booking/seasons` and `PUT /v1/booking/seasons/{id}`; on the
+form, tick "Keep the normal hours" on each day the season does not change). On
+a date, each weekday takes the hours of the first season in force that changes
+that weekday, and the normal week where none does, so for a branch on the
+company's week its own Saturday
+season over a company summer season gives Saturday from the branch's season
+and every other day from the company's. The board names the season only on a
+day it changes ("Open 8:00 AM to 12:00 PM, Saturday mornings."); the Monday
+after says the normal week's hours. A season with all seven days replaces the
+whole week, as it always has, and every season saved before keeps working
+exactly as it did. The list says "Sat 08:00 to 12:00. Every other day keeps
+the normal hours."
+
+**A yearly season on a day of the week.** Either end of a yearly season can be
+a day of the week in a month instead of a date, as a moving holiday is: from
+the last Monday of May to the first Monday of September (`startsRule` and
+`endsRule`, each a month, a weekday and the first to fourth or the last; on the
+form, "Or starts on" and "Or ends on" beside the dates). Core works the dates
+out for each year (`holidays.seasonCovers`, with unit tests). The ends must fall
+in the same order every year, so the first Monday of June against June 5 is
+refused ("In some years the season would end before it starts."), and a season
+on a day of the week that is not yearly is refused too. The stored `startsOn`
+and `endsOn` are the dates the rules gave in the year it was saved; core reads
+the rules. It is listed as "Last Monday of May to the first Monday of
+September, every year". For the overlap check, a day of the week is read at its
+widest (the last Monday of May can be the 25th to the 31st), so two seasons
+that could share a day in any year are refused, even in a year they would not.
+
 Whose season a reader reads, on a date: the branch's own season where one
 covers the date; otherwise the branch's own normal week where it keeps one;
 otherwise the company's season where one covers the date; otherwise the
@@ -551,11 +582,14 @@ not submit one to a carrier. Company licences are compliance documents rather
 than a setup step.
 
 A moving holiday is a day of the week in a month; a holiday fixed to another
-calendar (Easter, a lunar new year) is entered for each year. A season is a
-whole week over the normal one between two dates; there is no season that
-changes one weekday and leaves the rest to the normal week, and none for a
-phone number keeping its own week. A season repeating every year is fixed to
-dates, not to a day of the week in a month (the first Monday of June). The
+calendar (Easter, a lunar new year) is entered for each year. There is no season
+for a phone number keeping its own week. Two seasons of one owner may not
+share a date even when they change different weekdays (Saturdays in one,
+Sundays in the other): put both days in one season. A season that changes only
+some days, on a company that has declared no week, gives hours on its own days
+only and says nothing about the rest, as the week says nothing. A season on a
+day of the week in a month follows the calendar of the company's own day
+(`YYYY-MM-DD`), not a date fixed to another calendar. The
 assistants quote the company's week in force today and do not say when a
 season starts or ends. The assistants, the reviews clock and
 recurring tasks know no branch, so they read the company's week and list alone;
