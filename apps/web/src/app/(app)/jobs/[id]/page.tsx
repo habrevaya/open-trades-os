@@ -8,7 +8,7 @@ import { getDb } from "@/lib/db";
 import {
   jobs, customers, commercial, entitlements, files, profitability, priceBook, billing, visitChanges, customFields,
   NotFoundError, acquisition, marketing, portalSettings, branches, contracts, jobBilling, booking, expenses, plugins,
-  jobHolds, inventory, partRequests, customerUploads,
+  jobHolds, inventory, partRequests, customerUploads, tipRules,
 } from "@opentradesos/api/services";
 import { can, coverage as cov, money, parties as roles, work } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
@@ -43,6 +43,7 @@ import { Stages } from "./Stages";
 import { JobHoldPanel, PlannedVisits } from "./Hold";
 import { placeHold, releaseHold, setBilledBack, setBudgetedHours, setLineHaul, setMultiVisitPlanned, setProduction } from "./hold-actions";
 import { CrewBudget, Production } from "./Budget";
+import { JobTipRule } from "./TipRule";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +105,8 @@ export default async function JobPage({ params, searchParams }: {
    * back and the days somebody was away on it. A cost, so `job.cost:read`.
    */
   const paidOut = can(user.actor, "job.cost:read") ? await expenses.forJob(ctx, { jobId: id }) : null;
+  /** How a tip on the job is shared, read like the company's rule with `timesheet:read`. */
+  const tipRule = can(user.actor, "timesheet:read") ? await tipRules.forJob(ctx, { jobId: id }) : null;
 
   const [parties, authorization, entitlement, customer, sources, branchOptions] = await Promise.all([
     commercial.parties(ctx, { jobId: id }),
@@ -457,6 +460,8 @@ export default async function JobPage({ params, searchParams }: {
           <p className="mt-2 text-sm font-medium">Together <Money value={paidOut.total} /></p>
         </section>
       ) : null}
+
+      {tipRule ? <JobTipRule jobId={id} data={tipRule} configures={can(user.actor, "payroll:configure")} /> : null}
 
       <h2 className="mt-10 text-base font-semibold">Visits</h2>
       {job.visits.length === 0 ? (

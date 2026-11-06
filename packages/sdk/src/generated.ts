@@ -5685,6 +5685,8 @@ export interface DecideExpenseOutput {
   mileageRate: string | null;
   mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
   mileageVehicle: string | null;
+  mileageVehicleFrom: "picked" | "checked_out" | null;
+  mileageCheckedOut: string | null;
   mileageWork: string | null;
   spentOn: string;
   description: string;
@@ -7736,6 +7738,11 @@ export interface GetBudgetReportOutput {
         runRate: string;
         seasonal: string;
       };
+      ownBlend?: {
+        budget: number;
+        runRate: number;
+        seasonal: number;
+      };
     };
   }>;
   net: {
@@ -7767,6 +7774,16 @@ export interface GetBudgetReportOutput {
       seasonal: number;
     } | null;
     seasonalYears: number;
+    recentWeighted: boolean;
+    lineBlends: Array<{
+      line: string;
+      label: string;
+      weights: {
+        budget: number;
+        runRate: number;
+        seasonal: number;
+      };
+    }>;
     assumption: string;
     net: {
       forecast: string;
@@ -9745,6 +9762,10 @@ export interface GetFieldSnapshotOutput {
       rateToday: string | null;
     }>;
     mileageWork: boolean;
+    mileageCheckedOut: {
+      id: string;
+      label: string;
+    } | null;
   };
   expenses: Array<{
     id: string;
@@ -10425,6 +10446,8 @@ export interface GetJobExpensesOutput {
     mileageRate: string | null;
     mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
     mileageVehicle: string | null;
+    mileageVehicleFrom: "picked" | "checked_out" | null;
+    mileageCheckedOut: string | null;
     mileageWork: string | null;
     spentOn: string;
     description: string;
@@ -10723,6 +10746,36 @@ export interface GetJobStagesOutput {
       met: boolean | null;
     }>;
   }>;
+}
+
+export interface GetJobTipRuleOutput {
+  own: {
+    id: string;
+    kind: "job" | "job_type" | "crew" | "technician";
+    jobId: string | null;
+    jobNumber: number | null;
+    jobSummary: string | null;
+    jobTypeId: string | null;
+    jobTypeName: string | null;
+    crewId: string | null;
+    crewName: string | null;
+    technicianId: string | null;
+    technicianName: string | null;
+    rule: "even" | "hours" | "lead" | "visit_hours";
+    ruleLabel: string;
+    startsOn: string | null;
+    endsOn: string | null;
+    note: string | null;
+    setAt: string;
+  } | null;
+  today: {
+    rule: "even" | "hours" | "lead" | "visit_hours";
+    ruleLabel: string;
+    source: "company" | "job" | "job_type" | "crew" | "technician";
+    sourceLabel: string;
+    note: string;
+    people: string[];
+  };
 }
 
 export interface GetJournalEntryOutput {
@@ -16372,6 +16425,18 @@ export interface ListDisposalFacilitiesOutput {
   }>;
 }
 
+export interface ListDisposalMarkupsOutput {
+  facilityMarkups: Array<{
+    facilityId: string;
+    facilityName: string;
+    markup: string;
+  }>;
+  materialMarkups: Array<{
+    material: string;
+    markup: string;
+  }>;
+}
+
 export interface ListDoNotMailOutput {
   entries: Array<{
     id: string;
@@ -16565,6 +16630,8 @@ export interface ListExpensesOutput {
     mileageRate: string | null;
     mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
     mileageVehicle: string | null;
+    mileageVehicleFrom: "picked" | "checked_out" | null;
+    mileageCheckedOut: string | null;
     mileageWork: string | null;
     spentOn: string;
     description: string;
@@ -17565,6 +17632,8 @@ export interface ListMyExpensesOutput {
     mileageRate: string | null;
     mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
     mileageVehicle: string | null;
+    mileageVehicleFrom: "picked" | "checked_out" | null;
+    mileageCheckedOut: string | null;
     mileageWork: string | null;
     spentOn: string;
     description: string;
@@ -17607,6 +17676,11 @@ export interface ListMyExpensesOutput {
     name: string;
     rateToday: string | null;
   }>;
+  checkedOutToday: {
+    id: string;
+    label: string;
+    rateToday: string | null;
+  } | null;
 }
 
 export interface ListMyNoticesOutput {
@@ -19555,14 +19629,20 @@ export interface ListTimeOffOutput {
 export interface ListTipRulesOutput {
   rules: Array<{
     id: string;
-    kind: "job" | "technician";
+    kind: "job" | "job_type" | "crew" | "technician";
     jobId: string | null;
     jobNumber: number | null;
     jobSummary: string | null;
+    jobTypeId: string | null;
+    jobTypeName: string | null;
+    crewId: string | null;
+    crewName: string | null;
     technicianId: string | null;
     technicianName: string | null;
     rule: "even" | "hours" | "lead" | "visit_hours";
     ruleLabel: string;
+    startsOn: string | null;
+    endsOn: string | null;
     note: string | null;
     setAt: string;
   }>;
@@ -22531,6 +22611,7 @@ export interface RecordExpenseInput {
   amount?: string;
   miles?: string;
   vehicleId?: string;
+  ownVehicle?: boolean;
   spentOn: string;
   description: string;
   receipt?: {
@@ -22551,6 +22632,8 @@ export interface RecordExpenseOutput {
   mileageRate: string | null;
   mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
   mileageVehicle: string | null;
+  mileageVehicleFrom: "picked" | "checked_out" | null;
+  mileageCheckedOut: string | null;
   mileageWork: string | null;
   spentOn: string;
   description: string;
@@ -26432,6 +26515,7 @@ export interface SetBudgetForecastMethodInput {
     seasonal: number;
   };
   seasonalYears?: number;
+  recentWeighted?: boolean;
 }
 
 export interface SetBudgetForecastMethodOutput {
@@ -26443,6 +26527,26 @@ export interface SetBudgetForecastMethodOutput {
     seasonal: number;
   };
   seasonalYears?: number;
+  recentWeighted?: true;
+}
+
+export interface SetBudgetLineBlendInput {
+  line: string;
+  weights: {
+    budget: number;
+    runRate: number;
+    seasonal: number;
+  } | null;
+}
+
+export interface SetBudgetLineBlendOutput {
+  year: number;
+  line: string;
+  weights: {
+    budget: number;
+    runRate: number;
+    seasonal: number;
+  } | null;
 }
 
 export interface SetBudgetLineInput {
@@ -26835,6 +26939,24 @@ export interface SetDisposalBillingInput {
 export interface SetDisposalBillingOutput {
   markup: string | null;
   addWithoutAsking: boolean;
+}
+
+export interface SetDisposalMarkupInput {
+  facilityId?: string;
+  material?: string;
+  markup: string | null;
+}
+
+export interface SetDisposalMarkupOutput {
+  facilityMarkups: Array<{
+    facilityId: string;
+    facilityName: string;
+    markup: string;
+  }>;
+  materialMarkups: Array<{
+    material: string;
+    markup: string;
+  }>;
 }
 
 export interface SetEmploymentRecordInput {
@@ -28482,21 +28604,31 @@ export interface SetTechnicianSkillExpiryOutput {
 
 export interface SetTipRuleInput {
   jobId?: string;
+  jobTypeId?: string;
+  crewId?: string;
   technicianId?: string;
   rule: "even" | "hours" | "lead" | "visit_hours";
+  startsOn?: string | null;
+  endsOn?: string | null;
   note?: string;
 }
 
 export interface SetTipRuleOutput {
   id: string;
-  kind: "job" | "technician";
+  kind: "job" | "job_type" | "crew" | "technician";
   jobId: string | null;
   jobNumber: number | null;
   jobSummary: string | null;
+  jobTypeId: string | null;
+  jobTypeName: string | null;
+  crewId: string | null;
+  crewName: string | null;
   technicianId: string | null;
   technicianName: string | null;
   rule: "even" | "hours" | "lead" | "visit_hours";
   ruleLabel: string;
+  startsOn: string | null;
+  endsOn: string | null;
   note: string | null;
   setAt: string;
 }
@@ -33997,6 +34129,10 @@ export interface GetJobStagesInput {
   id: string;
 }
 
+export interface GetJobTipRuleInput {
+  jobId: string;
+}
+
 export interface GetJournalEntryInput {
   id: string;
 }
@@ -34806,6 +34942,8 @@ export interface ListDispatchPlansInput {
 export interface ListDisposalFacilitiesInput {
   includeClosed?: boolean;
 }
+
+export type ListDisposalMarkupsInput = Record<string, never>;
 
 export interface ListDoNotMailInput {
   customerId?: string;
@@ -36351,6 +36489,10 @@ export interface SetBudgetLineParams {
   year: number;
 }
 
+export interface SetBudgetLineBlendParams {
+  year: number;
+}
+
 export interface SetCertificationRenewalDaysParams {
   id: string;
 }
@@ -37402,6 +37544,7 @@ export interface OperationTypes {
   getJobRateOffers: { input: GetJobRateOffersInput; output: GetJobRateOffersOutput };
   getJobSkills: { input: GetJobSkillsInput; output: GetJobSkillsOutput };
   getJobStages: { input: GetJobStagesInput; output: GetJobStagesOutput };
+  getJobTipRule: { input: GetJobTipRuleInput; output: GetJobTipRuleOutput };
   getJournalEntry: { input: GetJournalEntryInput; output: GetJournalEntryOutput };
   getKpiBreakdown: { input: GetKpiBreakdownInput; output: GetKpiBreakdownOutput };
   getKpiRecords: { input: GetKpiRecordsInput; output: GetKpiRecordsOutput };
@@ -37609,6 +37752,7 @@ export interface OperationTypes {
   listDevices: { input: ListDevicesInput; output: ListDevicesOutput };
   listDispatchPlans: { input: ListDispatchPlansInput; output: ListDispatchPlansOutput };
   listDisposalFacilities: { input: ListDisposalFacilitiesInput; output: ListDisposalFacilitiesOutput };
+  listDisposalMarkups: { input: ListDisposalMarkupsInput; output: ListDisposalMarkupsOutput };
   listDoNotMail: { input: ListDoNotMailInput; output: ListDoNotMailOutput };
   listDueRequests: { input: ListDueRequestsInput; output: ListDueRequestsOutput };
   listEmailMessages: { input: ListEmailMessagesInput; output: ListEmailMessagesOutput };
@@ -38077,6 +38221,7 @@ export interface OperationTypes {
   setBranchNumbering: { input: SetBranchNumberingInput; output: SetBranchNumberingOutput };
   setBudgetForecastMethod: { input: SetBudgetForecastMethodParams & SetBudgetForecastMethodInput; output: SetBudgetForecastMethodOutput };
   setBudgetLine: { input: SetBudgetLineParams & SetBudgetLineInput; output: SetBudgetLineOutput };
+  setBudgetLineBlend: { input: SetBudgetLineBlendParams & SetBudgetLineBlendInput; output: SetBudgetLineBlendOutput };
   setBusinessHours: { input: SetBusinessHoursInput; output: SetBusinessHoursOutput };
   setCancellationNotice: { input: SetCancellationNoticeInput; output: SetCancellationNoticeOutput };
   setCertificationRenewalDays: { input: SetCertificationRenewalDaysParams & SetCertificationRenewalDaysInput; output: SetCertificationRenewalDaysOutput };
@@ -38098,6 +38243,7 @@ export interface OperationTypes {
   setDeficiencyStatus: { input: SetDeficiencyStatusParams & SetDeficiencyStatusInput; output: SetDeficiencyStatusOutput };
   setDiscountPolicy: { input: SetDiscountPolicyInput; output: SetDiscountPolicyOutput };
   setDisposalBilling: { input: SetDisposalBillingInput; output: SetDisposalBillingOutput };
+  setDisposalMarkup: { input: SetDisposalMarkupInput; output: SetDisposalMarkupOutput };
   setEmploymentRecord: { input: SetEmploymentRecordParams & SetEmploymentRecordInput; output: SetEmploymentRecordOutput };
   setEquipmentCustomFields: { input: SetEquipmentCustomFieldsParams & SetEquipmentCustomFieldsInput; output: SetEquipmentCustomFieldsOutput };
   setEstimateCustomFields: { input: SetEstimateCustomFieldsParams & SetEstimateCustomFieldsInput; output: SetEstimateCustomFieldsOutput };
@@ -38696,6 +38842,7 @@ export const OPERATIONS = {
   getJobRateOffers: { method: "GET", path: "/v1/jobs/{id}/rate-offers", pathParams: ["id"], queryParams: ["for","exceptInvoiceId","exceptEstimateId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobSkills: { method: "GET", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobStages: { method: "GET", path: "/v1/jobs/{id}/stages", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
+  getJobTipRule: { method: "GET", path: "/v1/jobs/{jobId}/tip-rule", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:read"] },
   getJournalEntry: { method: "GET", path: "/v1/ledger/journal-entries/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["ledger:read"] },
   getKpiBreakdown: { method: "GET", path: "/v1/kpi-breakdown", pathParams: [], queryParams: ["key","by","from","to"], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   getKpiRecords: { method: "GET", path: "/v1/kpi-records", pathParams: [], queryParams: ["key","half","from","to","page","perPage","by","group"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
@@ -38903,6 +39050,7 @@ export const OPERATIONS = {
   listDevices: { method: "GET", path: "/v1/field/devices", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["user:read"] },
   listDispatchPlans: { method: "GET", path: "/v1/ai/dispatch/plans", pathParams: [], queryParams: ["date","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["visit:read"] },
   listDisposalFacilities: { method: "GET", path: "/v1/disposal-facilities", pathParams: [], queryParams: ["includeClosed"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
+  listDisposalMarkups: { method: "GET", path: "/v1/disposal-billing/markups", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:read"] },
   listDoNotMail: { method: "GET", path: "/v1/marketing/do-not-mail", pathParams: [], queryParams: ["customerId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["campaign:read"] },
   listDueRequests: { method: "GET", path: "/v1/reviews/requests/due", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   listEmailMessages: { method: "GET", path: "/v1/email/messages", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
@@ -39371,6 +39519,7 @@ export const OPERATIONS = {
   setBranchNumbering: { method: "PUT", path: "/v1/branch-numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setBudgetForecastMethod: { method: "PUT", path: "/v1/budgets/{year}/forecast", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBudgetLine: { method: "PUT", path: "/v1/budgets/{year}/lines", pathParams: ["year"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
+  setBudgetLineBlend: { method: "PUT", path: "/v1/budgets/{year}/forecast/lines", pathParams: ["year"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["finance:configure"] },
   setBusinessHours: { method: "PUT", path: "/v1/booking/hours", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["booking:configure"] },
   setCancellationNotice: { method: "PATCH", path: "/v1/cancellation-notice", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setCertificationRenewalDays: { method: "POST", path: "/v1/certifications/{id}/renewal-days", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
@@ -39392,6 +39541,7 @@ export const OPERATIONS = {
   setDeficiencyStatus: { method: "POST", path: "/v1/inspection-deficiencies/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:write"] },
   setDiscountPolicy: { method: "PUT", path: "/v1/estimates/discount-policy", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setDisposalBilling: { method: "PUT", path: "/v1/disposal-billing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
+  setDisposalMarkup: { method: "PUT", path: "/v1/disposal-billing/markups", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setEmploymentRecord: { method: "PUT", path: "/v1/people/{membershipId}/employment", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["user:write"] },
   setEquipmentCustomFields: { method: "PUT", path: "/v1/equipment/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read","equipment:write"] },
   setEstimateCustomFields: { method: "PUT", path: "/v1/estimates/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read","estimate:write"] },
@@ -42944,6 +43094,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The job's own tip rule, and the rule a tip on it today would be shared by.
+   *
+   * GET /v1/jobs/{jobId}/tip-rule. Needs timesheet:read.
+   */
+  getJobTipRule(input: GetJobTipRuleInput, options?: CallOptions): Promise<GetJobTipRuleOutput> {
+    return this.call("getJobTipRule", input, options);
+  }
+
+  /**
    * One manual journal entry and its lines.
    *
    * GET /v1/ledger/journal-entries/{id}. Needs ledger:read.
@@ -44807,6 +44966,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * The markups of one facility's or one material's own on a passed on disposal fee.
+   *
+   * GET /v1/disposal-billing/markups. Needs asset:read.
+   */
+  listDisposalMarkups(input: ListDisposalMarkupsInput = {} as ListDisposalMarkupsInput, options?: CallOptions): Promise<ListDisposalMarkupsOutput> {
+    return this.call("listDisposalMarkups", input, options);
+  }
+
+  /**
    * The do not mail list.
    *
    * GET /v1/marketing/do-not-mail. Needs campaign:read.
@@ -46157,7 +46325,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The jobs and people with a tip rule of their own.
+   * The jobs, kinds of work, crews and people with a tip rule of their own.
    *
    * GET /v1/payroll/tip-rules. Needs timesheet:read.
    */
@@ -48038,7 +48206,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Take a job's or a person's own tip rule off.
+   * Take a job's, kind of work's, crew's or person's own tip rule off.
    *
    * DELETE /v1/payroll/tip-rules/{id}. Needs payroll:configure.
    */
@@ -49019,6 +49187,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Give one budget line a forecast blend of its own, or take it off.
+   *
+   * PUT /v1/budgets/{year}/forecast/lines. Needs finance:configure.
+   */
+  setBudgetLineBlend(input: SetBudgetLineBlendParams & SetBudgetLineBlendInput, options?: CallOptions): Promise<SetBudgetLineBlendOutput> {
+    return this.call("setBudgetLineBlend", input, options);
+  }
+
+  /**
    * Set which days the company, or one branch, is open.
    *
    * PUT /v1/booking/hours. Needs booking:configure.
@@ -49205,6 +49382,15 @@ export abstract class GeneratedOperations {
    */
   setDisposalBilling(input: SetDisposalBillingInput = {} as SetDisposalBillingInput, options?: CallOptions): Promise<SetDisposalBillingOutput> {
     return this.call("setDisposalBilling", input, options);
+  }
+
+  /**
+   * Set or take off the markup for one facility or one material.
+   *
+   * PUT /v1/disposal-billing/markups. Needs settings:write.
+   */
+  setDisposalMarkup(input: SetDisposalMarkupInput, options?: CallOptions): Promise<SetDisposalMarkupOutput> {
+    return this.call("setDisposalMarkup", input, options);
   }
 
   /**
@@ -49910,7 +50096,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * Give one job, or one person, a tip rule of its own.
+   * Give one job, kind of work, crew or person a tip rule of its own.
    *
    * POST /v1/payroll/tip-rules. Needs payroll:configure.
    */

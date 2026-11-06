@@ -44,48 +44,99 @@ export const TIP_SPLIT_LABEL: Record<TipSplitRule, string> = {
  * WHERE THE RULE A TIP WAS SHARED BY CAME FROM.
  *
  *   job         the job's own rule, set by the office for that one job.
+ *   job_type    the rule of the job's kind of work (its job type).
+ *   crew        the rule of a crew everybody sharing the tip is on.
  *   technician  a rule of a person's own, which everybody on the job who has
  *               one agrees on.
  *   company     the company's rule on Pay rules, which is what applies when
- *               neither of the above does.
+ *               none of the above does.
  */
-export const TIP_RULE_SOURCES = ["company", "job", "technician"] as const;
+export const TIP_RULE_SOURCES = ["company", "job", "job_type", "crew", "technician"] as const;
 export type TipRuleSource = (typeof TIP_RULE_SOURCES)[number];
+
+/** Where a tip's rule came from, as the invoice and the job page say it after the rule. */
+export const TIP_RULE_SOURCE_LABEL: Record<TipRuleSource, string> = {
+  company: "the company's rule",
+  job: "this job's own rule",
+  job_type: "the rule for this kind of work",
+  crew: "the crew's rule",
+  technician: "their own rule",
+};
 
 export interface TipRuleChoice {
   rule: TipSplitRule;
   source: TipRuleSource;
-  /** Said when a rule of a person's own was passed over, empty otherwise. */
+  /** Said when a rule of a crew's or a person's own was passed over, empty otherwise. */
   note: string;
 }
 
 /**
- * WHICH RULE A TIP IS SHARED BY: the job's own rule first, then a rule of a
- * person's own, then the company's.
+ * WHICH RULE A TIP IS SHARED BY, read in this order:
  *
- * A person's own rule is about tips they share in. When everybody on the job
- * who has one has the same one, it is used. When two people on the job have
- * different rules of their own, neither can be followed without going against
- * the other, so the company's rule is used and the tip says so: the
- * conservative reading, because the company's rule is the one everybody on
- * the job was told about.
+ *   1. the job's own rule;
+ *   2. the rule of the job's kind of work (its job type);
+ *   3. the rule of a crew everybody sharing the tip is on, when every such
+ *      crew with a rule has the same one;
+ *   4. a rule of a person's own that covers the day, when everybody on the
+ *      job who has one has the same one;
+ *   5. the company's.
+ *
+ * Rules about the work come before rules about the people, as the job's own
+ * always came before a person's, and the narrower before the wider: a job
+ * before its kind of work. A crew comes before a person in it because a
+ * crew's rule is what the people on it agreed between them.
+ *
+ * When two crews, or two people, have different rules, neither can be
+ * followed without going against the other. Two crews are passed over and
+ * the people's own are read next; two people mean the company's rule. Either
+ * way the tip says so: the conservative reading, because the company's rule
+ * is the one everybody on the job was told about.
+ *
+ * The caller hands only the rules that apply: a crew's only when everybody
+ * sharing the tip is on it, a person's only when it covers the day the money
+ * arrived (`tipRuleCovers`).
  */
 export function chooseTipRule(input: {
   company: TipSplitRule;
   job: TipSplitRule | null;
+  /** The job's kind of work's rule, or null when it has none. */
+  jobType?: TipSplitRule | null | undefined;
+  /** The rules of crews everybody sharing the tip is on. Crews with none are left out. */
+  crews?: readonly { crewId: string; rule: TipSplitRule }[] | undefined;
   /** The rules of their own that people on the job have. People with none are left out. */
   people: readonly { technicianId: string; rule: TipSplitRule }[];
 }): TipRuleChoice {
   if (input.job) return { rule: input.job, source: "job", note: "" };
+  if (input.jobType) return { rule: input.jobType, source: "job_type", note: "" };
+  const crewRules = [...new Set((input.crews ?? []).map((c) => c.rule))];
+  if (crewRules.length === 1) return { rule: crewRules[0]!, source: "crew", note: "" };
+  const passedCrews = crewRules.length > 1
+    ? "Everybody on this tip is on crews with different tip rules, so the crews' rules were not used."
+    : "";
   const rules = [...new Set(input.people.map((p) => p.rule))];
-  if (rules.length === 1) return { rule: rules[0]!, source: "technician", note: "" };
+  if (rules.length === 1) return { rule: rules[0]!, source: "technician", note: passedCrews };
   if (rules.length > 1) {
     return {
       rule: input.company, source: "company",
-      note: "People on this job have different tip rules of their own, so the company's rule was used.",
+      note: [passedCrews, "People on this job have different tip rules of their own, so the company's rule was used."]
+        .filter((n) => n !== "").join(" "),
     };
   }
-  return { rule: input.company, source: "company", note: "" };
+  return { rule: input.company, source: "company", note: passedCrews };
+}
+
+/** True when a person's own rule, from `startsOn` to `endsOn` (both kept, null is open), covers the company day `day`. */
+export function tipRuleCovers(day: string, startsOn: string | null, endsOn: string | null): boolean {
+  return (startsOn === null || startsOn <= day) && (endsOn === null || day <= endsOn);
+}
+
+/** True when two spans of days (null is open at that end) share at least one day. */
+export function tipRuleSpansOverlap(
+  a: { startsOn: string | null; endsOn: string | null }, b: { startsOn: string | null; endsOn: string | null },
+): boolean {
+  const aStartsBeforeBEnds = a.startsOn === null || b.endsOn === null || a.startsOn <= b.endsOn;
+  const bStartsBeforeAEnds = b.startsOn === null || a.endsOn === null || b.startsOn <= a.endsOn;
+  return aStartsBeforeBEnds && bStartsBeforeAEnds;
 }
 
 /**

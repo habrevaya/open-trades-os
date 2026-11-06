@@ -1296,6 +1296,13 @@
       "when": 1793923756458,
       "tag": "0184_even_vampiro",
       "breakpoints": true
+    },
+    {
+      "idx": 185,
+      "version": "7",
+      "when": 1793924251759,
+      "tag": "0185_public_black_tarantula",
+      "breakpoints": true
     }
   ]
 }

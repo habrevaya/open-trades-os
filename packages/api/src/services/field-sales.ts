@@ -657,9 +657,12 @@ export async function recordExpense(tx: Database, ctx: ServiceContext, op: field
   const jobId = uuid(op.payload["jobId"]);
   /** The vehicle named on a claim in miles, from the list the phone was given. Checked again by the claim itself. */
   const vehicleId = uuid(op.payload["vehicleId"]) ?? undefined;
+  /** Their own vehicle, though one was checked out to them that day: otherwise a claim naming none uses that one. */
+  const ownVehicle = op.payload["ownVehicle"] === true;
   return savepoint(tx, async (sp) => {
     await expenses.recordWithin(sp, ctx, technicianId, {
       id, jobId, amount, miles, spentOn, description, recordedAt: op.occurredAt, ...(vehicleId ? { vehicleId } : {}),
+      ...(ownVehicle ? { ownVehicle } : {}),
     });
     return null;
   });
@@ -1028,6 +1031,8 @@ export async function abilitiesFor(tx: Database, ctx: ServiceContext, technician
         mileageRate: (await mileageOverrides.resolveWithin(tx, ctx.actor.organizationId, { day: today, technicianId: own }))?.rate.perMile ?? null,
         mileageVehicles: own && can(ctx.actor, "expense:own") ? await mileageOverrides.vehiclesWithinRates(tx, ctx.actor.organizationId, today) : [],
         mileageWork: work.some((w) => w.rateToday !== null),
+        mileageCheckedOut: own && can(ctx.actor, "expense:own")
+          ? await mileageOverrides.vehicleCheckedOutOn(tx, ctx.actor.organizationId, own, today) : null,
       };
     })(),
   };

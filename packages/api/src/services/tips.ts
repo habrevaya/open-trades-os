@@ -1,11 +1,11 @@
 import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { customerPortal as cp, money as m, payExtras as px } from "@opentradesos/core";
-import { guardedRead, guardedWrite, ConflictError, NotFoundError, type ServiceContext } from "./context";
+import { customerPortal as cp, money as m, payExtras as px, time } from "@opentradesos/core";
+import { guardedRead, guardedWrite, timezoneOf, ConflictError, NotFoundError, type ServiceContext } from "./context";
 import * as billing from "./billing";
 import { settingsWithin } from "./portal-settings";
 import { settingsWithin as payExtrasWithin } from "./pay-extras";
-import { ruleWithin } from "./tip-rules";
+import { ruleWithin, techniciansOnJob } from "./tip-rules";
 
 /**
  * TIPS
@@ -32,7 +32,8 @@ import { ruleWithin } from "./tip-rules";
  * evenly to the cent, as it always was; by the hours each person was clocked
  * in on the job; by the hours each was clocked in on the visit the tip was
  * for; or all to the lead on the job's visits. A job can have a rule of its
- * own, and so can a person (`tip-rules.ts`), read before the company's. The
+ * own, and so can a kind of work, a crew and a person (`tip-rules.ts`, where
+ * the order they are read in is set out), read before the company's. The
  * rule in force when the money arrives is the one used and is kept on each
  * share with where it came from, so a change of rule applies to tips from
  * then on and never re-splits one already shared. A rule with nothing to go
@@ -48,22 +49,7 @@ export async function techniciansFor(tx: Database, invoiceId: string): Promise<{
   const [invoice] = await tx.select({ jobId: schema.invoice.jobId })
     .from(schema.invoice).where(eq(schema.invoice.id, invoiceId)).limit(1);
   if (!invoice?.jobId) return { jobId: null, technicians: [] };
-
-  const rows = await tx.selectDistinct({
-    id: schema.technician.id,
-    displayName: schema.technician.displayName,
-  })
-    .from(schema.visitAssignment)
-    .innerJoin(schema.visit, eq(schema.visit.id, schema.visitAssignment.visitId))
-    .innerJoin(schema.technician, eq(schema.technician.id, schema.visitAssignment.technicianId))
-    .where(and(
-      eq(schema.visit.jobId, invoice.jobId),
-      ne(schema.visit.status, "cancelled"),
-      /** A visit recorded from history earns no share of a tip given here. */
-      eq(schema.visit.fromHistory, false),
-    ))
-    .orderBy(asc(schema.technician.id));
-  return { jobId: invoice.jobId, technicians: rows };
+  return { jobId: invoice.jobId, technicians: await techniciansOnJob(tx, invoice.jobId) };
 }
 
 export interface TipOffer {
@@ -192,7 +178,9 @@ export async function writeShares(tx: Database, input: {
     .where(eq(schema.tipShare.paymentId, input.paymentId)).limit(1);
   if (existing.length > 0) return 0;
   const company = (await payExtrasWithin(tx, input.organizationId)).tipSplit;
-  const chosen = await ruleWithin(tx, input.organizationId, company, input.jobId, input.technicianIds);
+  /** A person's own rule with dates is read on the company day the money arrived. */
+  const day = time.dateIn(input.occurredAt, await timezoneOf(tx, input.organizationId));
+  const chosen = await ruleWithin(tx, input.organizationId, company, input.jobId, input.technicianIds, day);
   const visitId = chosen.rule === "visit_hours" ? await visitOfTip(tx, input.jobId, input.visitId ?? null) : null;
   const split = px.splitTipByRule(chosen.rule, input.tip, await tipPeople(tx, input.jobId, input.technicianIds, visitId));
   if (split.shares.length === 0) return 0;

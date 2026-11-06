@@ -514,3 +514,30 @@ export function passedOnFee(input: { cost: string; markup: string | null }): { a
     words: `the facility's fee of ${m.edit(cost)} plus a ${markupPercent(markup)} handling markup`,
   };
 }
+
+/**
+ * WHICH MARKUP A HAUL'S FEE TAKES: the one set for its facility or for its
+ * material, falling back to the company's.
+ *
+ * A markup can be set for one facility (a landfill the company pays more to
+ * reach) or one material (concrete it charges more to handle), and either can
+ * be 0, which passes that fee on at cost whatever the company's markup is.
+ * When a haul's facility and its material both have one, the smaller is used:
+ * the conservative reading, because two settings that overlap should never
+ * charge a customer more than either one says. A tie goes to the facility.
+ * With neither, the company's markup, which may be none.
+ */
+export function disposalMarkupFor(input: {
+  company: string | null;
+  facility?: string | null | undefined;
+  material?: string | null | undefined;
+}): { markup: string | null; from: "company" | "facility" | "material" } {
+  const facility = input.facility ?? null;
+  const material = input.material ?? null;
+  if (facility !== null && material !== null) {
+    return Number(material) < Number(facility) ? { markup: material, from: "material" } : { markup: facility, from: "facility" };
+  }
+  if (facility !== null) return { markup: facility, from: "facility" };
+  if (material !== null) return { markup: material, from: "material" };
+  return { markup: input.company, from: "company" };
+}

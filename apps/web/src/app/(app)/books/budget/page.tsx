@@ -5,7 +5,7 @@ import { can } from "@opentradesos/core";
 import { Money } from "@opentradesos/ui";
 import { Empty, PageHeader } from "@/components/Table";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
-import { saveBudgetLine, importBudgetFile, chooseForecast } from "../actions";
+import { saveBudgetLine, importBudgetFile, chooseForecast, chooseLineBlend } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -208,6 +208,11 @@ export default async function BudgetPage(
                     {line.forecast.noShape ? (
                       <span className="block text-xs text-ink-500">Nothing last year to follow, so at its budget</span>
                     ) : null}
+                    {line.forecast.ownBlend ? (
+                      <span className="block text-xs text-ink-500">
+                        Its own blend: {blendSaid(line.forecast.ownBlend)}
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -286,6 +291,43 @@ export default async function BudgetPage(
                       options={[1, 2, 3, 4, 5].map((n) => ({
                         value: String(n), label: n === 1 ? `${year - 1} alone` : `The average of ${year - n} to ${year - 1}`,
                       }))} />
+              <label className="flex items-center gap-2 pb-2 text-sm">
+                <input type="checkbox" name="recentWeighted" defaultChecked={report.forecast.recentWeighted} />
+                <span>Run rate: count recent months for more</span>
+              </label>
+            </ActionForm>
+            <p className="mt-2 text-sm text-ink-700">
+              With the box ticked, the run rate counts the latest months more than the early ones: the first month
+              over counts once, the second twice, and so on, so last month counts most. It suits a line that is
+              growing or shrinking steadily. Left unticked, every month counts the same.
+            </p>
+          </section>
+
+          <section aria-label="A blend for one line" className="mt-8 rounded-md border border-steel-200 p-4">
+            <h2 className="text-base font-semibold">A blend for one line</h2>
+            <p className="mt-1 text-sm text-ink-700">
+              One line can be forecast its own way while every other line follows the choice above. Name a line
+              that is in the {year} budget and say how much of its months to come is at its budget, at the run
+              rate and shaped like past years, in whole percentages that add up to 100. It counts for that line in
+              every branch and job type too.
+            </p>
+            {report.forecast.lineBlends.length > 0 ? (
+              <ul className="mt-3 space-y-2 text-sm" aria-label="Lines with a blend of their own">
+                {report.forecast.lineBlends.map((l) => (
+                  <li key={l.line} className="flex flex-wrap items-center gap-3">
+                    <span><span className="font-medium">{l.label}</span>: {blendSaid(l.weights)}</span>
+                    <ActionForm action={chooseLineBlend} submit={`Take off the blend for ${l.label}`} tone="quiet"
+                                hidden={{ year: String(year), line: l.line.startsWith("account:") ? l.line.slice(8) : l.label, off: "1" }}
+                                className="flex items-center gap-2" />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <ActionForm action={chooseLineBlend} submit="Use for this line" hidden={{ year: String(year) }} className="mt-3 flex flex-wrap items-end gap-3">
+              <TextField label="Line for its own blend" name="line" placeholder="Revenue" required className="block w-48" />
+              <TextField label="Its budget (%)" name="weightBudget" inputMode="numeric" className="block w-32" defaultValue="100" />
+              <TextField label="The run rate (%)" name="weightRunRate" inputMode="numeric" className="block w-32" defaultValue="0" />
+              <TextField label="Shaped (%)" name="weightSeasonal" inputMode="numeric" className="block w-32" defaultValue="0" />
             </ActionForm>
           </section>
 
@@ -340,4 +382,14 @@ export default async function BudgetPage(
       ) : null}
     </div>
   );
+}
+
+/** "50% at its budget and 50% at the run rate", the way a line's own blend is said beside it. */
+function blendSaid(w: { budget: number; runRate: number; seasonal: number }): string {
+  const parts = [
+    w.budget > 0 ? `${w.budget}% at its budget` : null,
+    w.runRate > 0 ? `${w.runRate}% at the run rate` : null,
+    w.seasonal > 0 ? `${w.seasonal}% shaped like past years` : null,
+  ].filter((x): x is string => x !== null);
+  return parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)!}`;
 }

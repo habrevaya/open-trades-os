@@ -156,6 +156,29 @@ export async function disposalBillingAction(_previous: FormState, form: FormData
   return state;
 }
 
+/**
+ * A markup for one facility or one material, typed as a per cent like the
+ * company's, or taken off with "Take off". Through
+ * `disposalFacilities.setDisposalMarkup`; its refusals are the sentence shown.
+ */
+export async function disposalMarkupAction(_previous: FormState, form: FormData): Promise<FormState> {
+  const state = await attempt(form, async () => {
+    const off = field(form, "off") === "1";
+    const typed = (field(form, "markupPercent") ?? "").replace(/[%\s]/g, "");
+    if (!off && !/^\d+(\.\d{1,4})?$/.test(typed)) throw new ConflictError("Write the markup as a per cent, like 15, or 0 for at cost.");
+    const facilityId = field(form, "facilityId");
+    const material = field(form, "material");
+    await disposalFacilities.setDisposalMarkup(await ctx(), {
+      ...(facilityId ? { facilityId } : {}),
+      ...(material && !facilityId ? { material } : {}),
+      markup: off ? null : String(Number((Number(typed) / 100).toFixed(6))),
+    });
+    return { message: off ? "Taken off. Those fees take the company's markup again." : "Saved. Invoices raised from now on use it." };
+  });
+  if (state?.done) revalidatePath("/fleet/containers");
+  return state;
+}
+
 /** How a hire is invoiced and whether its disposal fee is the customer's, for the whole swap chain. */
 export async function billingTermsAction(_previous: FormState, form: FormData): Promise<FormState> {
   const state = await attempt(form, async () => {

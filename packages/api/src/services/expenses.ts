@@ -8,7 +8,7 @@ import {
 import { attach, bytesOf, decode, put } from "./files";
 import { closedPeriodCovering, periodFinder } from "./payroll";
 import { settingsWithin } from "./pay-extras";
-import { vehicleForClaim, resolveWithin, vehiclesWithinRates, workWithinRates } from "./mileage-overrides";
+import { vehicleCheckedOutOn, vehicleForClaim, resolveWithin, vehiclesWithinRates, workWithinRates } from "./mileage-overrides";
 import { technicianScopeFilter } from "./scope";
 import { remember, replayed } from "./once";
 import { raiseWithin } from "./staff-notices";
@@ -56,8 +56,15 @@ export interface ExpenseView {
   mileageRate: string | null;
   /** For a claim in miles: whose line the rate came from. Claims made before there were rates of their own are the company's. */
   mileageRateSource: "company" | "person" | "vehicle" | "work" | null;
-  /** For a claim in miles that named a vehicle: its name as it was. */
+  /** For a claim in miles driven in a company vehicle: its name as it was. */
   mileageVehicle: string | null;
+  /**
+   * How that vehicle came to be on the claim: `picked` by the person, or `checked_out`, the vehicle checked out to
+   * them on the day of the drive when they named none. Null with no vehicle.
+   */
+  mileageVehicleFrom: "picked" | "checked_out" | null;
+  /** The vehicle with a rate of its own checked out to them that day, when the claim was not worked out at it. */
+  mileageCheckedOut: string | null;
   /** For a claim in miles worked out at a kind of work's line: that kind of work's name as it was. */
   mileageWork: string | null;
   spentOn: string;
@@ -126,6 +133,10 @@ async function viewsOf(
       mileageRateSource: expense.miles === null ? null
         : ((expense.mileageRateSource as "company" | "person" | "vehicle" | "work" | null) ?? "company"),
       mileageVehicle: expense.mileageAssetLabel,
+      /** A vehicle on a claim made before custody was read could only have been picked. */
+      mileageVehicleFrom: expense.mileageAssetLabel === null ? null
+        : expense.mileageVehicleFrom === "checked_out" ? "checked_out" as const : "picked" as const,
+      mileageCheckedOut: expense.mileageCheckedOutLabel,
       mileageWork: expense.mileageJobTypeLabel,
       spentOn: expense.spentOn,
       description: expense.description,
@@ -173,8 +184,13 @@ export interface ExpenseInput {
   amount?: string | undefined;
   /** Miles driven in a vehicle of the person's own, to a tenth: worked out at the vehicle's, the person's or the company's rate on `spentOn`. */
   miles?: string | undefined;
-  /** A vehicle with a rate of its own that the miles were driven in. Only with `miles`. */
+  /**
+   * A vehicle with a rate of its own that the miles were driven in. Only with `miles`. Left out, the vehicle with
+   * a rate of its own checked out to the person on the day of the drive is used, when there was one.
+   */
   vehicleId?: string | null | undefined;
+  /** The miles were driven in the person's own vehicle, even though one was checked out to them that day. Only with `miles`. */
+  ownVehicle?: boolean | undefined;
   spentOn: string;
   description: string;
   /** When the person recorded it, by the phone's clock for one made offline. */
@@ -211,8 +227,11 @@ export async function recordWithin(
   if (input.miles !== undefined && input.amount !== undefined && input.amount.trim() !== "") {
     throw new ConflictError("Give either the amount you paid or the miles you drove, not both.");
   }
-  if (input.vehicleId && input.miles === undefined) {
+  if ((input.vehicleId || input.ownVehicle) && input.miles === undefined) {
     throw new ConflictError("A vehicle goes with miles driven, not with an amount you paid.");
+  }
+  if (input.vehicleId && input.ownVehicle) {
+    throw new ConflictError("Pick a company vehicle or say it was your own, not both.");
   }
   /**
    * The job first, because a claim in miles for a job is worked out at its kind of work's line where it has one.
@@ -239,6 +258,7 @@ export async function recordWithin(
   let driven: {
     miles: string; rate: string; source: px.MileageRateSource;
     vehicle: { id: string; label: string } | null; work: { id: string; name: string } | null;
+    vehicleFrom: "picked" | "checked_out" | null; checkedOut: string | null;
   } | null = null;
   let amountTyped = input.amount ?? "";
   if (input.miles !== undefined) {
@@ -247,8 +267,17 @@ export async function recordWithin(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.spentOn) || Number.isNaN(Date.parse(`${input.spentOn}T00:00:00Z`))) {
       throw new ConflictError("Say the day you drove.");
     }
+    /**
+     * THE VEHICLE: the one the person picked; else, unless they said it was their own, the vehicle with a rate of
+     * its own checked out to them on the day of the drive (the fleet's custody record), so driving the van picks
+     * the van's rate without anybody remembering to say so. The claim says which, and names the vehicle they had
+     * out when it was not used, for the office deciding it.
+     */
+    const checkedOut = await vehicleCheckedOutOn(tx, ctx.actor.organizationId, technicianId, input.spentOn);
+    const vehicle = input.vehicleId ? await vehicleForClaim(tx, ctx.actor.organizationId, input.vehicleId)
+      : input.ownVehicle ? null : checkedOut;
+    const vehicleFrom = input.vehicleId ? "picked" as const : vehicle ? "checked_out" as const : null;
     /** The vehicle's line first, then the kind of work's, then the person's, then the company's, each as it stood on the day of the drive. */
-    const vehicle = input.vehicleId ? await vehicleForClaim(tx, ctx.actor.organizationId, input.vehicleId) : null;
     const found = await resolveWithin(tx, ctx.actor.organizationId, {
       day: input.spentOn, technicianId, assetId: vehicle?.id ?? null, jobTypeId: work?.id ?? null,
     });
@@ -259,7 +288,10 @@ export async function recordWithin(
         + "Ask the office to set one, or put in what you paid.",
       );
     }
-    driven = { miles: miles.miles, rate: rate.perMile, source: found.source, vehicle, work: found.source === "work" ? work : null };
+    driven = {
+      miles: miles.miles, rate: rate.perMile, source: found.source, vehicle, work: found.source === "work" ? work : null,
+      vehicleFrom, checkedOut: checkedOut && checkedOut.id !== vehicle?.id ? checkedOut.label : null,
+    };
     /** Already to the cent, so the two places after the point are all there is: "9.0600" is typed as "9.06". */
     const worked = m.toString(px.mileageAmount(miles.miles, rate.perMile));
     amountTyped = worked.slice(0, worked.indexOf(".") + 3);
@@ -276,6 +308,7 @@ export async function recordWithin(
     ...(driven ? {
       miles: driven.miles, mileageRate: driven.rate, mileageRateSource: driven.source,
       mileageAssetId: driven.vehicle?.id ?? null, mileageAssetLabel: driven.vehicle?.label ?? null,
+      mileageVehicleFrom: driven.vehicleFrom, mileageCheckedOutLabel: driven.checkedOut,
       mileageJobTypeId: driven.work?.id ?? null, mileageJobTypeLabel: driven.work?.name ?? null,
     } : {}),
     spentOn: input.spentOn,
@@ -286,7 +319,8 @@ export async function recordWithin(
     technicianId, amount: m.toString(checked.amount), spentOn: input.spentOn, jobId,
     ...(driven ? {
       miles: driven.miles, mileageRate: driven.rate, mileageRateSource: driven.source,
-      vehicle: driven.vehicle?.label ?? null, work: driven.work?.name ?? null,
+      vehicle: driven.vehicle?.label ?? null, vehicleFrom: driven.vehicleFrom, checkedOut: driven.checkedOut,
+      work: driven.work?.name ?? null,
     } : {}),
   });
   return { id: row!.id, created: true };
@@ -360,6 +394,11 @@ export interface OwnExpenses {
   vehicles: { id: string; label: string; rateToday: string | null }[];
   /** Kinds of work with a rate of their own, which a claim in miles for a job of that kind is paid at, and what each pays today. */
   work: { id: string; name: string; rateToday: string | null }[];
+  /**
+   * The vehicle with a rate of its own checked out to them today, which a claim in miles for today is worked out
+   * at unless they pick another or say it was their own. Null when they have none.
+   */
+  checkedOutToday: { id: string; label: string; rateToday: string | null } | null;
 }
 
 /** How far back somebody's own list goes. */
@@ -374,13 +413,15 @@ export async function mine(ctx: ServiceContext): Promise<OwnExpenses> {
     const mileageRate = (await resolveWithin(tx, ctx.actor.organizationId, { day: today, technicianId: own?.id ?? null }))?.rate.perMile ?? null;
     const vehicles = own ? await vehiclesWithinRates(tx, ctx.actor.organizationId, today) : [];
     const work = own ? await workWithinRates(tx, ctx.actor.organizationId, today) : [];
-    if (!own) return { technician: false, expenses: [], perDiems: [], mileageRate, vehicles, work };
+    if (!own) return { technician: false, expenses: [], perDiems: [], mileageRate, vehicles, work, checkedOutToday: null };
     const since = new Date(Date.now() - OWN_DAYS * 86_400_000);
+    const out = await vehicleCheckedOutOn(tx, ctx.actor.organizationId, own.id, today);
     return {
       technician: true,
       mileageRate,
       vehicles,
       work,
+      checkedOutToday: out ? { ...out, rateToday: vehicles.find((v) => v.id === out.id)?.rateToday ?? null } : null,
       expenses: await viewsOf(tx, ctx, and(
         eq(schema.expense.technicianId, own.id), gte(schema.expense.recordedAt, since),
       ), 200),

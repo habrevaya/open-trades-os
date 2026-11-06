@@ -583,6 +583,12 @@ export const getFieldSnapshot = defineRoute({
       mileageVehicles: z.array(z.object({ id: Uuid, label: z.string(), rateToday: z.string().nullable() })),
       /** Whether any kind of work has a rate for a mile of its own, so the phone says a job's kind of work may pay its own. */
       mileageWork: z.boolean(),
+      /**
+       * The vehicle with a rate of its own checked out to this person today, or null. Its presence says the server
+       * works a claim in miles that names no vehicle at the vehicle checked out on the day of the drive, so the phone
+       * offers "My own vehicle" as a choice of its own (`ownVehicle` on `expense.record`).
+       */
+      mileageCheckedOut: z.object({ id: Uuid, label: z.string() }).nullable(),
     }),
     /**
      * This person's own expenses from the last sixty days and what the office

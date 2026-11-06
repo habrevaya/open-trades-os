@@ -278,6 +278,12 @@ export interface FieldAbilities {
   mileageVehicles?: Array<{ id: string; label: string; rateToday: string | null }> | undefined;
   /** Whether a job's kind of work may pay its own rate for a mile. Absent from older servers, read as no. */
   mileageWork?: boolean | undefined;
+  /**
+   * The vehicle with a rate of its own checked out to this person today, or null. Present (even null) only from a
+   * server that works a claim naming no vehicle at the one checked out on the day of the drive; then "My own
+   * vehicle" is a choice of its own. Absent from older servers.
+   */
+  mileageCheckedOut?: { id: string; label: string } | null | undefined;
 }
 
 /**

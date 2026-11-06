@@ -53,9 +53,20 @@ export const expense = pgTable("expense", {
    * were all worked out at the company's rate, and the view reads it so.
    */
   mileageRateSource: text("mileage_rate_source"),
-  /** The vehicle the person named on a claim in miles, and its name as it was. Neither is read back to price anything. */
+  /** The vehicle a claim in miles was driven in, and its name as it was. Neither is read back to price anything. */
   mileageAssetId: uuid("mileage_asset_id").references(() => companyAsset.id, { onDelete: "set null" }),
   mileageAssetLabel: text("mileage_asset_label"),
+  /**
+   * How that vehicle came to be on the claim: `picked` when the person named it, `checked_out` when they named
+   * none and it was the vehicle with a rate of its own checked out to them on the day of the drive (the fleet's
+   * custody record). Null with no vehicle, and for every claim made before vehicles were read from custody.
+   */
+  mileageVehicleFrom: text("mileage_vehicle_from"),
+  /**
+   * The vehicle with a rate of its own checked out to them that day, by name as it was, when the claim was not
+   * worked out at it: they picked another or said it was their own. Kept so the office deciding the claim sees it.
+   */
+  mileageCheckedOutLabel: text("mileage_checked_out_label"),
   /**
    * The kind of work (job type) whose line the rate came from, when it came from one, and its name as it was. The
    * job's type is read when the claim is made; a job moved to another type later never reprices it.

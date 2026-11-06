@@ -44,8 +44,12 @@ export const ExpenseView = z.object({
   mileageRate: z.string().nullable(),
   /** For a claim in miles: whose rate it was worked out at, the vehicle's, the kind of work's, the person's or the company's. Null for an amount paid. */
   mileageRateSource: z.enum(["company", "person", "vehicle", "work"]).nullable(),
-  /** For a claim in miles that named a vehicle: the vehicle's name as it was. */
+  /** For a claim in miles driven in a company vehicle: the vehicle's name as it was. */
   mileageVehicle: z.string().nullable(),
+  /** How that vehicle came to be on the claim: `picked` by the person, or `checked_out` to them on the day of the drive when they named none. Null with no vehicle. */
+  mileageVehicleFrom: z.enum(["picked", "checked_out"]).nullable(),
+  /** The vehicle with a rate of its own checked out to them that day, by name, when the claim was not worked out at it (they picked another or said it was their own). */
+  mileageCheckedOut: z.string().nullable(),
   /** For a claim in miles worked out at a kind of work's line: the kind of work's name as it was. */
   mileageWork: z.string().nullable(),
   spentOn: IsoDate,
@@ -80,7 +84,7 @@ export const recordExpense = defineRoute({
   path: "/v1/me/expenses",
   summary: "Record what you paid for the company",
   description:
-    "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the rate in force on `spentOn`, to the cent: the line of the vehicle named in `vehicleId` first (`POST /v1/payroll/mileage-overrides`), then the line for the kind of work (job type) of the job in `jobId`, then the person's own line, then the company's (`POST /v1/payroll/mileage-rates`), and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.",
+    "Either the amount in dollars and cents, or `miles` driven in a vehicle of the person's own (to a tenth), never both; then the day, what it was for, the job if there was one and a photograph of the receipt. Miles are worked out at the rate in force on `spentOn`, to the cent: the line of the vehicle named in `vehicleId` first (`POST /v1/payroll/mileage-overrides`), or, when none is named and `ownVehicle` is not true, the line of the vehicle with a rate of its own checked out to the person on that day by the fleet's custody record (the one handed over most recently when two were out; `mileageVehicleFrom` says `checked_out`), then the line for the kind of work (job type) of the job in `jobId`, then the person's own line, then the company's (`POST /v1/payroll/mileage-rates`), and the miles, the rate and the amount are kept on the claim so a later rate never reprices it; with no rate in force on that day the claim is refused and says so. Always the signed in person's own, and it waits for the office to approve it. `id` may be made by the caller (the phone does) and the same id sent again is the first one back, so a retry records it once. A receipt is a photograph or a PDF; the type is decided from the bytes. Not posted to the ledger: an approved one is paid through payroll as a non-taxable reimbursement.",
   module: "M17",
   permissions: ["expense:own"],
   idempotent: true,
@@ -95,6 +99,8 @@ export const recordExpense = defineRoute({
     miles: z.string().max(10).optional(),
     /** A vehicle with a rate of its own that the miles were driven in (listed as `vehicles` by `GET /v1/me/expenses`). Only with `miles`. */
     vehicleId: Uuid.optional(),
+    /** True when the miles were driven in the person's own vehicle although one was checked out to them that day. Only with `miles`, never with `vehicleId`. */
+    ownVehicle: z.boolean().optional(),
     spentOn: IsoDate,
     description: z.string().min(1).max(300),
     receipt: Receipt.optional(),
@@ -135,6 +141,8 @@ export const listMyExpenses = defineRoute({
     vehicles: z.array(z.object({ id: Uuid, label: z.string(), rateToday: z.string().nullable() })),
     /** Kinds of work with a rate of their own: a claim in miles for a job of that kind is paid at it, unless a vehicle with its own rate was named. */
     work: z.array(z.object({ id: Uuid, name: z.string(), rateToday: z.string().nullable() })),
+    /** The vehicle with a rate of its own checked out to them today, which a claim in miles for today uses unless another is picked or `ownVehicle` is sent. */
+    checkedOutToday: z.object({ id: Uuid, label: z.string(), rateToday: z.string().nullable() }).nullable(),
   }),
 });
 
@@ -309,24 +317,32 @@ export const setPayExtras = defineRoute({
 
 const TipRule = z.object({
   id: Uuid,
-  kind: z.enum(["job", "technician"]),
+  kind: z.enum(["job", "job_type", "crew", "technician"]),
   jobId: Uuid.nullable(),
   jobNumber: z.number().int().nullable(),
   jobSummary: z.string().nullable(),
+  jobTypeId: Uuid.nullable(),
+  jobTypeName: z.string().nullable(),
+  crewId: Uuid.nullable(),
+  crewName: z.string().nullable(),
   technicianId: Uuid.nullable(),
   technicianName: z.string().nullable(),
   rule: TipSplitRule,
   ruleLabel: z.string(),
+  startsOn: IsoDate.nullable(),
+  endsOn: IsoDate.nullable(),
   note: z.string().nullable(),
   setAt: z.string().datetime(),
 });
 
+const TIP_RULE_ORDER =
+  "When a tip is shared the rules are read in this order: the job's own; the rule of the job's kind of work (its job type); a crew's, when everybody the tip is shared between is on that crew (an active one) and every such crew with a rule has the same one (crews that differ are passed over and the tip says so); a person's own that covers the company day the money arrived, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.";
+
 export const listTipRules = defineRoute({
   method: "get",
   path: "/v1/payroll/tip-rules",
-  summary: "The jobs and people with a tip rule of their own",
-  description:
-    "A job's own rule is read first when a tip on it is shared; then a person's own, when everybody on the job who has one agrees; then the company's (`/v1/payroll/pay-extras`). When two people on a job have different rules of their own, the company's is used and the tip says so.",
+  summary: "The jobs, kinds of work, crews and people with a tip rule of their own",
+  description: TIP_RULE_ORDER,
   module: "M17",
   permissions: ["timesheet:read"],
   input: z.object({}),
@@ -336,16 +352,20 @@ export const listTipRules = defineRoute({
 export const setTipRule = defineRoute({
   method: "post",
   path: "/v1/payroll/tip-rules",
-  summary: "Give one job, or one person, a tip rule of its own",
+  summary: "Give one job, kind of work, crew or person a tip rule of its own",
   description:
-    "Exactly one of `jobId` and `technicianId`. A job or person that has one already has it changed, and the audit log keeps what it was. Applies to tips from then on: a tip is shared the moment its money arrives and keeps the rule it was shared by and where it came from, so nothing already shared is shared again. A statement about what people are owed, so `payroll:configure`. Audited.",
+    `Exactly one of \`jobId\`, \`jobTypeId\`, \`crewId\` and \`technicianId\`. A job, kind of work or crew that has one already has it changed, and the audit log keeps what it was. A person's own rule can have a first and last day (\`startsOn\`, \`endsOn\`, both kept, either left out for open); one with the same days as a rule they have changes it, and one whose days overlap another rule of theirs is refused, so on any day a person has at most one. Only a person's rule has days. Applies to tips from then on: a tip is shared the moment its money arrives and keeps the rule it was shared by and where it came from, so nothing already shared is shared again. A statement about what people are owed, so \`payroll:configure\`. Audited. ${TIP_RULE_ORDER}`,
   module: "M17",
   permissions: ["payroll:configure"],
   idempotent: true,
   input: z.object({
     jobId: Uuid.optional(),
+    jobTypeId: Uuid.optional(),
+    crewId: Uuid.optional(),
     technicianId: Uuid.optional(),
     rule: TipSplitRule,
+    startsOn: IsoDate.nullable().optional(),
+    endsOn: IsoDate.nullable().optional(),
     note: z.string().max(500).optional(),
   }),
   output: TipRule,
@@ -354,13 +374,35 @@ export const setTipRule = defineRoute({
 export const removeTipRule = defineRoute({
   method: "delete",
   path: "/v1/payroll/tip-rules/{id}",
-  summary: "Take a job's or a person's own tip rule off",
-  description: "The job or person goes back to the company's rule from the next tip. Tips already shared keep theirs. Audited.",
+  summary: "Take a job's, kind of work's, crew's or person's own tip rule off",
+  description: "Whoever it was for goes back to the next rule in the order from the next tip. Tips already shared keep theirs. Audited.",
   module: "M17",
   permissions: ["payroll:configure"],
   idempotent: true,
   input: z.object({ id: Uuid }),
   output: z.object({ id: Uuid, removed: z.literal(true) }),
+});
+
+export const getJobTipRule = defineRoute({
+  method: "get",
+  path: "/v1/jobs/{jobId}/tip-rule",
+  summary: "The job's own tip rule, and the rule a tip on it today would be shared by",
+  description:
+    `\`own\` is the job's own rule or null. \`today\` is worked out exactly as a tip arriving today is shared, with the people on the job's visits now: the rule, where it comes from and anything passed over. Set the job's own rule with \`POST /v1/payroll/tip-rules\` and a \`jobId\`. A job outside the reader's branch reads as missing. ${TIP_RULE_ORDER}`,
+  module: "M17",
+  permissions: ["timesheet:read"],
+  input: z.object({ jobId: Uuid }),
+  output: z.object({
+    own: TipRule.nullable(),
+    today: z.object({
+      rule: TipSplitRule,
+      ruleLabel: z.string(),
+      source: z.enum(["company", "job", "job_type", "crew", "technician"]),
+      sourceLabel: z.string(),
+      note: z.string(),
+      people: z.array(z.string()),
+    }),
+  }),
 });
 
 export const addMileageRate = defineRoute({
@@ -587,7 +629,7 @@ export const listMyCashTips = defineRoute({
 });
 
 export const expenseRoutes = {
-  listTipRules, setTipRule, removeTipRule,
+  listTipRules, setTipRule, removeTipRule, getJobTipRule,
   recordExpense, addExpenseReceipt, listMyExpenses, listExpenses, decideExpense,
   recordPerDiem, listPerDiem, removePerDiem, getJobExpenses, getPayExtras, setPayExtras,
   addMileageRate, removeMileageRate, listMileageOverrides, addMileageOverride, removeMileageOverride, addPerDiemPlace, addPerDiemPlaceRate, removePerDiemPlaceRate, retirePerDiemPlace,

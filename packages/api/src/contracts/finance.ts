@@ -334,6 +334,8 @@ export const getBudgetReport = defineRoute({
         months: z.array(MoneyString),
         /** For a blend: what each of the three would make the months to come on its own. */
         parts: z.object({ budget: MoneyString, runRate: MoneyString, seasonal: MoneyString }).optional(),
+        /** Present only on a line with a blend of its own (`PUT /v1/budgets/{year}/forecast/lines`), which it is forecast by whatever the year's method. */
+        ownBlend: ForecastWeights.optional(),
       }),
     })),
     net: z.object({ budget: MoneyString, actual: MoneyString }).nullable(),
@@ -357,6 +359,10 @@ export const getBudgetReport = defineRoute({
       weights: ForecastWeights.nullable(),
       /** How many past years the seasonal shape is the average of. */
       seasonalYears: z.number().int(),
+      /** The run rate weighs recent months more: the first month over counts once, the next twice, the latest most. Off by default. */
+      recentWeighted: z.boolean(),
+      /** The lines with a blend of their own, each forecast by it whatever the year's method. */
+      lineBlends: z.array(z.object({ line: z.string(), label: z.string(), weights: ForecastWeights })),
       assumption: z.string(),
       net: z.object({ forecast: MoneyString, budget: MoneyString }).nullable(),
     }),
@@ -368,7 +374,7 @@ export const setBudgetForecastMethod = defineRoute({
   path: "/v1/budgets/{year}/forecast",
   summary: "Choose how the year end forecast takes the months to come",
   description:
-    "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over; `seasonal` shapes them like last year: the months already over are taken as the share of the year they were last year, and the rest follows in proportion, each line by its own last year in the same branch and job type. `blend` takes them as a weighted mix of the three, by `weights` (whole percentages adding up to 100), each part falling back to the budget where it would on its own. `seasonalYears` (1 to 5) makes the shape the average of that many past years, added together month by month, so one odd month counts for less. Shaping, on its own or weighed in a blend, is refused, in words, unless the books hold the whole of every year it is drawn from (their first entry is in the January of the earliest, or before). One choice for the year, which every reader and every branch's and job type's report uses. Only the choice is kept: the forecast, by line and by month, is worked out on every read and never stored as the budget. Nothing is posted.",
+    "`budget` (the default) takes this month and the months after it at their budget; `run_rate` takes them at the average of the months already over, and falls back to the budget until a month is over; `seasonal` shapes them like last year: the months already over are taken as the share of the year they were last year, and the rest follows in proportion, each line by its own last year in the same branch and job type. `blend` takes them as a weighted mix of the three, by `weights` (whole percentages adding up to 100), each part falling back to the budget where it would on its own. `seasonalYears` (1 to 5) makes the shape the average of that many past years, added together month by month, so one odd month counts for less. `recentWeighted` makes the run rate (on its own or weighed in a blend) weigh recent months more: each month over counts as many times as its place in the year so far, so with three over January counts once, February twice and March three times; left out it stays as it was, off at first, when every month counts the same. Shaping, on its own or weighed in a blend, is refused, in words, unless the books hold the whole of every year it is drawn from (their first entry is in the January of the earliest, or before). One choice for the year, which every reader and every branch's and job type's report uses. Only the choice is kept: the forecast, by line and by month, is worked out on every read and never stored as the budget. Nothing is posted.",
   module: "M15",
   permissions: ["finance:configure"],
   input: z.object({
@@ -378,6 +384,8 @@ export const setBudgetForecastMethod = defineRoute({
     weights: ForecastWeights.optional(),
     /** How many past years the seasonal shape is the average of, 1 to 5. Left out, it stays as it was (1 at first). */
     seasonalYears: z.number().int().min(1).max(5).optional(),
+    /** The run rate weighs recent months more. Left out, it stays as it was (off at first). */
+    recentWeighted: z.boolean().optional(),
   }),
   output: z.object({
     year: z.number().int(),
@@ -386,7 +394,26 @@ export const setBudgetForecastMethod = defineRoute({
     weights: ForecastWeights.optional(),
     /** When the shape is the average of more than one past year, how many. */
     seasonalYears: z.number().int().optional(),
+    /** Present, and true, when the run rate weighs recent months more. */
+    recentWeighted: z.literal(true).optional(),
   }),
+});
+
+export const setBudgetLineBlend = defineRoute({
+  method: "put",
+  path: "/v1/budgets/{year}/forecast/lines",
+  summary: "Give one budget line a forecast blend of its own, or take it off",
+  description:
+    "`line` is Revenue, Materials, Labour, Overhead or an account number, as on `PUT /v1/budgets/{year}/lines`, and must be in the year's budget. `weights` are whole percentages of the budget, the run rate and the seasonal shape adding up to 100; that line is then forecast by them whatever the year's method, in the company's report and every branch's and job type's, and every other line keeps the year's choice. `weights: null` takes it off. A shape needs its years in the books, as for the year's choice, and the run rate part weighs recent months more when the year's choice says so. Only the choice is kept: the forecast is worked out on every read and never stored as the budget. Sending what is there already changes nothing. Audited. Nothing is posted.",
+  module: "M15",
+  permissions: ["finance:configure"],
+  idempotent: true,
+  input: z.object({
+    year: Year,
+    line: z.string().min(1).max(40),
+    weights: ForecastWeights.nullable(),
+  }),
+  output: z.object({ year: z.number().int(), line: z.string(), weights: ForecastWeights.nullable() }),
 });
 
 export const setBudgetLine = defineRoute({
@@ -528,6 +555,6 @@ export const financeRoutes = {
   listFinancingApplications, getInvoiceFinancing, getEstimateFinancing, sendFinancingLink,
   refreshFinancingApplication, getFinancingReport,
   listCostingRates, setCostingRate, setOverheadMix, removeCostingRate,
-  getBudgetReport, setBudgetLine, removeBudgetLine, importBudget, setBudgetForecastMethod,
+  getBudgetReport, setBudgetLine, removeBudgetLine, importBudget, setBudgetForecastMethod, setBudgetLineBlend,
   listJournalEntries, getJournalEntry, createJournalEntry, reverseJournalEntry,
 } as const;

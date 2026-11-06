@@ -1,6 +1,6 @@
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { assets, jobs, laborSettings, mileageOverrides, payExtras, tipRules } from "@opentradesos/api/services";
+import { assets, crews, jobs, laborSettings, mileageOverrides, payExtras, tipRules } from "@opentradesos/api/services";
 import { can } from "@opentradesos/core";
 import { Chip, Money } from "@opentradesos/ui";
 import { ActionForm, Select, TextArea, TextField } from "@/components/ActionForm";
@@ -57,7 +57,7 @@ export default async function PayRulesPage() {
     );
   }
 
-  const [policies, scales, people, extras, overrides, fleet, ownTipRules, kindsOfWork] = await Promise.all([
+  const [policies, scales, people, extras, overrides, fleet, ownTipRules, kindsOfWork, crewList] = await Promise.all([
     laborSettings.policies(ctx),
     laborSettings.scales(ctx, {}),
     laborSettings.crewRates(ctx),
@@ -68,7 +68,15 @@ export default async function PayRulesPage() {
     tipRules.list(ctx),
     /** The kinds of work (job types) a rate can be set for, which needs `job:read`. */
     can(user.actor, "job:read") ? jobs.listTypes(ctx, { includeInactive: false }) : Promise.resolve({ data: [] }),
+    /** The crews a tip rule can be set for, which needs `visit:read`. */
+    can(user.actor, "visit:read") ? crews.list(ctx) : Promise.resolve([]),
   ]);
+  const jobAndPersonRules = ownTipRules.rules.filter((r) => r.kind === "job" || r.kind === "technician");
+  const kindAndCrewRules = ownTipRules.rules.filter((r) => r.kind === "job_type" || r.kind === "crew");
+  const spanOf = (r: { startsOn: string | null; endsOn: string | null }) =>
+    r.startsOn && r.endsOn ? `From ${formatDay(r.startsOn, zone)} until ${formatDay(r.endsOn, zone)}`
+      : r.startsOn ? `From ${formatDay(r.startsOn, zone)}`
+        : r.endsOn ? `Until ${formatDay(r.endsOn, zone)}` : "Every day";
   const configures = can(user.actor, "payroll:configure");
   const current = policies.find((p) => p.active) ?? null;
   const classifications = [...new Set(scales.map((s) => s.classification))].sort();
@@ -273,21 +281,25 @@ export default async function PayRulesPage() {
       <section className="mt-10" aria-labelledby="own-tip-rules-heading">
         <h2 id="own-tip-rules-heading" className="text-base font-semibold">Tips on one job, or for one person</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink-700">
-          A job or a person can have a rule of their own. A job&rsquo;s rule comes first. Then a person&rsquo;s,
-          when everybody on the job who has one has the same one. If two people on a job have different rules,
-          the company&rsquo;s rule above is used and the tip says so. A rule here applies from the next tip: tips
-          already shared keep theirs.
+          A job or a person can have a rule of their own. When a tip is shared, the rules are read in this order:
+          the job&rsquo;s own rule, then the rule for its kind of work, then a crew&rsquo;s rule when everybody
+          sharing the tip is on that crew, then a person&rsquo;s own rule, when everybody on the job who has one
+          has the same one. If two people on a job have different rules, the company&rsquo;s rule above is used
+          and the tip says so. A person&rsquo;s rule can have a first and a last day, read on the day the tip
+          arrives, so an apprentice can share by hours until they finish. A rule here applies from the next tip:
+          tips already shared keep theirs. A job&rsquo;s own rule can also be set on the job&rsquo;s page.
         </p>
-        {ownTipRules.rules.length === 0 ? (
+        {jobAndPersonRules.length === 0 ? (
           <p className="mt-3 text-sm text-ink-700">None yet, so every tip is shared by the company&rsquo;s rule.</p>
         ) : (
-          <Table label="Tip rules of their own" head={<><Th>For</Th><Th>Shared</Th><Th>Why</Th><Th>{""}</Th></>}>
-            {ownTipRules.rules.map((r) => (
+          <Table label="Tip rules of their own" head={<><Th>For</Th><Th>Shared</Th><Th>Days</Th><Th>Why</Th><Th>{""}</Th></>}>
+            {jobAndPersonRules.map((r) => (
               <tr key={r.id}>
                 <Td className="font-medium">
                   {r.kind === "job" ? `Job ${r.jobNumber}${r.jobSummary ? `, ${r.jobSummary}` : ""}` : r.technicianName}
                 </Td>
                 <Td className="text-ink-700">{r.ruleLabel}</Td>
+                <Td className="text-ink-700">{r.kind === "technician" ? spanOf(r) : "Until taken off"}</Td>
                 <Td className="text-ink-700">{r.note ?? ""}</Td>
                 <Td>
                   {configures ? (
@@ -304,6 +316,50 @@ export default async function PayRulesPage() {
                     options={[{ value: "", label: "Nobody, a job instead" }, ...people.map((p) => ({ value: p.id, label: p.displayName }))]} />
             <TextField label="Or this job number" name="jobNumber" inputMode="numeric" placeholder="1042" />
             <Select label="Share their tips" name="rule" defaultValue="hours"
+                    options={extras.rules.map((r) => ({ value: r.rule, label: r.label }))} />
+            <TextField label="Why (optional)" name="note" />
+            <TextField label="A person's first day (optional)" name="startsOn" type="date" />
+            <TextField label="A person's last day (optional)" name="endsOn" type="date" />
+          </ActionForm>
+        ) : null}
+      </section>
+
+      <section className="mt-10" aria-labelledby="kind-crew-tip-rules-heading">
+        <h2 id="kind-crew-tip-rules-heading" className="text-base font-semibold">Tips by kind of work, or by crew</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-700">
+          A kind of work can have its own rule, such as installs all to the lead. So can a crew, read when
+          everybody sharing the tip is on that crew. A job&rsquo;s own rule still comes first, and a kind of work
+          comes before a crew. If two crews everybody is on have different rules, neither is used and the tip says
+          so. A crew that is out of use is not read. A rule here applies from the next tip: tips already shared
+          keep theirs.
+        </p>
+        {kindAndCrewRules.length === 0 ? (
+          <p className="mt-3 text-sm text-ink-700">None yet.</p>
+        ) : (
+          <Table label="Tip rules by kind of work or crew" head={<><Th>For</Th><Th>Shared</Th><Th>Why</Th><Th>{""}</Th></>}>
+            {kindAndCrewRules.map((r) => (
+              <tr key={r.id}>
+                <Td className="font-medium">
+                  {r.kind === "job_type" ? `Kind of work: ${r.jobTypeName ?? ""}` : `Crew: ${r.crewName ?? ""}`}
+                </Td>
+                <Td className="text-ink-700">{r.ruleLabel}</Td>
+                <Td className="text-ink-700">{r.note ?? ""}</Td>
+                <Td>
+                  {configures ? (
+                    <ActionForm action={act} submit="Take off" tone="quiet" hidden={{ op: "tipRuleRemove", id: r.id }} />
+                  ) : null}
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {configures ? (
+          <ActionForm action={act} submit="Set the rule" hidden={{ op: "tipRuleScope" }} className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+            <Select label="For this kind of work" name="jobTypeId"
+                    options={[{ value: "", label: "None, a crew instead" }, ...kindsOfWork.data.map((k) => ({ value: k.id, label: k.name }))]} />
+            <Select label="Or this crew" name="crewId"
+                    options={[{ value: "", label: "None" }, ...crewList.filter((c) => c.active).map((c) => ({ value: c.id, label: c.name }))]} />
+            <Select label="Share the tips" name="rule" defaultValue="lead"
                     options={extras.rules.map((r) => ({ value: r.rule, label: r.label }))} />
             <TextField label="Why (optional)" name="note" />
           </ActionForm>

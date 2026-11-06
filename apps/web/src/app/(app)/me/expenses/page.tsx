@@ -8,6 +8,7 @@ import { Crumb } from "@/components/Detail";
 import { Empty } from "@/components/Table";
 import { formatDay, todayIn } from "@/lib/dates";
 import { rateSourceNote } from "@/lib/mileage";
+import { vehicleChoices } from "@opentradesos/field-client";
 import { addReceipt, recordExpense } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -80,9 +81,15 @@ export default async function MyExpensesPage() {
                 </p>
               ) : null}
               {own.vehicles.length > 0 ? (
-                <Select label="Which vehicle (if it has its own rate)" name="vehicleId" className="mt-2 block"
-                        options={[{ value: "", label: own.mileageRate !== null ? "My own vehicle" : "Pick one" },
-                          ...own.vehicles.map((v) => ({ value: v.id, label: v.rateToday ? `${v.label}, $${v.rateToday} a mile` : v.label }))]} />
+                <>
+                  <Select label="Which vehicle (if it has its own rate)" name="vehicleId" className="mt-2 block"
+                          options={vehicleChoices({ mileageRate: own.mileageRate, mileageVehicles: own.vehicles, mileageCheckedOut: own.checkedOutToday })} />
+                  <p className="mt-1 text-xs text-ink-500">
+                    {own.checkedOutToday ? `You have ${own.checkedOutToday.label} checked out today. ` : ""}
+                    Leave the first choice and a claim for a day you had a company vehicle checked out is paid at that
+                    vehicle&rsquo;s rate. Pick another vehicle, or your own, if that is not what you drove.
+                  </p>
+                </>
               ) : null}
             </div>
           ) : null}
@@ -109,7 +116,7 @@ export default async function MyExpensesPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium"><Money value={e.amount} /></span>
                   <span>{e.description}</span>
-                  {e.miles ? <span className="text-ink-500">({e.miles} miles at ${e.mileageRate} a mile{rateSourceNote(e, "your own") ? `, ${rateSourceNote(e, "your own")}` : ""})</span> : null}
+                  {e.miles ? <span className="text-ink-500">({e.miles} miles at ${e.mileageRate} a mile{rateSourceNote(e, "your own", "you") ? `, ${rateSourceNote(e, "your own", "you")}` : ""})</span> : null}
                   {e.status === "approved" ? <Chip tone="success">Approved</Chip>
                     : e.status === "refused" ? <Chip tone="danger">Not approved</Chip>
                     : <Chip tone="warning">Waiting for the office</Chip>}

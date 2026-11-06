@@ -183,6 +183,36 @@ forecasts. Each line says what each part alone would make the months to come
 the books, like the seasonal choice. It is the same one choice for the year as
 the other three, set with `finance:configure`.
 
+**A run rate that counts recent months for more.** A choice for the year, off by default: with
+it on, the run rate (on its own, or the run rate part of a blend) is a weighted average of the
+months already over, the first counting once, the second twice, and the latest as many times as
+there are months over, so with ten months over October counts ten times and January once. A
+straight line rather than anything steeper, so the rule is one sentence and one odd month cannot
+swing the year: October is a little under a fifth of that average, not all of it. A line growing
+or shrinking steadily is forecast nearer where it now runs; a flat line is the same either way.
+Off, every month counts the same, as before. It is set beside the method
+(`PUT /v1/budgets/{year}/forecast` with `recentWeighted`; left out it stays as it was), shown as
+"Run rate: count recent months for more" in "The forecast" section, said in the assumption above
+the table when the run rate was used ("In the run rate, recent months count for more: the first
+month over counts once, the next twice, and October 10 times."), and on the report as
+`forecast.recentWeighted`. With no month over there is still no run rate, and the budget is used
+as before. The rule is core's `budget.recencyWeights` and `budget.forecastLine`, with unit tests.
+
+**A blend for one line.** One line can be forecast by a blend of its own (whole percentages of
+its budget, the run rate and the seasonal shape adding up to 100) while every other line keeps the
+year's choice: "A blend for one line" on `/books/budget`, or
+`PUT /v1/budgets/{year}/forecast/lines` with the line and `weights`, `null` to take it off
+(`finance:configure`, audited as `budget.line_blend_set` and `budget.line_blend_removed`, and the
+same blend sent again changes nothing). It is kept by the line (Revenue, or an account number
+such as 6100), so it applies to that line in the company's report and in every branch's and job
+type's. A line not in the year's budget is refused in words, so a mistyped name never quietly does
+nothing, and a blend that weighs the shape needs the shape's years in the books, as the year's
+does. The line says "Its own blend: 50% at its budget and 50% at the run rate" under its forecast,
+the section lists the lines with one, the assumption names them, and the report carries
+`forecast.ownBlend` on the line and `forecast.lineBlends` on the report. Its run rate part counts
+recent months for more when the year's choice says so. Only the choice is stored, never the
+forecast.
+
 **The forecast by month.** Every line also gives the year month by month
 (`forecast.months`): a month already over at its actual, a month to come at its
 budget, at an even part of the run rate, at its share of the past years'
@@ -381,7 +411,8 @@ over, the lines with no shape last year, the blend's `weights`, the
 `seasonalYears` the shape is averaged over and the assumption in words; each
 line's `forecast` has `months` (twelve figures adding up to it) and, for a
 blend, `parts`. `PUT /v1/budgets/{year}/forecast` chooses the method, with
-`weights` for a blend and `seasonalYears` (1 to 5).
+`weights` for a blend, `seasonalYears` (1 to 5) and `recentWeighted`; `PUT /v1/budgets/{year}/forecast/lines`
+gives one line a blend of its own.
 
 ## Permissions
 
@@ -423,6 +454,7 @@ are read with `job.cost:read`, the budget with `report.financial:read`.
 | `PUT /v1/budgets/{year}/lines` | `finance:configure` |
 | `POST /v1/budgets/{year}/import` | `finance:configure` |
 | `PUT /v1/budgets/{year}/forecast` | `finance:configure` |
+| `PUT /v1/budgets/{year}/forecast/lines` | `finance:configure` |
 
 ## Common questions
 
@@ -452,11 +484,16 @@ applied in reporting only; nothing posts them to the ledger, which keeps them
 as the company's choice rather than an entry in its books. A job type's actuals, in a branch or not, are only what was booked to its jobs,
 and a branch's only what carries the branch. The forecast is one choice for the
 whole year (the budget, the run rate, shaped like past years, or a blend of the
-three by whole percentages), by month and for the year; it is shown, never
-stored or posted. The run rate weighs every month over the same: there is no
-weighting of recent months. The months to come of the run rate are even, not
-shaped. A blend's weights are the same for every line and every month: a line
-cannot be weighted differently, nor the months late in the year. A shape is
+three by whole percentages), by month and for the year, and one line can have a
+blend of its own; it is shown, never stored or posted. The run rate weighs every
+month over the same unless the company chooses to count recent months for more,
+and then the weights are a straight line (the first month once, the latest most):
+there is no other curve and no choice of how steep. The months to come of the run
+rate are even, not shaped. A line's own blend is the same for every month of that
+line and for that line in every branch and job type: there is no blend for one
+line in one branch, nor for the months late in the year, and a line's own blend
+always replaces the year's method for it, even when the year's method is the
+budget. A shape is
 the plain average of the years chosen, each counted the same, the most recent
 no more than the oldest, and a year with a one off month still shapes the
 year, by a share of it. Whether a company

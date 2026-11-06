@@ -201,7 +201,8 @@ export async function recordExpense(_previous: FormState, form: FormData): Promi
       /** Miles are worked out by the server at the vehicle's, the person's or the company's rate, so only what was typed is sent. */
       ...(amount ? { amount } : {}),
       ...(miles ? { miles } : {}),
-      ...(miles && vehicleId ? { vehicleId } : {}),
+      /** "own" says their own vehicle, so the one checked out to them that day is not used. */
+      ...(miles && vehicleId === "own" ? { ownVehicle: true } : miles && vehicleId ? { vehicleId } : {}),
       spentOn: field(form, "spentOn") ?? "",
       description: field(form, "description") ?? "",
       ...(jobNumber ? { jobNumber: Number(jobNumber) } : {}),

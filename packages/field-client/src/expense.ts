@@ -35,14 +35,19 @@ export interface ExpenseDraft {
   jobId: string | null;
   /**
    * A company vehicle with a rate of its own, from the list the server gave (`abilities.mileageVehicles`), on a
-   * claim in miles. Empty or absent for the person's own vehicle. Never with an amount paid.
+   * claim in miles. Empty or absent for the person's own vehicle, or, from a server that reads custody, the one
+   * checked out to them that day. `own` says it was their own vehicle whatever was checked out. Never with an
+   * amount paid.
    */
   vehicleId?: string | null | undefined;
 }
 
 export type CheckedExpense =
   | { ok: true; amount: string; miles?: undefined; vehicleId?: undefined; spentOn: string; description: string; jobId: string | null }
-  | { ok: true; miles: string; amount?: undefined; vehicleId?: string | undefined; spentOn: string; description: string; jobId: string | null }
+  | {
+    ok: true; miles: string; amount?: undefined; vehicleId?: string | undefined; ownVehicle?: true | undefined;
+    spentOn: string; description: string; jobId: string | null;
+  }
   | { ok: false; reason: string };
 
 /** The most miles one claim may be, as the server holds it. */
@@ -57,18 +62,21 @@ export function checkExpenseDraft(draft: ExpenseDraft, today: string): CheckedEx
   if (typedMiles !== "" && draft.amount.trim() !== "") {
     return { ok: false, reason: "Fill in the miles you drove or what you paid, not both." };
   }
-  const vehicleId = draft.vehicleId?.trim() || undefined;
-  if (vehicleId && typedMiles === "") {
+  const picked = draft.vehicleId?.trim() || undefined;
+  /** "own" is the person's own vehicle, said in so many words; anything else is a company vehicle's id. */
+  const ownVehicle = picked === "own";
+  const vehicleId = ownVehicle ? undefined : picked;
+  if (picked && typedMiles === "") {
     return { ok: false, reason: "A vehicle goes with the miles you drove, not with what you paid. Fill in the miles." };
   }
-  let paid: { amount: string } | { miles: string; vehicleId?: string };
+  let paid: { amount: string } | { miles: string; vehicleId?: string; ownVehicle?: true };
   if (typedMiles !== "") {
     if (!/^\d+(\.\d)?$/.test(typedMiles)) return { ok: false, reason: "Say the miles driven, to a tenth, like 18 or 18.4." };
     const [whole = "0", tenth = "0"] = typedMiles.split(".");
     const tenths = BigInt(whole) * 10n + BigInt(tenth);
     if (tenths === 0n) return { ok: false, reason: "The miles have to be more than nothing." };
     if (tenths > MAX_MILES_TENTHS) return { ok: false, reason: "That is more than 2000 miles for one claim. Check the number, or ask the office." };
-    paid = { miles: `${whole}.${tenth}`, ...(vehicleId ? { vehicleId } : {}) };
+    paid = { miles: `${whole}.${tenth}`, ...(vehicleId ? { vehicleId } : {}), ...(ownVehicle ? { ownVehicle: true as const } : {}) };
   } else {
     const amount = parseAmount(draft.amount);
     if (!amount) return { ok: false, reason: "Say what you paid in dollars and cents, like 42.50." };
@@ -89,16 +97,31 @@ export function checkExpenseDraft(draft: ExpenseDraft, today: string): CheckedEx
  * the company has a rate, then each company vehicle with a rate of its own and what it pays today. Empty when no
  * vehicle has a rate of its own, and the screen shows no picker. Whether miles are offered at all is
  * `milesOffered`.
+ *
+ * A server that works a claim naming no vehicle at the vehicle checked out on the day of the drive sends
+ * `mileageCheckedOut` (null with none out today). The first choice is then that default, and "My own vehicle" is
+ * a choice of its own ("own"), so the person can still say they drove their own.
  */
 export function vehicleChoices(abilities: {
   mileageRate?: string | null | undefined;
   mileageVehicles?: ReadonlyArray<{ id: string; label: string; rateToday: string | null }> | undefined;
+  mileageCheckedOut?: { id: string; label: string } | null | undefined;
 }): { value: string; label: string }[] {
   const vehicles = abilities.mileageVehicles ?? [];
   if (vehicles.length === 0) return [];
+  const each = vehicles.map((v) => ({ value: v.id, label: v.rateToday ? `${v.label}, $${v.rateToday} a mile` : v.label }));
+  if (abilities.mileageCheckedOut === undefined) {
+    return [{ value: "", label: abilities.mileageRate != null ? "My own vehicle" : "Pick one" }, ...each];
+  }
+  const out = abilities.mileageCheckedOut;
   return [
-    { value: "", label: abilities.mileageRate != null ? "My own vehicle" : "Pick one" },
-    ...vehicles.map((v) => ({ value: v.id, label: v.rateToday ? `${v.label}, $${v.rateToday} a mile` : v.label })),
+    {
+      value: "",
+      label: out ? `The vehicle checked out to me that day (${out.label} today)`
+        : abilities.mileageRate != null ? "The vehicle checked out to me that day, or my own" : "The vehicle checked out to me that day",
+    },
+    ...(abilities.mileageRate != null ? [{ value: "own", label: "My own vehicle" }] : []),
+    ...each,
   ];
 }
 
@@ -155,7 +178,12 @@ export async function recordExpense(phone: Phone, input: {
        * of the drive (the vehicle's, the job's kind of work's, the person's, then the company's).
        */
       ...(input.expense.miles !== undefined
-        ? { miles: input.expense.miles, ...(input.expense.vehicleId ? { vehicleId: input.expense.vehicleId } : {}) }
+        ? {
+          miles: input.expense.miles,
+          ...(input.expense.vehicleId ? { vehicleId: input.expense.vehicleId } : {}),
+          /** Their own vehicle, said in so many words, so the server does not use the one checked out that day. */
+          ...(input.expense.ownVehicle ? { ownVehicle: true } : {}),
+        }
         : { amount: input.expense.amount }),
       spentOn: input.expense.spentOn,
       description: input.expense.description,
