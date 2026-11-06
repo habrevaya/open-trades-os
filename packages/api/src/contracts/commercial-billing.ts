@@ -332,6 +332,74 @@ export const setJobParties = defineRoute({
   }),
 });
 
+const AuthorizationState = z.enum(["requested", "granted", "exceeded", "denied", "expired", "superseded"]);
+
+const JobAuthorization = z.object({
+  /** The authorisation in force, or null when nobody set one: the job bills what it costs. */
+  current: z.object({
+    id: Uuid,
+    state: AuthorizationState,
+    /** The ceiling. Null is authorised with no stated limit. */
+    amount: MoneyString.nullable(),
+    /** What invoices on the job have already billed against it, carried across supplements. */
+    consumed: MoneyString,
+    /** What is left to bill. Null when there is no limit. */
+    remaining: MoneyString.nullable(),
+    grantedByName: z.string().nullable(),
+    externalReference: z.string().nullable(),
+    expiresAt: z.string().datetime().nullable(),
+  }).nullable(),
+  /** Every authorisation the job has had, newest first, each supplement beside what it superseded. */
+  history: z.array(z.object({
+    id: Uuid,
+    state: AuthorizationState,
+    amount: MoneyString.nullable(),
+    consumed: MoneyString,
+    grantedByPartyId: Uuid.nullable(),
+    grantedByName: z.string().nullable(),
+    externalReference: z.string().nullable(),
+    grantedAt: z.string().datetime().nullable(),
+    expiresAt: z.string().datetime().nullable(),
+    /** The authorisation this one replaced, when it is a supplement. */
+    supersedesId: Uuid.nullable(),
+    scopeNotes: z.string().nullable(),
+    recordedAt: z.string().datetime(),
+  })),
+});
+
+export const getJobAuthorization = defineRoute({
+  method: "get",
+  path: "/v1/jobs/{id}/authorization",
+  summary: "What the client authorised on a job, and how much is used",
+  description:
+    "The not to exceed limit in force on the job: the ceiling, what invoices have already billed against it, what is left, who granted it and their reference. `current` is null when nobody set one, which means the job bills what it costs. `history` lists every authorisation the job has had, newest first, so a supplement is read beside the one it superseded. A job the caller may not see is not found.",
+  module: "M31",
+  permissions: ["job:read"],
+  input: z.object({ id: Uuid }),
+  output: JobAuthorization,
+});
+
+export const setJobAuthorization = defineRoute({
+  method: "put",
+  path: "/v1/jobs/{id}/authorization",
+  summary: "Record what the client authorised on a job",
+  description:
+    "Sets the ceiling invoices on the job may not bill past. Leave `amount` null for \"approved, bill what it costs\". A job that already has one gets a supplement: the new authorisation supersedes the old one and carries forward what was already billed, so raising five hundred to a thousand after three hundred was billed leaves seven hundred to bill. `grantedByPartyId` must be one of the job's own parties. A retry with the same `Idempotency-Key` gets back the first answer rather than recording a second supplement. Answers with the job's authorisation as it now stands.",
+  module: "M31",
+  permissions: ["job:write"],
+  idempotent: true,
+  input: z.object({
+    id: Uuid,
+    amount: MoneyString.nullable(),
+    grantedByPartyId: Uuid.optional(),
+    grantedByName: z.string().max(200).optional(),
+    externalReference: z.string().max(100).optional(),
+    expiresAt: z.string().datetime().optional(),
+    scopeNotes: z.string().max(2000).optional(),
+  }),
+  output: JobAuthorization,
+});
+
 export const setJobCoverage = defineRoute({
   method: "put",
   path: "/v1/jobs/{id}/coverage",
@@ -586,6 +654,7 @@ export const viewPayerPortal = defineRoute({
 export const commercialBillingRoutes = {
   getRateCardTerms, setRateCardTerms,
   previewJobBilling, billJob, setJobContract, listJobClocks, setJobParties, setJobCoverage,
+  getJobAuthorization, setJobAuthorization,
   resolveCoverageFromEquipment,
   listClaims, getClaim, fileClaim, decideClaim, recordClaimPayment, billClaimRestToCustomer,
   exportPayerInvoices, issuePayerPortalLink, viewPayerPortal,

@@ -231,6 +231,8 @@ export const handlers = {
   setJobContract: jobBilling.handlers.setJobContract,
   listJobClocks: jobBilling.handlers.listJobClocks,
   setJobParties: jobBilling.handlers.setJobParties,
+  getJobAuthorization: jobBilling.handlers.getJobAuthorization,
+  setJobAuthorization: jobBilling.handlers.setJobAuthorization,
   setJobCoverage: jobBilling.handlers.setJobCoverage,
   resolveCoverageFromEquipment: jobBilling.handlers.resolveCoverageFromEquipment,
   listClaims: claims.handlers.listClaims,

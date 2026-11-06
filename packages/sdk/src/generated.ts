@@ -10686,6 +10686,33 @@ export interface GetJobAttributionOutput {
   }>;
 }
 
+export interface GetJobAuthorizationOutput {
+  current: {
+    id: string;
+    state: "requested" | "granted" | "exceeded" | "denied" | "expired" | "superseded";
+    amount: string | null;
+    consumed: string;
+    remaining: string | null;
+    grantedByName: string | null;
+    externalReference: string | null;
+    expiresAt: string | null;
+  } | null;
+  history: Array<{
+    id: string;
+    state: "requested" | "granted" | "exceeded" | "denied" | "expired" | "superseded";
+    amount: string | null;
+    consumed: string;
+    grantedByPartyId: string | null;
+    grantedByName: string | null;
+    externalReference: string | null;
+    grantedAt: string | null;
+    expiresAt: string | null;
+    supersedesId: string | null;
+    scopeNotes: string | null;
+    recordedAt: string;
+  }>;
+}
+
 export interface GetJobExpensesOutput {
   reimbursements: Array<{
     id: string;
@@ -27593,6 +27620,42 @@ export interface SetItemTaxOutput {
   changed: number;
 }
 
+export interface SetJobAuthorizationInput {
+  amount: string | null;
+  grantedByPartyId?: string;
+  grantedByName?: string;
+  externalReference?: string;
+  expiresAt?: string;
+  scopeNotes?: string;
+}
+
+export interface SetJobAuthorizationOutput {
+  current: {
+    id: string;
+    state: "requested" | "granted" | "exceeded" | "denied" | "expired" | "superseded";
+    amount: string | null;
+    consumed: string;
+    remaining: string | null;
+    grantedByName: string | null;
+    externalReference: string | null;
+    expiresAt: string | null;
+  } | null;
+  history: Array<{
+    id: string;
+    state: "requested" | "granted" | "exceeded" | "denied" | "expired" | "superseded";
+    amount: string | null;
+    consumed: string;
+    grantedByPartyId: string | null;
+    grantedByName: string | null;
+    externalReference: string | null;
+    grantedAt: string | null;
+    expiresAt: string | null;
+    supersedesId: string | null;
+    scopeNotes: string | null;
+    recordedAt: string;
+  }>;
+}
+
 export interface SetJobContractInput {
   contractId: string | null;
 }
@@ -34621,6 +34684,10 @@ export interface GetJobAttributionInput {
   models?: Array<"first_touch" | "last_touch" | "last_non_direct" | "linear" | "position_based">;
 }
 
+export interface GetJobAuthorizationInput {
+  id: string;
+}
+
 export interface GetJobExpensesInput {
   jobId: string;
 }
@@ -37104,6 +37171,10 @@ export interface SetInvoiceCustomFieldsParams {
   id: string;
 }
 
+export interface SetJobAuthorizationParams {
+  id: string;
+}
+
 export interface SetJobContractParams {
   id: string;
 }
@@ -38082,6 +38153,7 @@ export interface OperationTypes {
   getInvoiceTipOffer: { input: GetInvoiceTipOfferInput; output: GetInvoiceTipOfferOutput };
   getJob: { input: GetJobInput; output: GetJobOutput };
   getJobAttribution: { input: GetJobAttributionInput; output: GetJobAttributionOutput };
+  getJobAuthorization: { input: GetJobAuthorizationInput; output: GetJobAuthorizationOutput };
   getJobExpenses: { input: GetJobExpensesInput; output: GetJobExpensesOutput };
   getJobHoldNudge: { input: GetJobHoldNudgeInput; output: GetJobHoldNudgeOutput };
   getJobMaterialCost: { input: GetJobMaterialCostInput; output: GetJobMaterialCostOutput };
@@ -38804,6 +38876,7 @@ export interface OperationTypes {
   setInvoiceBillTo: { input: SetInvoiceBillToParams & SetInvoiceBillToInput; output: SetInvoiceBillToOutput };
   setInvoiceCustomFields: { input: SetInvoiceCustomFieldsParams & SetInvoiceCustomFieldsInput; output: SetInvoiceCustomFieldsOutput };
   setItemTax: { input: SetItemTaxInput; output: SetItemTaxOutput };
+  setJobAuthorization: { input: SetJobAuthorizationParams & SetJobAuthorizationInput; output: SetJobAuthorizationOutput };
   setJobContract: { input: SetJobContractParams & SetJobContractInput; output: SetJobContractOutput };
   setJobCoverage: { input: SetJobCoverageParams & SetJobCoverageInput; output: SetJobCoverageOutput };
   setJobHoldNudge: { input: SetJobHoldNudgeInput; output: SetJobHoldNudgeOutput };
@@ -39393,6 +39466,7 @@ export const OPERATIONS = {
   getInvoiceTipOffer: { method: "GET", path: "/v1/invoices/{id}/tip-offer", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:collect"] },
   getJob: { method: "GET", path: "/v1/jobs/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobAttribution: { method: "GET", path: "/v1/jobs/{jobId}/attribution", pathParams: ["jobId"], queryParams: ["models"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
+  getJobAuthorization: { method: "GET", path: "/v1/jobs/{id}/authorization", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job:read"] },
   getJobExpenses: { method: "GET", path: "/v1/jobs/{jobId}/expenses", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["job.cost:read"] },
   getJobHoldNudge: { method: "GET", path: "/v1/job-hold-nudge", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getJobMaterialCost: { method: "GET", path: "/v1/jobs/{jobId}/material-cost", pathParams: ["jobId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
@@ -40115,6 +40189,7 @@ export const OPERATIONS = {
   setInvoiceBillTo: { method: "PUT", path: "/v1/invoices/{id}/bill-to", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:write"] },
   setInvoiceCustomFields: { method: "PUT", path: "/v1/invoices/{id}/custom-fields", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["invoice:read","invoice:write"] },
   setItemTax: { method: "POST", path: "/v1/item-tax", pathParams: [], queryParams: [], idempotent: true, dryRun: true, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
+  setJobAuthorization: { method: "PUT", path: "/v1/jobs/{id}/authorization", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setJobContract: { method: "PUT", path: "/v1/jobs/{id}/contract", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setJobCoverage: { method: "PUT", path: "/v1/jobs/{id}/coverage", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setJobHoldNudge: { method: "PATCH", path: "/v1/job-hold-nudge", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
@@ -43647,6 +43722,15 @@ export abstract class GeneratedOperations {
    */
   getJobAttribution(input: GetJobAttributionInput, options?: CallOptions): Promise<GetJobAttributionOutput> {
     return this.call("getJobAttribution", input, options);
+  }
+
+  /**
+   * What the client authorised on a job, and how much is used.
+   *
+   * GET /v1/jobs/{id}/authorization. Needs job:read.
+   */
+  getJobAuthorization(input: GetJobAuthorizationInput, options?: CallOptions): Promise<GetJobAuthorizationOutput> {
+    return this.call("getJobAuthorization", input, options);
   }
 
   /**
@@ -50145,6 +50229,15 @@ export abstract class GeneratedOperations {
    */
   setItemTax(input: SetItemTaxInput, options?: CallOptions): Promise<SetItemTaxOutput> {
     return this.call("setItemTax", input, options);
+  }
+
+  /**
+   * Record what the client authorised on a job.
+   *
+   * PUT /v1/jobs/{id}/authorization. Needs job:write.
+   */
+  setJobAuthorization(input: SetJobAuthorizationParams & SetJobAuthorizationInput, options?: CallOptions): Promise<SetJobAuthorizationOutput> {
+    return this.call("setJobAuthorization", input, options);
   }
 
   /**

@@ -71189,6 +71189,248 @@
         ]
       }
     },
+    "/v1/jobs/{id}/authorization": {
+      "description": "Served at this path: GET, PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET",
+        "PUT"
+      ],
+      "get": {
+        "operationId": "getJobAuthorization",
+        "summary": "What the client authorised on a job, and how much is used",
+        "description": "The not to exceed limit in force on the job: the ceiling, what invoices have already billed against it, what is left, who granted it and their reference. `current` is null when nobody set one, which means the job bills what it costs. `history` lists every authorisation the job has had, newest first, so a supplement is read beside the one it superseded. A job the caller may not see is not found.\n\nRequires a session holding: job:read.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the client authorised on a job, and how much is used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetJobAuthorizationOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:read"
+        ]
+      },
+      "put": {
+        "operationId": "setJobAuthorization",
+        "summary": "Record what the client authorised on a job",
+        "description": "Sets the ceiling invoices on the job may not bill past. Leave `amount` null for \"approved, bill what it costs\". A job that already has one gets a supplement: the new authorisation supersedes the old one and carries forward what was already billed, so raising five hundred to a thousand after three hundred was billed leaves seven hundred to bill. `grantedByPartyId` must be one of the job's own parties. A retry with the same `Idempotency-Key` gets back the first answer rather than recording a second supplement. Answers with the job's authorisation as it now stands.\n\nRequires a session holding: job:write.",
+        "tags": [
+          "M31"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetJobAuthorizationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Record what the client authorised on a job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetJobAuthorizationOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "job:write"
+        ]
+      }
+    },
     "/v1/jobs/{id}/billing": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -216529,6 +216771,183 @@
           "models"
         ]
       },
+      "GetJobAuthorizationOutput": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "requested",
+                  "granted",
+                  "exceeded",
+                  "denied",
+                  "expired",
+                  "superseded"
+                ]
+              },
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "consumed": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "remaining": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "grantedByName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "externalReference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "amount",
+              "consumed",
+              "remaining",
+              "grantedByName",
+              "externalReference",
+              "expiresAt"
+            ]
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "requested",
+                    "granted",
+                    "exceeded",
+                    "denied",
+                    "expired",
+                    "superseded"
+                  ]
+                },
+                "amount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "consumed": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "grantedByPartyId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "grantedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "externalReference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "grantedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "expiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "supersedesId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "scopeNotes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "amount",
+                "consumed",
+                "grantedByPartyId",
+                "grantedByName",
+                "externalReference",
+                "grantedAt",
+                "expiresAt",
+                "supersedesId",
+                "scopeNotes",
+                "recordedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "current",
+          "history"
+        ]
+      },
       "GetJobExpensesOutput": {
         "type": "object",
         "properties": {
@@ -302843,6 +303262,218 @@
         },
         "required": [
           "changed"
+        ]
+      },
+      "SetJobAuthorizationInput": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+          },
+          "grantedByPartyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "grantedByName": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "externalReference": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "scopeNotes": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      },
+      "SetJobAuthorizationOutput": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "requested",
+                  "granted",
+                  "exceeded",
+                  "denied",
+                  "expired",
+                  "superseded"
+                ]
+              },
+              "amount": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "consumed": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "remaining": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+              },
+              "grantedByName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "externalReference": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "amount",
+              "consumed",
+              "remaining",
+              "grantedByName",
+              "externalReference",
+              "expiresAt"
+            ]
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "requested",
+                    "granted",
+                    "exceeded",
+                    "denied",
+                    "expired",
+                    "superseded"
+                  ]
+                },
+                "amount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "consumed": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,4})?$"
+                },
+                "grantedByPartyId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "grantedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "externalReference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "grantedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "expiresAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "supersedesId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "uuid"
+                },
+                "scopeNotes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "amount",
+                "consumed",
+                "grantedByPartyId",
+                "grantedByName",
+                "externalReference",
+                "grantedAt",
+                "expiresAt",
+                "supersedesId",
+                "scopeNotes",
+                "recordedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "current",
+          "history"
         ]
       },
       "SetJobContractInput": {
