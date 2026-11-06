@@ -301,7 +301,9 @@ discount and the tax still add up to the job.
 `POST /v1/agreements` sells one, writing down everything the first term owes.
 `GET /v1/agreements` lists the book (by status or customer),
 `GET /v1/agreements/{id}` is one agreement with every visit, every instalment
-and what is still unearned, and `GET /v1/agreement-plans` and
+and what is still unearned, `GET /v1/agreement-book/unearned` is what the whole
+book holds deferred and not yet earned (the "Billed, not yet earned" figure on
+`/agreements`, from the same service), and `GET /v1/agreement-plans` and
 `GET /v1/agreement-plans/{id}` read the plans.
 
 ### What a member gets besides the discount
@@ -468,6 +470,7 @@ know the customer is a member and does not need the agreement book to find out.
 | `POST /v1/agreement-plans/{id}/retire` | `membership:write` |
 | `POST /v1/agreements` | `membership:write` |
 | `GET /v1/agreements` | `membership:read` |
+| `GET /v1/agreement-book/unearned` | `membership:read` |
 | `GET /v1/agreements/{id}` | `membership:read` |
 | `POST /v1/agreements/{id}/renew` | `membership:write` |
 | `POST /v1/agreements/{id}/cancel` | `membership:write` |
@@ -485,7 +488,12 @@ know the customer is a member and does not need the agreement book to find out.
 | `PUT /v1/agreement-renewal-notices` | `settings:write` |
 
 The book's unearned total across every agreement is on the `/agreements`
-screen and not on the API; one agreement's is on `GET /v1/agreements/{id}`.
+screen and on `GET /v1/agreement-book/unearned`; one agreement's is on
+`GET /v1/agreements/{id}`. Agreements belong to the company rather than to a
+branch, so the total is the whole company's for everybody who may read
+agreements, as on the screen. The total is a sum of the deferred entries still
+waiting: a whole term's price is deferred when it is sold, so it counts what is
+sold and not yet earned, billed or not, though the screen says "Billed".
 
 ## Common questions
 

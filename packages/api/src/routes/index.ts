@@ -794,6 +794,8 @@ export const handlers = {
   retireAgreementPlan: agreements.handlers.retireAgreementPlan,
   listAgreements: agreements.handlers.listAgreements,
   getAgreement: agreements.handlers.getAgreement,
+  getAgreementBookUnearned: async (ctx: ServiceContext, _input: Record<string, never>) =>
+    ({ unearned: await agreements.unearned(ctx), currency: "USD" as const }),
   listOwedAgreementVisits: agreements.handlers.listOwedAgreementVisits,
   bookAgreementVisit: agreements.handlers.bookAgreementVisit,
   deliverAgreementVisit: agreements.handlers.deliverAgreementVisit,

@@ -7428,6 +7428,11 @@ export interface GetAfterHoursRatesOutput {
   }>;
 }
 
+export interface GetAgreementBookUnearnedOutput {
+  unearned: string;
+  currency: "USD";
+}
+
 export interface GetAgreementOutput {
   id: string;
   planId: string;
@@ -34333,6 +34338,8 @@ export interface GetAgreementInput {
   id: string;
 }
 
+export type GetAgreementBookUnearnedInput = Record<string, never>;
+
 export interface GetAgreementPlanInput {
   id: string;
 }
@@ -38065,6 +38072,7 @@ export interface OperationTypes {
   getAccountingStatus: { input: GetAccountingStatusInput; output: GetAccountingStatusOutput };
   getAfterHoursRates: { input: GetAfterHoursRatesInput; output: GetAfterHoursRatesOutput };
   getAgreement: { input: GetAgreementInput; output: GetAgreementOutput };
+  getAgreementBookUnearned: { input: GetAgreementBookUnearnedInput; output: GetAgreementBookUnearnedOutput };
   getAgreementPlan: { input: GetAgreementPlanInput; output: GetAgreementPlanOutput };
   getAgreementRenewalNotices: { input: GetAgreementRenewalNoticesInput; output: GetAgreementRenewalNoticesOutput };
   getAiStatus: { input: GetAiStatusInput; output: GetAiStatusOutput };
@@ -39378,6 +39386,7 @@ export const OPERATIONS = {
   getAccountingStatus: { method: "GET", path: "/v1/accounting/status", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["accounting:sync"] },
   getAfterHoursRates: { method: "GET", path: "/v1/after-hours-rates", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:read"] },
   getAgreement: { method: "GET", path: "/v1/agreements/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
+  getAgreementBookUnearned: { method: "GET", path: "/v1/agreement-book/unearned", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
   getAgreementPlan: { method: "GET", path: "/v1/agreement-plans/{id}", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:read"] },
   getAgreementRenewalNotices: { method: "GET", path: "/v1/agreement-renewal-notices", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   getAiStatus: { method: "GET", path: "/v1/ai/connections", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["integration:read"] },
@@ -42930,6 +42939,15 @@ export abstract class GeneratedOperations {
    */
   getAgreement(input: GetAgreementInput, options?: CallOptions): Promise<GetAgreementOutput> {
     return this.call("getAgreement", input, options);
+  }
+
+  /**
+   * What the whole book holds deferred and not yet earned.
+   *
+   * GET /v1/agreement-book/unearned. Needs membership:read.
+   */
+  getAgreementBookUnearned(input: GetAgreementBookUnearnedInput = {} as GetAgreementBookUnearnedInput, options?: CallOptions): Promise<GetAgreementBookUnearnedOutput> {
+    return this.call("getAgreementBookUnearned", input, options);
   }
 
   /**
