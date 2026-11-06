@@ -89,7 +89,8 @@ afterAll(async () => {
 beforeEach(async () => {
   if (!url) return;
   await raw`delete from public.suppression where organization_id = ${ORG}`;
-  await raw`update public.organization set settings = settings - 'quietHours' where id = ${ORG}`;
+  // Quiet only at an hour that is not this one, so a test run after 9pm Central is not inside the default window.
+  await setQuiet(false);
   await raw`delete from public.message_template where organization_id = ${ORG}`;
 });
 
@@ -138,7 +139,7 @@ run("a text held for the morning", () => {
     // Still the quiet hours: nothing goes, nothing is lost, nothing is recorded as refused.
     expect(await expiry.sendHeldTexts(db(), ORG)).toEqual([]);
     expect(await texts(id)).toEqual([]);
-    expect((await expiry.heldTextPass(db())).flatMap((r) => r.sent)).toEqual([]);
+    expect((await expiry.heldTextPass(db())).filter((r) => r.organizationId === ORG).flatMap((r) => r.sent)).toEqual([]);
 
     await setQuiet(false);
     const sent = await expiry.sendHeldTexts(db(), ORG);
@@ -150,7 +151,8 @@ run("a text held for the morning", () => {
 
     // Once: another pass, and another worker's, send nothing more.
     expect(await expiry.sendHeldTexts(db(), ORG)).toEqual([]);
-    expect(await expiry.heldTextPass(db())).toEqual([]);
+    // Read for this company only: a text another company's run left waiting is not this one's.
+    expect((await expiry.heldTextPass(db())).filter((r) => r.organizationId === ORG)).toEqual([]);
     expect(await texts(id)).toHaveLength(1);
     expect((await raw`select 1 from public.audit_log where organization_id = ${ORG} and action = 'estimate.held_text_sent' and entity_id = ${id}`)).toHaveLength(1);
     // Telling nobody changed the follow up: the send was quiet, so the sent date is as it was.

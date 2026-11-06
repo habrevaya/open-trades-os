@@ -96,7 +96,10 @@ afterAll(async () => {
 beforeEach(async () => {
   if (!url) return;
   await raw`delete from public.suppression where organization_id = ${ORG}`;
-  await raw`update public.organization set settings = settings - 'quietHours' where id = ${ORG}`;
+  // Quiet only at an hour twelve away from this one, so a test run after 9pm Central is not inside the default window.
+  const [clock] = await raw<{ hour: number }[]>`select extract(hour from now() at time zone ${ZONE})::int as hour`;
+  const away = { startHour: (clock!.hour + 12) % 24, endHour: (clock!.hour + 13) % 24 };
+  await raw`update public.organization set settings = coalesce(settings, '{}'::jsonb) || ${raw.json({ quietHours: away } as never)} where id = ${ORG}`;
 });
 
 run("telling the customer", () => {
