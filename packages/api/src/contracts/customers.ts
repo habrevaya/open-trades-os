@@ -130,7 +130,7 @@ export const listCustomers = defineRoute({
   module: "M03",
   permissions: ["customer:read"],
   input: PageRequest.extend({
-    /** Trigram search across name, email and phone. */
+    /** Every word somewhere in the name, email, phone or one of the customer's notes the caller may read. */
     q: z.string().max(200).optional(),
     type: CustomerType.optional(),
     /** One tag. Kept for callers that already send it; the same as `tags` with one entry. */
@@ -163,7 +163,17 @@ export const listCustomers = defineRoute({
     /** Find by where it came from. See `ExternalRef`. */
     ...ExternalLookup,
   }),
-  output: pageOf(Customer),
+  output: pageOf(Customer.extend({
+    /**
+     * On a list searched with `q`, the note that put this customer on it,
+     * when nothing on the row (name, email, phone) says the words: its few
+     * words around the first word found, its id and when it was written. Null
+     * when the row explains itself, and on a list not searched. Only a note
+     * the caller may read: at a technician's scope, only a note marked for
+     * the field.
+     */
+    matchedNote: z.object({ id: Uuid, excerpt: z.string(), notedAt: z.string().datetime() }).nullable().optional(),
+  })),
 });
 
 export const getCustomer = defineRoute({

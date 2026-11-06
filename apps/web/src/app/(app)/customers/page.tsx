@@ -89,7 +89,7 @@ export default async function CustomersPage({
       <form className="mt-4" action="/customers">
         <input
           type="search" name="q" defaultValue={q ?? ""}
-          placeholder="Search name, email or phone"
+          placeholder="Search name, email, phone or notes"
           aria-label="Search customers"
           className="h-10 w-full max-w-sm rounded border border-steel-300 px-3 text-sm"
         />
@@ -158,6 +158,15 @@ export default async function CustomersPage({
                 <a href={`/customers/${customer.id}`} className="font-medium text-ink-900 hover:underline">
                   {customer.name}
                 </a>
+                {/*
+                  Found by a note, not by anything else on the row: the note's
+                  words, so the person searching sees why this customer is here.
+                */}
+                {customer.matchedNote ? (
+                  <p className="mt-0.5 max-w-md text-sm text-ink-500" data-testid="matched-note">
+                    <span className="font-medium text-ink-700">From a note:</span> {customer.matchedNote.excerpt}
+                  </p>
+                ) : null}
               </Td>
               <Td className="text-ink-700">{customer.type === "commercial" ? "Commercial" : "Residential"}</Td>
               {/*

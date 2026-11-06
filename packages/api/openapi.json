@@ -247874,6 +247874,30 @@
                 "updatedAt": {
                   "type": "string",
                   "format": "date-time"
+                },
+                "matchedNote": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "excerpt": {
+                      "type": "string"
+                    },
+                    "notedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "excerpt",
+                    "notedAt"
+                  ]
                 }
               },
               "required": [

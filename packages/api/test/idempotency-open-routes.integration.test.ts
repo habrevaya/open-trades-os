@@ -100,15 +100,15 @@ run("a repeat through the dispatcher, with no session", () => {
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
     expect(second.body["submissionId"]).toBe(first.body["submissionId"]);
-    const [{ count }] = await raw<{ count: number }[]>`
+    const [once] = await raw<{ count: number }[]>`
       select count(*)::int as count from public.form_submission where organization_id = ${ORG}`;
-    expect(count).toBe(1);
+    expect(once!.count).toBe(1);
 
     // Without a key, a second post is a second submission: the key is what makes it one.
     await post("/v1/public/forms/call-me", body);
-    const [{ count: after }] = await raw<{ count: number }[]>`
+    const [after] = await raw<{ count: number }[]>`
       select count(*)::int as count from public.form_submission where organization_id = ${ORG}`;
-    expect(after).toBe(2);
+    expect(after!.count).toBe(2);
   });
 
   it("an estimate declined twice from its link is declined once, and the office told once", async () => {

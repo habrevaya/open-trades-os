@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   searchTerms, containsPattern, isSearchable, closeWords, closeEdits, MAX_WORDS, CLOSE_MIN_LENGTH, CLOSE_SIMILARITY,
+  excerpt,
 } from "../src/search/index.js";
 
 /**
@@ -62,5 +63,28 @@ describe("close to what was typed", () => {
   it("narrows by trigrams loosely enough that one letter off always gets through", () => {
     expect(CLOSE_SIMILARITY).toBeLessThanOrEqual(0.25);
     expect(CLOSE_SIMILARITY).toBeGreaterThan(0);
+  });
+});
+
+describe("a note as one line", () => {
+  const long = `${"The customer asked us to ring the bell twice and wait at the side door. ".repeat(3)}The gate code is 4471 and the dog is friendly.`;
+
+  it("is the whole note when it is short, with its spaces flattened", () => {
+    expect(excerpt("Gate code\n  4471", "gate")).toBe("Gate code 4471");
+  });
+
+  it("is the part around the word when the word is further in, and says where it was cut", () => {
+    const line = excerpt(long, "gate", 60);
+    expect(line).toContain("gate code is 4471");
+    expect(line.startsWith("...")).toBe(true);
+  });
+
+  it("looks for the next word when the first is not in the note, as when the name matched it", () => {
+    // "smith" is the customer's name, not in the note; "gate" is.
+    expect(excerpt(long, "smith gate", 60)).toContain("gate code");
+  });
+
+  it("is the start of the note when no word is in it", () => {
+    expect(excerpt(long, "boiler", 40).startsWith("The customer asked")).toBe(true);
   });
 });

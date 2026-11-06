@@ -16563,6 +16563,11 @@ export interface ListCustomersOutput {
     } | null;
     createdAt: string;
     updatedAt: string;
+    matchedNote?: {
+      id: string;
+      excerpt: string;
+      notedAt: string;
+    } | null;
   }>;
   nextCursor: string | null;
   hasMore: boolean;

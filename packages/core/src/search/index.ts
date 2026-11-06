@@ -100,3 +100,24 @@ export const closeWords = (terms: SearchTerms): string[] =>
 export const MIN_LENGTH = 2;
 
 export const isSearchable = (q: string | undefined | null): boolean => (q ?? "").trim().length >= MIN_LENGTH;
+
+/**
+ * A NOTE AS ONE LINE: its start, or the part around the first word of the
+ * query found in it when that is further in. The first word typed is tried
+ * first and then the rest in order, so a customer found by "smith gate",
+ * whose name holds "smith" and whose note holds "gate", shows the note around
+ * "gate". Whitespace is flattened, and "..." says where words were cut.
+ */
+export function excerpt(body: string, q: string, width = 120): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  if (flat.length <= width) return flat;
+  const lower = flat.toLowerCase();
+  let at = -1;
+  for (const word of searchTerms(q).words) {
+    at = lower.indexOf(word);
+    if (at >= 0) break;
+  }
+  const start = at > width / 2 ? at - Math.floor(width / 3) : 0;
+  const piece = flat.slice(start, start + width).trim();
+  return `${start > 0 ? "..." : ""}${piece}${start + width < flat.length ? "..." : ""}`;
+}
