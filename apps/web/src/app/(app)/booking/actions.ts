@@ -1,6 +1,7 @@
 "use server";
 
-import { refused, type FormState } from "@/lib/actions";
+import { attempt, parsed, refused, type FormState } from "@/lib/actions";
+import { configureBookableService } from "@opentradesos/api/contracts";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -146,4 +147,39 @@ export async function saveMemberHold(_previous: unknown, form: FormData): Promis
     reservePercent: Number(form.get("reservePercent") ?? 0),
     releaseHours: Number(form.get("releaseHours") ?? 48),
   }));
+}
+
+/**
+ * CHANGING A SERVICE ALREADY OFFERED: `PUT /v1/booking/services/{id}`
+ * (`booking:configure`, checked by the service, which writes the audit row
+ * with what it was before). Every term is sent, because the route replaces
+ * them all: a box left empty is "none" (no price shown means quoted on site,
+ * no deposit means none), never "leave it as it was".
+ */
+export async function editService(_previous: FormState, form: FormData): Promise<FormState> {
+  const text = (name: string) => String(form.get(name) ?? "").trim();
+  const result = await attempt(form, async () => {
+    const deposit = text("deposit");
+    const value = text("depositValue").replace(/[$,%\s]/g, "");
+    if (deposit !== "none" && value === "") {
+      throw new ConflictError(deposit === "percent" ? "Say what percent to ask for, or choose no deposit." : "Say how much to ask for, or choose no deposit.");
+    }
+    const price = text("displayPrice").replace(/[$,\s]/g, "");
+    await booking.configureService(await ctx(), parsed(configureBookableService.input, {
+      id: text("id"),
+      publicName: text("publicName"),
+      ...(text("publicDescription") ? { publicDescription: text("publicDescription") } : {}),
+      ...(price ? { displayPrice: price } : {}),
+      ...(deposit === "amount" ? { depositAmount: value } : {}),
+      /** Typed as a percent, "10", and kept as a rate, 0.1. */
+      ...(deposit === "percent" ? { depositPercent: String(Number(value) / 100) } : {}),
+      minNoticeHours: Number(text("minNoticeHours")),
+      maxAdvanceDays: Number(text("maxAdvanceDays")),
+      maxPerWindow: Number(text("maxPerWindow")),
+      isActive: form.get("isActive") === "on",
+    }));
+    return { message: form.get("isActive") === "on" ? "Saved. It is on the booking page." : "Saved. It is off the booking page." };
+  });
+  refresh();
+  return result;
 }

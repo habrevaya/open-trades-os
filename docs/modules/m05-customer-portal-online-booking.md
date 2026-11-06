@@ -189,6 +189,19 @@ days it closes for a holiday, or opens shorter, are on `/settings/holidays`
 (M02), changed with the same permission; a booking request for a date that has
 since gone on the list is refused in words, as a full window is.
 
+A service already offered is changed under **Edit** beside the list on
+`/booking` (`PUT /v1/booking/services/{id}`, `booking:configure`): the name and
+description customers see, the price shown (blank is quoted on site), the
+notice, how far ahead and how many to a window, the deposit (none, a set
+amount, or a percent of the price shown), and **On the booking page**, which
+takes it off the public page without losing its terms and touches no booking
+already made. A deposit is an amount or a percent, never both, an amount above
+nothing and a percent above 0 and at most 100, refused in words otherwise, the
+same rule as offering one. The screen says the booking page takes no money: the
+deposit is what a website booking through the API is told is due
+(`depositDue`) and what the office asks for once it confirms the booking. Every
+change writes an audit row with the service as it was.
+
 `/settings/portal` shows the address customers sign in at (`/portal/{slug}`),
 turns tipping on and sets the suggested percentages, turns bank payments on,
 and chooses whether customers see every job photograph or only the ones
@@ -1094,6 +1107,14 @@ may issue links (`portal:grant`) can already open the customer's account,
 so this is not a wider door, and it is said here rather than hidden.
 
 ## What is not built
+
+The public booking page does not show a service's deposit or take one; the
+deposit set on a service is told to a website booking through the API and is
+asked for by the office after it confirms, because what the page itself tells a
+customer about money up front is a decision nobody has made. A service is
+offered for one job type and cannot be moved to another; a different job type is
+a new service, and a service that is no longer wanted is switched off rather
+than removed.
 
 A customer signs in with a code and nothing else: there is no password and
 no account creation, so somebody not already a customer cannot sign in, and a
