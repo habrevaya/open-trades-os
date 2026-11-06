@@ -16588,7 +16588,14 @@ export interface ListEquipmentOutput {
       id: string;
     } | null;
     depth: number;
+    address?: string;
+    customer?: {
+      id: string;
+      name: string;
+    } | null;
   }>;
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 export interface ListEquipmentSerialMatchesOutput {
@@ -35100,6 +35107,14 @@ export interface ListEquipmentInput {
   on?: string;
   externalSource?: string;
   externalId?: string;
+  kind?: string;
+  minAgeYears?: number;
+  maxAgeYears?: number;
+  warranty?: "covered" | "lapsed" | "none";
+  fields?: string[];
+  fieldMatch?: "all" | "any";
+  cursor?: string;
+  limit?: number;
 }
 
 export interface ListEquipmentSerialMatchesInput {
@@ -39203,7 +39218,7 @@ export const OPERATIONS = {
   listDueRequests: { method: "GET", path: "/v1/reviews/requests/due", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["review:respond"] },
   listEmailMessages: { method: "GET", path: "/v1/email/messages", pathParams: [], queryParams: ["status","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
   listEmailSuppressions: { method: "GET", path: "/v1/email/suppressions", pathParams: [], queryParams: ["limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["message:read"] },
-  listEquipment: { method: "GET", path: "/v1/equipment", pathParams: [], queryParams: ["propertyId","on","externalSource","externalId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
+  listEquipment: { method: "GET", path: "/v1/equipment", pathParams: [], queryParams: ["propertyId","on","externalSource","externalId","kind","minAgeYears","maxAgeYears","warranty","fields","fieldMatch","cursor","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEquipmentSerialMatches: { method: "GET", path: "/v1/equipment-serial-matches", pathParams: [], queryParams: ["serialNumber","excludeId"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:read"] },
   listEstimateDeliveries: { method: "GET", path: "/v1/estimates/{id}/deliveries", pathParams: ["id"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
   listEstimateDrafts: { method: "GET", path: "/v1/ai/estimate-drafts", pathParams: [], queryParams: ["jobId","limit"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["estimate:read"] },
@@ -45162,7 +45177,7 @@ export abstract class GeneratedOperations {
   }
 
   /**
-   * The equipment at one address, or the units brought in from another system.
+   * The equipment at one address, the whole company's register, or the units brought in from another system.
    *
    * GET /v1/equipment. Needs equipment:read.
    */

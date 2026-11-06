@@ -67,6 +67,26 @@ stops mentioning a unit at the exact moment it becomes interesting.
 warranty standing today and what was last done to it. Reading it needs
 `equipment:read` and the page says so rather than hiding the section.
 
+### See every unit at every address
+
+`/equipment` (Equipment, under Customers) is the whole company's register:
+every unit the reader may see, at every address, with its make and model, its
+serial, its age, how its warranty stands today ("Parts only to Jan 15, 2031",
+"Ran out Apr 1, 2010" or "None recorded"), the address it is at and the
+customer linked to that address now. It filters by kind ("Every kind" or one
+the register names), by age ("At least, years old" and "At most, years old",
+whole years from the install date; a unit with no install date is left out
+when filtering by age, and the page says so), by warranty ("Still covered":
+parts or labour covered today; "Run out": a date and neither covered; "None
+recorded") and by the company's own fields on a unit, one or several, "all of
+these" or "any of these", as every other list does. Fifty to a page, with
+"Next 50". A unit opens its own page. Units taken off a register are left out.
+
+The reader sees the units at the addresses whose work they see, the way the
+search box narrows units: a branch manager the addresses with their branch's
+work, a technician the addresses they have been sent to. The address's own
+page still reads the whole company (below).
+
 ### Add or correct a unit
 
 The same screen, with `equipment:write`. A category is required because the
@@ -242,7 +262,19 @@ address. With them it finds the units those records became across every
 address the caller may see (a technician only those at addresses they have
 been sent to), retired units included and marked retired, because a unit
 loaded and since retired is still the one that record became; a `propertyId`
-beside them narrows to that address. Without either, the address is needed.
+beside them narrows to that address.
+
+Without an address, or with any filter or a page, `GET /v1/equipment` is the
+whole company's register (`/equipment` is its screen): flat, every unit the
+caller may see, each with its `address` and `customer`, in the order of its
+kind, filtered by `kind`, `minAgeYears` and `maxAgeYears`, `warranty`
+(`covered`, `lapsed` or `none`), and `fields` with `fieldMatch`, and paged by
+`cursor` and `limit` (up to 200, 50 when left out) with `nextCursor` and
+`hasMore`. With `propertyId` alone it is still that address's register, nested
+in tree order, with `nextCursor` null. At most fewer years than at least is
+refused in words, and so is a field the company has not declared on a unit.
+Before this, a call with neither an address nor another system's ids was
+refused (422); it now answers with the company's list.
 
 | Call | Needs |
 |---|---|

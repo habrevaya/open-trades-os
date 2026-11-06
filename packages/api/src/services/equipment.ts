@@ -1,12 +1,13 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { field, time } from "@opentradesos/core";
 import { packById } from "@opentradesos/trade-packs";
 import {
-  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, UnprocessableError, timezoneOf, type ServiceContext, type ExternalRef, scopeOf,
+  audit, guardedRead, guardedWrite, ConflictError, NotFoundError, timezoneOf, type ServiceContext, type ExternalRef, scopeOf,
+  decodeCursor, paginate,
 } from "./context";
 import { assertUnclaimed, byExternal, provenance } from "./provenance";
-import { enforceWithin } from "./custom-fields";
+import { enforceWithin, listFilter } from "./custom-fields";
 import { propertyVisibility } from "./scope";
 import { closeMatching, textFilter } from "./text-search";
 import * as warrantyRegistration from "./warranty-registration";
@@ -671,6 +672,104 @@ export async function fromElsewhere(
   });
 }
 
+/** How a unit's warranty stands on the day asked: either half covered, a date and none covered, or no date recorded. */
+export type WarrantyStanding = "covered" | "lapsed" | "none";
+
+export interface UnitListInput {
+  /** The kind of unit, exactly as the register names it ("Furnace"). */
+  kind?: string | undefined;
+  /** Whole years old, at least and at most, from the install date. A unit with no install date is left out by either. */
+  minAgeYears?: number | undefined;
+  maxAgeYears?: number | undefined;
+  warranty?: WarrantyStanding | undefined;
+  /** The company's own fields on a unit, each `key:value`, as every list takes them (`listFilter`). */
+  fields?: string[] | undefined;
+  fieldMatch?: "all" | "any" | undefined;
+  /** Only the units at this address. */
+  propertyId?: string | undefined;
+  on?: string | undefined;
+  cursor?: string | undefined;
+  limit?: number | undefined;
+}
+
+/**
+ * THE WHOLE COMPANY'S REGISTER, ONE PAGE AT A TIME.
+ *
+ * Every unit the reader may see, at every address, filtered by its kind, its
+ * age, how its warranty stands on the day asked and the company's own fields,
+ * in the order of its kind and then the order it was put on the register. A
+ * unit is narrowed by the address it is at, the way the search box narrows
+ * units (`propertyVisibility`): a branch manager sees the units at addresses
+ * with their branch's work, and a technician the units where they have been
+ * sent. Retired units are left out, as on an address's register. Each row says
+ * where the unit is and who to ring about it.
+ *
+ * Paged by a cursor on (kind, id), so a page is the same rows however many
+ * are added behind it, up to two hundred at a time.
+ */
+export async function unitList(ctx: ServiceContext, input: UnitListInput) {
+  return guardedRead(ctx, "equipment:read", async (tx) => {
+    const today = input.on ?? time.dateIn(new Date(), await timezoneOf(tx, ctx.actor.organizationId));
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+    if (input.minAgeYears !== undefined && input.maxAgeYears !== undefined && input.maxAgeYears < input.minAgeYears) {
+      throw new ConflictError(`At most ${input.maxAgeYears} years old is younger than at least ${input.minAgeYears}. Swap them.`);
+    }
+    const after = decodeCursor(input.cursor);
+    const [afterKind, afterId] = after ? (JSON.parse(after) as [string, string]) : [null, null];
+    /** A unit N whole years old was put in on or before this day N years ago. */
+    const yearsBack = (years: number) => `${String(Number(today.slice(0, 4)) - years).padStart(4, "0")}${today.slice(4)}`;
+    const parts = schema.equipment.warrantyPartsExpiresOn;
+    const labour = schema.equipment.warrantyLaborExpiresOn;
+    const covered = sql`(${parts} >= ${today} or ${labour} >= ${today})`;
+    const byField = await listFilter(tx, ctx.actor.organizationId, "equipment", input, sql`${schema.equipment.customFields}`);
+
+    const rows = await tx.select({
+      equipment: schema.equipment, line1: schema.property.addressLine1, city: schema.property.city,
+    }).from(schema.equipment)
+      .innerJoin(schema.property, eq(schema.property.id, schema.equipment.propertyId))
+      .where(and(
+        eq(schema.equipment.organizationId, ctx.actor.organizationId),
+        isNull(schema.equipment.deletedAt),
+        input.propertyId !== undefined ? eq(schema.equipment.propertyId, input.propertyId) : undefined,
+        input.kind ? eq(schema.equipment.category, input.kind) : undefined,
+        input.minAgeYears !== undefined ? lte(schema.equipment.installedOn, yearsBack(input.minAgeYears)) : undefined,
+        /** At most N whole years: put in after this day N + 1 years ago. */
+        input.maxAgeYears !== undefined ? gt(schema.equipment.installedOn, yearsBack(input.maxAgeYears + 1)) : undefined,
+        input.warranty === "covered" ? covered
+          : input.warranty === "lapsed" ? sql`((${parts} is not null or ${labour} is not null) and not coalesce(${covered}, false))`
+            : input.warranty === "none" ? sql`(${parts} is null and ${labour} is null)` : undefined,
+        byField,
+        afterKind !== null ? sql`(${schema.equipment.category}, ${schema.equipment.id}) > (${afterKind}, ${afterId})` : undefined,
+        propertyVisibility(scopeOf(ctx, "customer"), ctx.actor, sql`${schema.equipment.propertyId}`),
+      ))
+      .orderBy(asc(schema.equipment.category), asc(schema.equipment.id))
+      .limit(limit + 1);
+
+    const page = paginate(rows, limit, (r) => JSON.stringify([r.equipment.category, r.equipment.id]));
+    const customerAt = await customersAt(tx, page.data.map((r) => r.equipment.propertyId));
+    return {
+      ...page,
+      data: page.data.map(({ equipment, line1, city }) => ({
+        ...shape(equipment, today),
+        depth: 0,
+        customFields: equipment.customFields,
+        address: [line1, city].filter(Boolean).join(", "),
+        customer: customerAt.get(equipment.propertyId) ?? null,
+      })),
+    };
+  });
+}
+
+/** The kinds of unit on the company's register, for the list's filter. */
+export async function kinds(ctx: ServiceContext): Promise<string[]> {
+  return guardedRead(ctx, "equipment:read", async (tx) => {
+    const rows = await tx.selectDistinct({ category: schema.equipment.category }).from(schema.equipment)
+      .where(and(eq(schema.equipment.organizationId, ctx.actor.organizationId), isNull(schema.equipment.deletedAt)))
+      .orderBy(asc(schema.equipment.category));
+    return rows.map((r) => r.category);
+  });
+}
+
 export interface EquipmentView extends ReturnType<typeof shape> {
   children?: EquipmentView[];
 }
@@ -1140,7 +1239,7 @@ export const handlers = {
     input: {
       propertyId?: string | undefined; on?: string | undefined;
       externalSource?: string | undefined; externalId?: string | undefined;
-    },
+    } & Omit<UnitListInput, "propertyId" | "on">,
   ) => {
     const on = input.on ? { on: input.on } : {};
     if (input.externalSource !== undefined || input.externalId !== undefined) {
@@ -1148,18 +1247,21 @@ export const handlers = {
         equipment: await fromElsewhere(ctx, {
           externalSource: input.externalSource, externalId: input.externalId, propertyId: input.propertyId, ...on,
         }),
+        nextCursor: null, hasMore: false,
       };
     }
-    if (input.propertyId === undefined) {
-      /** Asked behind the guard, so a caller without the permission is told that first. */
-      return guardedRead(ctx, "equipment:read", async () => {
-        throw new UnprocessableError("Say which units", [{
-          path: "propertyId",
-          message: "Send propertyId for the units at an address, or externalSource and externalId for units brought in from another system.",
-        }]);
-      });
+    /**
+     * One address, asked for alone: its register nested in tree order, as it
+     * always was. Anything else (no address, a filter, a page) is the whole
+     * company's register, flat and paged (`unitList`).
+     */
+    const filtered = input.kind !== undefined || input.minAgeYears !== undefined || input.maxAgeYears !== undefined
+      || input.warranty !== undefined || (input.fields?.length ?? 0) > 0 || input.cursor !== undefined || input.limit !== undefined;
+    if (input.propertyId !== undefined && !filtered) {
+      return { equipment: flatten(await atProperty(ctx, { propertyId: input.propertyId, ...on })), nextCursor: null, hasMore: false };
     }
-    return { equipment: flatten(await atProperty(ctx, { propertyId: input.propertyId, ...on })) };
+    const page = await unitList(ctx, input);
+    return { equipment: page.data, nextCursor: page.nextCursor, hasMore: page.hasMore };
   },
 
   getEquipment: (ctx: ServiceContext, input: { id: string; on?: string | undefined }) =>

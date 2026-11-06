@@ -52511,8 +52511,8 @@
       ],
       "get": {
         "operationId": "listEquipment",
-        "summary": "The equipment at one address, or the units brought in from another system",
-        "description": "Nested, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now. With `externalSource` or `externalId`, or both, it finds the units another system's records became, across every address the caller may see, retired ones included and marked `retired`, so a migration run twice finds what it already loaded; with both, that is at most one unit. A `propertyId` beside them narrows to that address. One of `propertyId`, `externalSource` or `externalId` is needed.\n\nRequires a session holding: equipment:read.",
+        "summary": "The equipment at one address, the whole company's register, or the units brought in from another system",
+        "description": "With `propertyId` alone, the units at that address, nested in tree order, because units nest: a riser has valves and a rooftop unit has a compressor. Retired units are left out. `on` asks the warranty question as of a day other than today, which is how a report run for a month end answers what was covered then rather than what is covered now. Without `propertyId`, or with any filter or a page, the whole company's register, flat, every unit the caller may see (narrowed by the addresses whose work they see, so a branch manager sees their branch's), each with its `address` and `customer`, in the order of its kind: `kind` (exactly as the register names it), `minAgeYears` and `maxAgeYears` (whole years from the install date; a unit with no install date is left out by either), `warranty` (`covered`: parts or labour covered on the day; `lapsed`: a date and neither covered; `none`: no date recorded), `fields` and `fieldMatch` (the company's own fields on a unit, as every list takes them), paged by `cursor` and `limit` (up to 200, 50 when left out), with `nextCursor` and `hasMore`. With `externalSource` or `externalId`, or both, it finds the units another system's records became, across every address the caller may see, retired ones included and marked `retired`, so a migration run twice finds what it already loaded; with both, that is at most one unit. A `propertyId` beside them narrows to that address.\n\nRequires a session holding: equipment:read.",
         "tags": [
           "M04"
         ],
@@ -52552,11 +52552,101 @@
               "type": "string",
               "maxLength": 200
             }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "minAgeYears",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "maxAgeYears",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "warranty",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "covered",
+                "lapsed",
+                "none"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 270
+              },
+              "maxItems": 10,
+              "description": "Several custom fields at once, each key:value, for example plan:Annual. Every one has to hold, unless fieldMatch is any."
+            }
+          },
+          {
+            "name": "fieldMatch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "any"
+              ],
+              "description": "all (the default): every field filter has to hold. any: at least one of them does."
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "The equipment at one address, or the units brought in from another system",
+            "description": "The equipment at one address, the whole company's register, or the units brought in from another system",
             "content": {
               "application/json": {
                 "schema": {
@@ -246586,6 +246676,28 @@
                 "depth": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "address": {
+                  "type": "string"
+                },
+                "customer": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ]
                 }
               },
               "required": [
@@ -246609,10 +246721,21 @@
                 "depth"
               ]
             }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
           }
         },
         "required": [
-          "equipment"
+          "equipment",
+          "nextCursor",
+          "hasMore"
         ]
       },
       "ListEquipmentSerialMatchesOutput": {

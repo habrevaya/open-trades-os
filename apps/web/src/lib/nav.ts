@@ -170,6 +170,8 @@ export const NAV: NavGroup[] = [
        * company's, so this is one door to a page listing them rather than an
        * item per kind the rail cannot know about.
        */
+      /** Every unit at every address, filtered by kind, age, warranty and the company's own fields (M04). */
+      { href: "/equipment", label: "Equipment", permission: "equipment:read", icon: "equipment" },
       { href: "/records", label: "Records", permission: "record:read", icon: "records" },
       /**
        * Under Customers rather than under Money, because the question it

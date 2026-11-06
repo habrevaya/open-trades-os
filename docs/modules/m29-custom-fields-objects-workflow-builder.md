@@ -353,8 +353,9 @@ customer list also has a link, "Show customers that match any of these", that jo
 them by "or" instead (the Annual plan or pets), says so in the sentence above the list
 ("whose Plan is Annual, or whose Pets is yes"), carries it in the address as
 `fieldmatch=any`, and offers "Show only customers that match all of these" to go back.
-So do `/jobs`, `/invoices`, `/estimates`, `/people` (by a technician's fields) and
-each kind of record's own list (`/records/{type}`), each with its own words ("Show
+So do `/jobs`, `/invoices`, `/estimates`, `/people` (by a technician's fields),
+`/equipment` (by a unit's fields, M04) and each kind of record's own list
+(`/records/{type}`), each with its own words ("Show
 jobs that match any of these"), and each list's search box keeps the choice while it
 searches. "Any" only widens which of the fields has to hold: the rows are still
 the ones the reader's scope shows on that list, so a technician asking for any of
@@ -363,7 +364,8 @@ A choice matches exactly, several choices match a customer holding that one amon
 theirs, yes or no matches as stored, a number matches as a number, and free text
 matches anywhere in the value, ignoring case. `GET /v1/customers`,
 `GET /v1/jobs`, `GET /v1/invoices`, `GET /v1/estimates`, `GET /v1/properties`,
-`GET /v1/people` and `GET /v1/custom-records` take `fields`, repeated, each the
+`GET /v1/people`, `GET /v1/custom-records` and `GET /v1/equipment` (the company wide
+list) take `fields`, repeated, each the
 field's key, a colon and the value (`fields=plan:Annual&fields=has_pets:yes`), every
 one of which has to hold, up to ten; `fieldKey` and `fieldValue` still work and are
 one more beside them. Each of them also takes `fieldMatch`: `all` (the default) or
@@ -818,8 +820,9 @@ turned on again from its original wording.
 A technician's required fields are asked for when they are saved on the person's page and
 not when the person is invited, because the invitation carries no field. A record the
 product makes by itself starts with none, as above, and so does the first visit booked
-together with a new job. Visits and units have no company wide list to filter, so their
-fields are filtered in the report builder rather than on a list screen. "Any of these"
+together with a new job. Visits have no company wide list to filter, so their fields are
+filtered in the report builder rather than on a list screen; units do, on `/equipment`
+(M04). "Any of these"
 across several fields is on every list that filters by fields and in the report
 builder, but it is one choice for the whole list: there is no "this one, or both of
 those".
