@@ -821,7 +821,6 @@ export async function intent(
         && m.compare(usd(earlier.amount), usd(amount)) === 0
         && m.compare(usd(earlier.tip), usd(tipPlan?.tip ?? "0")) === 0)
       : undefined;
-    if (same) return repeat(tx, ctx, same, connection, deps, now);
 
     /**
      * NOT TWICE WHILE A BANK PAYMENT IS ON ITS WAY. A bank debit takes days
@@ -841,6 +840,11 @@ export async function intent(
         );
       }
     }
+    /**
+     * After the bank check on purpose: a bank payment on its way keeps its
+     * own answer, which says how long a bank takes, even to the same press.
+     */
+    if (same) return repeat(tx, ctx, same, connection, deps, now);
     if (holding.length > 0) {
       const held = holding[0]!.allocations.map((a) => a.invoiceId).find((id) => numbers.has(id));
       throw new ConflictError(goingThrough(held ? numbers.get(held)! : await invoiceNumber(tx, allocations[0]?.invoiceId)));

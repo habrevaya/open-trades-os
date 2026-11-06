@@ -327,7 +327,9 @@ for invoice 1042 is already going through. Wait for it to finish before paying
 again.": another card, another amount, the office pressing **Charge**, paying it
 automatically, or starting a card payment of it from its link or the invoice
 screen. The invoice is locked while this is decided, so two presses at the same
-instant are still one charge. A charge that failed or was cancelled frees the
+instant are still one charge. A saved bank account keeps its own answer, even to
+the same press: its payment is on its way, and the bill cannot be paid again
+until the bank answers. A charge that failed or was cancelled frees the
 invoice straight away. A charge that stays unresolved stops holding it after
 three days when Stripe said the money went (Stripe stops retrying a webhook
 after three days), or after one hour when the customer's bank wanted them to

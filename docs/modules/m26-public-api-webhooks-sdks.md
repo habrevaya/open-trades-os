@@ -234,7 +234,8 @@ first answer was lost is the first charge at the processor too. Without a key,
 the invoice itself is held: while a charge of a saved card on it is unresolved
 (the processor's webhook has not yet said it succeeded, failed or was
 cancelled), a second request with the same card, amount and tip gets the first
-charge back, and any other card payment of that invoice, by any path, is refused
+charge back (a saved bank account's payment on its way is refused with its own
+words instead, as it always was), and any other card payment of that invoice, by any path, is refused
 with 409 ("A payment for invoice 1042 is already going through. Wait for it to
 finish before paying again."). The invoice is locked while this is decided, so
 two requests in the same instant are one charge. When the processor never
