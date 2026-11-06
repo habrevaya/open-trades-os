@@ -215,14 +215,34 @@ of the open idempotent routes set a state (unsubscribe, approve or decline an
 estimate or a change order, close a chat, turn autopay on), so doing one twice
 changes nothing; each route's description says which it is.
 
-Three portal routes that touch a card are not idempotent and do not take the
+Two portal routes that touch a card are not idempotent and do not take the
 key: Pay on an invoice link (`POST /v1/portal/invoice/pay`) and on a signed in
 account (`POST /v1/portal/account/pay`) each start a fresh payment the customer
 confirms in the browser, so a repeat leaves the earlier one unconfirmed and
-nothing is charged twice; and paying with a saved card
-(`POST /v1/portal/cards/{cardId}/pay`) charges on the spot, so a repeat before
-the processor's webhook lands is a second charge. The SDK only repeats a route
-that takes a key, so it never repeats these.
+nothing is charged twice. The SDK only repeats a route that takes a key, so it
+never repeats these.
+
+Paying with a saved card (`POST /v1/portal/cards/{cardId}/pay`) charges on the
+spot, and is idempotent. A repeat with the same key gets the first answer back
+whenever it comes, even once the invoice is paid: the same intent id and the
+status the processor gave it. A key whose payment the webhook later said failed
+is not used again (the answer says so in words); a new key tries again, and a key
+sent for a different invoice or card is refused. The processor is asked with a key made from the
+request key (hashed with the company and the customer, so it is the same every
+time that request is sent and never another customer's), so a retry after the
+first answer was lost is the first charge at the processor too. Without a key,
+the invoice itself is held: while a charge of a saved card on it is unresolved
+(the processor's webhook has not yet said it succeeded, failed or was
+cancelled), a second request with the same card, amount and tip gets the first
+charge back (a saved bank account's payment on its way is refused with its own
+words instead, as it always was), and any other card payment of that invoice, by any path, is refused
+with 409 ("A payment for invoice 1042 is already going through. Wait for it to
+finish before paying again."). The invoice is locked while this is decided, so
+two requests in the same instant are one charge. When the processor never
+answered, the attempt is kept and the answer is 409; the same request again asks
+the processor again with that attempt's own key, which answers with the first
+charge if there was one. `saved-cards.integration.test.ts` shows all of it with
+a fake processor that answers a repeated key as Stripe does.
 
 `idempotency-open-routes.integration.test.ts` posts a public form twice with one
 key and declines an estimate twice from its link, through the dispatcher, and
@@ -458,12 +478,23 @@ database, not the first server's memory. A sentence is sent only once it is
 finished, so a long first sentence arrives late, and on a model connection that does
 not stream (see M27) the stream holds only the `answer` event.
 
-Paying from the portal is not repeatable with a key (above). Paying with a saved
-card twice before the processor's webhook arrives charges the card twice, whatever
-key the two requests carry: the processor is asked with each attempt's own id.
-Making a repeat return the first charge means the payment record keeping one
-attempt per key, which is a change to how every card payment is recorded, and it
-is not made here.
+Pay on an invoice link and on a signed in account are not repeatable with a key
+(above). Paying with a saved card holds its invoice only for a while, because a
+webhook can be lost: three days when the processor said the money went or is
+going (or never answered), which is how long Stripe keeps trying to deliver a
+webhook, and one hour when the customer's bank wanted them to confirm it, when no
+money has moved. After that a fresh payment is allowed, and if the first did go
+through the customer has paid twice and the office refunds one; a webhook that
+has not arrived in three days usually means the webhook address set up in Stripe
+is wrong.
+A charge with nobody on the page (the office's, or paying automatically) that is
+waiting on the customer holds nothing, since nobody is there to finish it. When
+the client secret is given back on a repeat, it is fetched by asking the
+processor again with the first attempt's key, and only within a day of the first
+ask, because Stripe forgets a key after that; older repeats get the status and an
+empty client secret. A payment started from a pay form and confirmed in the
+browser is not seen as going through until its webhook arrives, so it does not
+hold the invoice the way a saved card's charge does.
 
 The SDK is TypeScript only, and it is not published to a package registry: it is
 used from this repository, and its package is marked private until the licensing

@@ -300,6 +300,12 @@ describe("reading what the processor said", () => {
     })?.feeMinor).toBe(59);
   });
 
+  it("calls a cancelled payment intent 'cancelled', which frees its invoice for another payment", () => {
+    expect(parse({
+      id: "evt_cancel", type: "payment_intent.canceled", data: { object: { id: "pi_9", amount: 1000 } },
+    })?.kind).toBe("cancelled");
+  });
+
   it("calls an event it does not model 'other' rather than guessing", () => {
     expect(parse({
       id: "evt_5", type: "charge.failed", data: { object: { id: "ch_2" } },

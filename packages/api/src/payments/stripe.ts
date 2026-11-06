@@ -151,6 +151,7 @@ function kindOf(type: string): PaymentEventKind {
   if (type === "payment_intent.succeeded") return "succeeded";
   if (type === "payment_intent.processing") return "processing";
   if (type === "payment_intent.payment_failed") return "failed";
+  if (type === "payment_intent.canceled") return "cancelled";
   if (type === "charge.refunded" || type === "refund.created" || type === "refund.updated") {
     return "refunded";
   }

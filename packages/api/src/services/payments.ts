@@ -1,4 +1,5 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { assertCan, customerPortal as cp, money as m, SYSTEM_USER_ID, time, type Actor } from "@opentradesos/core";
 import {
@@ -14,7 +15,7 @@ import * as tips from "./tips";
 import { settingsWithin as portalSettingsWithin } from "./portal-settings";
 import {
   createPaymentProvider, PaymentProviderNotConfiguredError,
-  type PaymentEvent, type PaymentProvider, type WebhookRequest,
+  type ChargeRequest, type PaymentEvent, type PaymentProvider, type WebhookRequest,
 } from "../payments/provider";
 
 /**
@@ -280,14 +281,296 @@ interface TipPlan {
 }
 
 /**
+ * We asked and never heard back: the connection to the processor dropped,
+ * or it took too long. The card may or may not have been charged. The
+ * attempt is kept, so the invoice is held and the processor's webhook can
+ * still find it, and asking again with the same card and amount asks the
+ * processor again with the same key, which answers with the first charge
+ * rather than making a second.
+ */
+export class ChargeUnansweredError extends ConflictError {
+  constructor() {
+    super(
+      "We did not hear back from the card processor, so we cannot tell yet whether the card was charged. "
+      + "Press Pay again in a minute to check. You will not be charged twice.",
+    );
+  }
+}
+
+/**
+ * HOW LONG A CHARGE OF A SAVED CARD HOLDS ITS INVOICE BEFORE THE WEBHOOK.
+ *
+ * A saved card is charged on the spot, and the invoice still shows the
+ * balance until the processor's signed webhook says the money moved. In
+ * that gap a second press, a retry or a second open tab would be a second
+ * charge, so while a charge of a saved card on an invoice is unresolved
+ * (not yet succeeded, failed or cancelled by the webhook) the invoice takes
+ * no other card payment: the same card, amount and tip get the first charge
+ * back, and anything else is refused in words.
+ *
+ * Not forever, because a webhook can be lost. Two windows, chosen on the
+ * cautious side:
+ *
+ * - `moving`, three days, when the processor said the money went or is
+ *   going (or never answered at all). Stripe keeps trying to deliver a
+ *   webhook for up to three days, so until then the answer can still
+ *   arrive; a second charge before it would be a second charge for sure.
+ * - `waiting`, one hour, when the processor said the customer's bank wants
+ *   them to confirm it. No money moves until they do, and the bank's own
+ *   check page gives up long before an hour.
+ *
+ * A charge with nobody on the page that is waiting for the customer holds
+ * nothing: nobody is there to confirm it, so it can never take money, and
+ * the customer is sent the link to pay instead.
+ */
+export const CHARGE_HOLD = {
+  moving: 72 * 60 * 60 * 1000,
+  waiting: 60 * 60 * 1000,
+} as const;
+
+/**
+ * Stripe remembers an idempotency key for at least a day. The processor is
+ * asked again with an earlier attempt's key only well inside that, because
+ * after it a repeat with the same key would be a new charge.
+ */
+const PROCESSOR_KEY_LIFE = 23 * 60 * 60 * 1000;
+
+/** What the processor says while it waits on the customer. No money has moved. */
+const WAITING_ON_CUSTOMER = new Set(["requires_action", "requires_confirmation", "requires_payment_method"]);
+
+/** The words a second payment is refused with while the first is unresolved. */
+const goingThrough = (number: number | string) =>
+  `A payment for invoice ${number} is already going through. Wait for it to finish before paying again.`;
+
+/** What `intent` hands back: a payment form's needs, and nothing that says money moved. */
+export interface IntentStart {
+  attemptId: string;
+  intentId: string;
+  clientSecret: string;
+  publishableKey: string | null;
+  amount: string;
+  currency: string;
+  allocations: { invoiceId: string; amount: string }[];
+  /** What the processor said, which only matters for a saved card confirmed on the spot. */
+  status: string;
+  tip: string;
+}
+
+/**
+ * How the transaction ended. A refusal that should leave nothing behind is
+ * thrown inside it; these two are thrown after it commits, because what
+ * they leave behind (an attempt nobody heard back on, or one now known to
+ * have failed) is what keeps the next request from charging again.
+ */
+type IntentOutcome =
+  | { kind: "started"; start: IntentStart }
+  | { kind: "unanswered" }
+  | { kind: "declined"; message: string; code: string; retryable: boolean };
+
+/** An earlier charge of a saved card, read off its attempt. */
+interface EarlierCharge {
+  row: typeof schema.integrationEvent.$inferSelect;
+  savedCardId: string | null;
+  offSession: boolean;
+  amount: string;
+  tip: string;
+  allocations: { invoiceId: string; amount: string }[];
+  intentId: string | null;
+  /** The processor's word for it when it answered, or null when it never did. */
+  answer: string | null;
+  currency: string;
+  /** Exactly what the processor was asked, so asking again is the same request. */
+  request: ChargeRequest | null;
+}
+
+function earlierFrom(row: typeof schema.integrationEvent.$inferSelect): EarlierCharge {
+  const asked = (row.requestPayload ?? {}) as {
+    savedCardId?: string; offSession?: boolean; amount?: string; tip?: TipPlan;
+    allocations?: { invoiceId: string; amount: string }[]; processorRequest?: ChargeRequest;
+  };
+  const answered = (row.responsePayload ?? {}) as { intentId?: string; status?: string; currency?: string };
+  return {
+    row,
+    savedCardId: asked.savedCardId ?? null,
+    offSession: asked.offSession === true,
+    amount: asked.amount ?? "0",
+    tip: asked.tip?.tip ?? "0.0000",
+    allocations: asked.allocations ?? [],
+    intentId: answered.intentId ?? null,
+    answer: answered.intentId ? (answered.status ?? null) : null,
+    currency: answered.currency ?? "usd",
+    request: asked.processorRequest ?? null,
+  };
+}
+
+const waitingOnCustomer = (earlier: EarlierCharge) =>
+  earlier.row.status === "pending" && earlier.answer !== null && WAITING_ON_CUSTOMER.has(earlier.answer);
+
+/** Until when an unresolved charge holds its invoice, or null when it holds nothing. */
+function holdsUntil(earlier: EarlierCharge): Date | null {
+  const waiting = waitingOnCustomer(earlier);
+  if (waiting && earlier.offSession) return null;
+  return new Date(earlier.row.createdAt.getTime() + (waiting ? CHARGE_HOLD.waiting : CHARGE_HOLD.moving));
+}
+
+/**
+ * Unresolved charges of a saved card on any of these invoices that still
+ * hold them, newest first. Read under the invoices' row locks (see `intent`),
+ * so two requests in the same instant are one after the other here.
+ */
+async function chargesHolding(tx: Database, invoiceIds: string[], now: Date): Promise<EarlierCharge[]> {
+  if (invoiceIds.length === 0) return [];
+  const rows = await tx.select().from(schema.integrationEvent)
+    .where(and(
+      eq(schema.integrationEvent.direction, "outbound"),
+      eq(schema.integrationEvent.eventType, "payment.intent"),
+      inArray(schema.integrationEvent.status, ["pending", "in_flight"]),
+      sql`${schema.integrationEvent.requestPayload}->>'savedCardId' is not null`,
+      gt(schema.integrationEvent.createdAt, new Date(now.getTime() - CHARGE_HOLD.moving)),
+      sql`exists (select 1 from jsonb_array_elements(${schema.integrationEvent.requestPayload}->'allocations') a
+        where a->>'invoiceId' in ${sql`(${sql.join(invoiceIds.map((id) => sql`${id}`), sql`, `)})`})`,
+    ))
+    .orderBy(desc(schema.integrationEvent.createdAt))
+    .limit(20);
+  return rows.map(earlierFrom).filter((earlier) => {
+    const until = holdsUntil(earlier);
+    return until !== null && until.getTime() > now.getTime();
+  });
+}
+
+/** The same card, for the same invoices: the request a second press or a retry makes. */
+function sameCardAndInvoices(earlier: EarlierCharge, cardId: string, invoiceIds: readonly string[]): boolean {
+  const theirs = [...new Set(earlier.allocations.map((a) => a.invoiceId))].sort();
+  const mine = [...new Set(invoiceIds)].sort();
+  return earlier.savedCardId === cardId && theirs.length === mine.length && theirs.every((id, i) => id === mine[i]);
+}
+
+/**
+ * The processor's key for a charge of a saved card the customer asked for
+ * with a request key of their own: the same key every time that request is
+ * sent, so a retry after an answer was lost is the first charge at the
+ * processor too, even when nothing of the first attempt survived here.
+ * Hashed, because the request key is the caller's text and the processor's
+ * key has a length limit.
+ */
+const processorKeyFor = (organizationId: string, customerId: string, requestKey: string) =>
+  `pay-${createHash("sha256").update(`${organizationId}:${customerId}:${requestKey}`).digest("hex").slice(0, 48)}`;
+
+/**
+ * The charge of a saved card this customer already asked for with this
+ * request key, if any. Found by the processor key made from it, which names
+ * the company, the customer and the key together, so a key another
+ * customer happened to use is never theirs; and which, unlike the attempt's
+ * customer, settlement does not overwrite.
+ */
+export async function chargeForRequestKey(
+  tx: Database, organizationId: string, customerId: string, requestKey: string,
+): Promise<typeof schema.integrationEvent.$inferSelect | null> {
+  const [row] = await tx.select().from(schema.integrationEvent)
+    .where(and(
+      eq(schema.integrationEvent.direction, "outbound"),
+      eq(schema.integrationEvent.eventType, "payment.intent"),
+      sql`${schema.integrationEvent.requestPayload}->>'processorKey' = ${processorKeyFor(organizationId, customerId, requestKey)}`,
+      sql`${schema.integrationEvent.requestPayload}->>'savedCardId' is not null`,
+    ))
+    .orderBy(desc(schema.integrationEvent.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The number of an invoice, for the words of a refusal. */
+async function invoiceNumber(tx: Database, invoiceId: string | undefined): Promise<number | string> {
+  if (!invoiceId) return "";
+  const [row] = await tx.select({ number: schema.invoice.number }).from(schema.invoice)
+    .where(eq(schema.invoice.id, invoiceId)).limit(1);
+  return row?.number ?? "";
+}
+
+/**
+ * Give back an earlier charge instead of making a new one.
+ *
+ * Its intent id and the status the processor gave it. Nothing goes to the
+ * processor when it already answered that the money went or is going. It
+ * is asked again, with the earlier attempt's own key and exactly the
+ * request it was sent, only when that is safe and needed: the customer's
+ * bank wants them to confirm it (the browser needs the client secret again,
+ * which is never stored), or nobody heard back the first time. The
+ * processor answers a repeated key with the first charge, never a second.
+ */
+async function repeat(
+  tx: Database, ctx: ServiceContext, earlier: EarlierCharge, connection: Connection,
+  deps: PaymentDeps, now: Date,
+): Promise<IntentOutcome> {
+  const provider = await providerFrom(tx, connection, deps);
+  const started = (intentId: string, status: string, clientSecret: string, currency: string): IntentOutcome => ({
+    kind: "started",
+    start: {
+      attemptId: earlier.row.id,
+      intentId,
+      clientSecret,
+      publishableKey: provider.publishableKey,
+      amount: earlier.amount,
+      currency,
+      allocations: earlier.allocations,
+      status,
+      tip: earlier.tip,
+    },
+  });
+
+  const mustAsk = earlier.intentId === null || waitingOnCustomer(earlier);
+  if (!mustAsk) return started(earlier.intentId!, earlier.answer ?? "processing", "", earlier.currency);
+
+  const safe = earlier.request !== null && now.getTime() - earlier.row.createdAt.getTime() < PROCESSOR_KEY_LIFE;
+  if (!safe) {
+    if (earlier.intentId) return started(earlier.intentId, earlier.answer ?? "processing", "", earlier.currency);
+    throw new ConflictError(goingThrough(await invoiceNumber(tx, earlier.allocations[0]?.invoiceId)));
+  }
+
+  let outcome: Awaited<ReturnType<PaymentProvider["charge"]>>;
+  try {
+    outcome = await provider.charge(earlier.request!);
+  } catch {
+    return { kind: "unanswered" };
+  }
+  if (!outcome.ok) {
+    if (earlier.intentId === null) {
+      /** The first ask never reached the processor, or was refused: the card was not charged, and the invoice is free. */
+      await tx.update(schema.integrationEvent)
+        .set({ status: "failed", error: `${outcome.code}: ${outcome.message}`, completedAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.integrationEvent.id, earlier.row.id));
+    }
+    return { kind: "declined", message: outcome.message, code: outcome.code, retryable: outcome.retryable };
+  }
+
+  if (earlier.intentId === null) {
+    await tx.update(schema.integrationEvent).set({
+      responsePayload: { intentId: outcome.intent.intentId, status: outcome.intent.status, currency: outcome.intent.currency },
+      ...(outcome.intent.status === "processing" ? { status: "in_flight" as const } : {}),
+      error: null,
+      attempts: earlier.row.attempts + 1,
+      updatedAt: new Date(),
+    }).where(eq(schema.integrationEvent.id, earlier.row.id));
+    await audit(tx, ctx, "payment.intent_created", "customer", earlier.row.entityId ?? "", null, {
+      attemptId: earlier.row.id, intentId: outcome.intent.intentId, amount: earlier.amount,
+      savedCardId: earlier.savedCardId, askedAgain: true,
+    });
+    return started(outcome.intent.intentId, outcome.intent.status, outcome.intent.clientSecret, outcome.intent.currency);
+  }
+  /** The same intent, so the same status the customer was first given, with what the browser needs to finish it. */
+  const same = outcome.intent.intentId === earlier.intentId;
+  return started(earlier.intentId, earlier.answer ?? outcome.intent.status, same ? outcome.intent.clientSecret : "", earlier.currency);
+}
+
+/**
  * Start a card payment, and record that we asked.
  *
  * Returns what a payment form needs and nothing that says money moved.
  */
 export async function intent(
   ctx: ServiceContext, input: IntentInput, deps: PaymentDeps = DEFAULT_DEPS,
-) {
-  return guardedWrite(ctx, "payment:collect", async (tx) => {
+): Promise<IntentStart> {
+  const now = new Date();
+  const outcome = await guardedWrite(ctx, "payment:collect", async (tx): Promise<IntentOutcome> => {
     const [customer] = await tx.select({ id: schema.customer.id, email: schema.customer.email })
       .from(schema.customer)
       .where(and(eq(schema.customer.id, input.customerId), isNull(schema.customer.deletedAt)))
@@ -295,6 +578,31 @@ export async function intent(
     if (!customer) throw new NotFoundError("Customer");
 
     const connection = await connectionFor(tx, ctx.actor.organizationId);
+
+    /**
+     * THE SAME REQUEST KEY IS THE SAME PAYMENT. A customer's charge of a
+     * saved card sent again with the key it was first sent with gets the
+     * first answer back, whenever it comes and whatever the invoice owes
+     * now: the same intent and the status the processor gave it. The key is
+     * matched only among this customer's own charges of a saved card.
+     */
+    if (ctx.idempotencyKey && input.savedCardId && !input.offSession) {
+      const row = await chargeForRequestKey(tx, ctx.actor.organizationId, input.customerId, ctx.idempotencyKey);
+      if (row) {
+        const earlier = earlierFrom(row);
+        if (earlier.offSession || !sameCardAndInvoices(earlier, input.savedCardId, input.invoiceIds ?? [])) {
+          throw new ConflictError(
+            "That request was already used for a different payment, so nothing was charged. Send this one with a new request key.",
+          );
+        }
+        if (row.status === "failed" || row.status === "abandoned") {
+          throw new ConflictError(
+            "That payment did not go through, and nothing was taken. Send it again with a new request key to try once more.",
+          );
+        }
+        return repeat(tx, ctx, earlier, connection, deps, now);
+      }
+    }
 
     /**
      * THE AMOUNT IS COMPUTED HERE, not accepted from the caller, whenever
@@ -311,6 +619,7 @@ export async function intent(
     let amount: string;
     const allocations: { invoiceId: string; amount: string }[] = [];
     let tipPlan: TipPlan | null = null;
+    const numbers = new Map<string, number>();
 
     if (input.tip !== undefined && (input.depositId || !input.invoiceIds || input.invoiceIds.length !== 1)) {
       throw new ConflictError("A tip goes with paying one invoice, and nothing else.");
@@ -339,6 +648,22 @@ export async function intent(
       }
       amount = m.toString(outstanding);
     } else if (input.invoiceIds && input.invoiceIds.length > 0) {
+      /**
+       * ONE CARD PAYMENT AT A TIME PER INVOICE. The invoices are locked, in
+       * one order so two payments of overlapping invoices cannot each wait
+       * on the other, before their balances are read and before the charges
+       * already holding them are looked for below. A second request in the
+       * same instant waits here until the first has asked the processor and
+       * written its attempt down, and then finds it. `no key update` so that
+       * a payment being booked against the invoice elsewhere is not held up
+       * by it.
+       */
+      const locked = await tx.select({ id: schema.invoice.id, number: schema.invoice.number })
+        .from(schema.invoice)
+        .where(inArray(schema.invoice.id, input.invoiceIds))
+        .orderBy(asc(schema.invoice.id))
+        .for("no key update");
+      for (const row of locked) numbers.set(row.id, row.number);
       const invoices = await tx.select({
         id: schema.invoice.id, balance: schema.invoice.balance, status: schema.invoice.status,
       }).from(schema.invoice)
@@ -480,6 +805,24 @@ export async function intent(
     }
 
     /**
+     * NOT TWICE WHILE A SAVED CARD'S CHARGE IS UNRESOLVED (see
+     * `CHARGE_HOLD`). The same card, amount and tip from the customer on
+     * the page is the first charge given back; any other card payment of
+     * the invoice, by any path, is refused until the first is resolved or
+     * its hold runs out.
+     */
+    const holding = allocations.length > 0
+      ? await chargesHolding(tx, allocations.map((a) => a.invoiceId), now)
+      : [];
+    const cardId = saved && !input.offSession ? saved.id : null;
+    const same = cardId
+      ? holding.find((earlier) => !earlier.offSession
+        && sameCardAndInvoices(earlier, cardId, allocations.map((a) => a.invoiceId))
+        && m.compare(usd(earlier.amount), usd(amount)) === 0
+        && m.compare(usd(earlier.tip), usd(tipPlan?.tip ?? "0")) === 0)
+      : undefined;
+
+    /**
      * NOT TWICE WHILE A BANK PAYMENT IS ON ITS WAY. A bank debit takes days
      * to arrive, and the invoice stays open until it does: a customer who
      * looks again on Wednesday and pays the same bill by card has paid it
@@ -497,6 +840,15 @@ export async function intent(
         );
       }
     }
+    /**
+     * After the bank check on purpose: a bank payment on its way keeps its
+     * own answer, which says how long a bank takes, even to the same press.
+     */
+    if (same) return repeat(tx, ctx, same, connection, deps, now);
+    if (holding.length > 0) {
+      const held = holding[0]!.allocations.map((a) => a.invoiceId).find((id) => numbers.has(id));
+      throw new ConflictError(goingThrough(held ? numbers.get(held)! : await invoiceNumber(tx, allocations[0]?.invoiceId)));
+    }
 
     /**
      * THE ATTEMPT IS WRITTEN BEFORE THE PROCESSOR IS CALLED.
@@ -507,7 +859,46 @@ export async function intent(
      * `payment.idempotency_key` says "written BEFORE the processor call" and
      * this is the call it was written for.
      */
+    const attemptId = crypto.randomUUID();
+    /**
+     * The processor's key: the caller's own when it has one that outlives
+     * this transaction, one made from the customer's request key for a
+     * saved card they are paying with (so the same request sent again is
+     * the same charge at the processor even if nothing of the first one
+     * survived here), else this attempt's id.
+     */
+    const ownKey = input.processorKey
+      ?? (saved && !input.offSession && ctx.idempotencyKey
+        ? processorKeyFor(ctx.actor.organizationId, input.customerId, ctx.idempotencyKey)
+        : null);
+    const provider = await providerFrom(tx, connection, deps);
+    const request: ChargeRequest = {
+      amountMinor: minor,
+      currency: "usd",
+      idempotencyKey: ownKey ?? attemptId,
+      ...(input.description ? { description: input.description } : {}),
+      ...(input.receiptEmail ?? customer.email
+        ? { receiptEmail: input.receiptEmail ?? customer.email! }
+        : {}),
+      /**
+       * With a key of the caller's own, the attempt's id stays off the
+       * processor's record: asking again with the same key has to send the
+       * same request or the processor refuses it as a different one, and a
+       * second attempt row has a different id. Settlement then finds the
+       * attempt by the processor's intent id, which is the same both times.
+       */
+      metadata: ownKey
+        ? { [METADATA_CHARGE]: ownKey, [METADATA_ORG]: ctx.actor.organizationId }
+        : { [METADATA_ATTEMPT]: attemptId, [METADATA_ORG]: ctx.actor.organizationId },
+      ...(saved ? { customerRef: saved.customerRef, paymentMethodRef: saved.paymentMethodRef } : {}),
+      ...(bank ? { methodKind: "bank_account" as const, ...(input.acceptance && !input.offSession ? { acceptance: input.acceptance } : {}) } : {}),
+      ...(input.offSession ? { offSession: true } : {}),
+    };
+    /** A charge of a saved card with the customer on the page can be given back or asked again (see `repeat`). */
+    const repeatable = saved !== null && !input.offSession;
+
     const [attempt] = await tx.insert(schema.integrationEvent).values({
+      id: attemptId,
       organizationId: ctx.actor.organizationId,
       direction: "outbound",
       provider: connection.provider,
@@ -524,32 +915,27 @@ export async function intent(
         /** Remembered so settlement books it as a bank payment and a failure is told to the office. */
         ...(bank ? { method: "ach" } : {}),
         ...(input.offSession ? { offSession: true, agreementId: input.offSession.agreementId } : {}),
+        /** So settlement can find this attempt by the processor's key when it never learned the intent id. */
+        ...(ownKey ? { processorKey: ownKey } : {}),
+        ...(repeatable ? { processorRequest: request } : {}),
       },
     }).returning();
 
-    const provider = await providerFrom(tx, connection, deps);
-    const outcome = await provider.charge({
-      amountMinor: minor,
-      currency: "usd",
-      idempotencyKey: input.processorKey ?? attempt!.id,
-      ...(input.description ? { description: input.description } : {}),
-      ...(input.receiptEmail ?? customer.email
-        ? { receiptEmail: input.receiptEmail ?? customer.email! }
-        : {}),
+    let outcome: Awaited<ReturnType<PaymentProvider["charge"]>>;
+    try {
+      outcome = await provider.charge(request);
+    } catch (error) {
       /**
-       * With a key of the caller's own, the attempt's id stays off the
-       * processor's record: asking again with the same key has to send the
-       * same request or the processor refuses it as a different one, and a
-       * second attempt row has a different id. Settlement then finds the
-       * attempt by the processor's intent id, which is the same both times.
+       * No answer at all. For a saved card charged with the customer on the
+       * page the attempt is kept (see `ChargeUnansweredError`); anywhere
+       * else the transaction is undone as before.
        */
-      metadata: input.processorKey
-        ? { [METADATA_CHARGE]: input.processorKey, [METADATA_ORG]: ctx.actor.organizationId }
-        : { [METADATA_ATTEMPT]: attempt!.id, [METADATA_ORG]: ctx.actor.organizationId },
-      ...(saved ? { customerRef: saved.customerRef, paymentMethodRef: saved.paymentMethodRef } : {}),
-      ...(bank ? { methodKind: "bank_account" as const, ...(input.acceptance && !input.offSession ? { acceptance: input.acceptance } : {}) } : {}),
-      ...(input.offSession ? { offSession: true } : {}),
-    });
+      if (!repeatable) throw error;
+      await tx.update(schema.integrationEvent)
+        .set({ error: `no answer: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500), updatedAt: new Date() })
+        .where(eq(schema.integrationEvent.id, attempt!.id));
+      return { kind: "unanswered" };
+    }
 
     if (!outcome.ok) {
       await tx.update(schema.integrationEvent)
@@ -566,7 +952,7 @@ export async function intent(
      * Stripe dashboard where our metadata was never attached.
      */
     await tx.update(schema.integrationEvent).set({
-      responsePayload: { intentId: outcome.intent.intentId, status: outcome.intent.status },
+      responsePayload: { intentId: outcome.intent.intentId, status: outcome.intent.status, currency: outcome.intent.currency },
       /**
        * `in_flight` is a payment the processor has accepted and not yet
        * settled: a bank debit, for days. It is what the invoice and the
@@ -585,18 +971,23 @@ export async function intent(
     });
 
     return {
-      attemptId: attempt!.id,
-      intentId: outcome.intent.intentId,
-      clientSecret: outcome.intent.clientSecret,
-      publishableKey: provider.publishableKey,
-      amount,
-      currency: outcome.intent.currency,
-      allocations,
-      /** What the processor said, which only matters for a saved card confirmed on the spot. */
-      status: outcome.intent.status,
-      tip: tipPlan?.tip ?? "0.0000",
+      kind: "started",
+      start: {
+        attemptId: attempt!.id,
+        intentId: outcome.intent.intentId,
+        clientSecret: outcome.intent.clientSecret,
+        publishableKey: provider.publishableKey,
+        amount,
+        currency: outcome.intent.currency,
+        allocations,
+        status: outcome.intent.status,
+        tip: tipPlan?.tip ?? "0.0000",
+      },
     };
   });
+  if (outcome.kind === "unanswered") throw new ChargeUnansweredError();
+  if (outcome.kind === "declined") throw new ChargeDeclinedError(outcome.message, outcome.code, outcome.retryable);
+  return outcome.start;
 }
 
 /* ------------------------------------------------------- what came back */
@@ -763,6 +1154,30 @@ export async function receive(
     return { handled: true, kind: event.kind, eventId: event.eventId };
   }
 
+  if (event.kind === "cancelled") {
+    /**
+     * Cancelled at the processor (from its dashboard, or by the processor
+     * itself after a customer's bank check was never finished): no money
+     * moved and none will. The attempt is resolved, which frees its invoice
+     * for a fresh payment straight away rather than when its hold runs out.
+     * Nothing was booked, so nothing is reversed.
+     */
+    await inTenant(ctx, async (tx) => {
+      if (!event.intentId) return;
+      await tx.update(schema.integrationEvent)
+        .set({ status: "abandoned", error: "Cancelled at the card processor. Nothing was taken.", completedAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(schema.integrationEvent.organizationId, connection.organizationId),
+          eq(schema.integrationEvent.direction, "outbound"),
+          eq(schema.integrationEvent.eventType, "payment.intent"),
+          inArray(schema.integrationEvent.status, ["pending", "in_flight"]),
+          sql`${schema.integrationEvent.responsePayload}->>'intentId' = ${event.intentId}`,
+        ));
+    });
+    await record("succeeded", null);
+    return { handled: true, kind: event.kind, eventId: event.eventId };
+  }
+
   if (event.kind === "failed") {
     const note = await failed(ctx, connection, event);
     await record("succeeded", note.paymentId ?? null);
@@ -847,12 +1262,30 @@ async function settle(
         )).limit(1);
       if (row) return row;
     }
-    if (!event.intentId) return null;
+    if (event.intentId) {
+      const [row] = await tx.select().from(schema.integrationEvent)
+        .where(and(
+          eq(schema.integrationEvent.organizationId, connection.organizationId),
+          eq(schema.integrationEvent.direction, "outbound"),
+          sql`${schema.integrationEvent.responsePayload}->>'intentId' = ${event.intentId}`,
+        ))
+        .orderBy(desc(schema.integrationEvent.createdAt))
+        .limit(1);
+      if (row) return row;
+    }
+    /**
+     * Asked with a key of the caller's own and never heard back, so the
+     * attempt has no intent id yet: it is found by that key, which the
+     * processor carries back on its record.
+     */
+    const byKey = event.metadata[METADATA_CHARGE];
+    if (!byKey) return null;
     const [row] = await tx.select().from(schema.integrationEvent)
       .where(and(
         eq(schema.integrationEvent.organizationId, connection.organizationId),
         eq(schema.integrationEvent.direction, "outbound"),
-        sql`${schema.integrationEvent.responsePayload}->>'intentId' = ${event.intentId}`,
+        eq(schema.integrationEvent.eventType, "payment.intent"),
+        sql`${schema.integrationEvent.requestPayload}->>'processorKey' = ${byKey}`,
       ))
       .orderBy(desc(schema.integrationEvent.createdAt))
       .limit(1);

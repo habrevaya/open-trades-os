@@ -347,6 +347,14 @@ export interface SavedCardPayment {
  * Only an invoice this customer is the one paying: their own, or one billed
  * to them as payer. A homeowner's card does not pay a warranty company's
  * share of their job, and a payer's card does not pay the homeowner's.
+ *
+ * NEVER TWICE BEFORE THE WEBHOOK. The card is charged on the spot and the
+ * invoice shows the balance until the processor's webhook says the money
+ * moved. A second press, a retry or a second tab in that gap gets the first
+ * charge back when it is the same card, amount and tip, and is refused in
+ * words otherwise; the same request key gets the first answer back at any
+ * time. `payments.intent` holds all of it, under a lock on the invoice, and
+ * `payments.CHARGE_HOLD` says how long an unresolved charge holds it.
  */
 export async function pay(
   db: Database,
@@ -371,13 +379,21 @@ export async function pay(
         isNull(schema.invoice.deletedAt),
       )).limit(1);
     if (!row || row.status === "draft") throw new NotFoundError("Invoice");
-    return row;
+    /**
+     * A repeat of a request already made with this key is answered with the
+     * first answer by `payments.intent`, even once the invoice is paid, so
+     * the balance is not asked about here.
+     */
+    const repeat = meta?.idempotencyKey
+      ? (await payments.chargeForRequestKey(tx, session.grant.organizationId, session.customerId, meta.idempotencyKey)) !== null
+      : false;
+    return { ...row, repeat };
   });
   if ((invoice.payerCustomerId ?? invoice.customerId) !== session.customerId) {
     throw new ConflictError(`Invoice ${invoice.number} is billed to somebody else. Pay it with a new card instead.`);
   }
-  if ((invoice.status !== "open" && invoice.status !== "partially_paid")
-    || !m.isPositive(m.money(invoice.balance, invoice.currency))) {
+  if (!invoice.repeat && ((invoice.status !== "open" && invoice.status !== "partially_paid")
+    || !m.isPositive(m.money(invoice.balance, invoice.currency)))) {
     throw new ConflictError(`Invoice ${invoice.number} has nothing outstanding. It may already have been paid.`);
   }
 

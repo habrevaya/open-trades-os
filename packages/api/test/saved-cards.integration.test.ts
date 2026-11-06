@@ -286,21 +286,21 @@ run("paying with a saved card", () => {
 
   it("is not repeatable: a repeat with the same key asks the processor for a second charge", async () => {
     /**
-     * Why `payPortalInvoiceWithCard` is not marked idempotent in its contract
-     * (M26). The key reaches the service, but the processor is asked with
-     * each attempt's own id, so a repeat before the webhook lands is a
-     * second charge request. The SDK only repeats a route marked idempotent,
-     * so it never repeats this one; the day a repeat is answered with the
-     * first charge, this test and the contract change together.
+     * The title is kept as it was first written; what it names is gone.
+     * This test showed the repeat reaching the processor as a second charge,
+     * which is why `payPortalInvoiceWithCard` was not marked idempotent. A
+     * repeat with the same key is now answered with the first charge and
+     * never reaches the processor, so the contract marks the route
+     * idempotent and this test asserts one charge (M26).
      */
     const token = await signedIn(dana);
     const card = await saveACard(token);
     const invoiceId = await anInvoice(dana, "40.00");
     const meta = { idempotencyKey: `cards-repeat-${Date.now()}` };
-    await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, meta, deps());
-    await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, meta, deps());
-    expect(stripe.charges).toHaveLength(2);
-    expect(stripe.charges[0]!.idempotencyKey).not.toBe(stripe.charges[1]!.idempotencyKey);
+    const first = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, meta, deps());
+    const second = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, meta, deps());
+    expect(stripe.charges).toHaveLength(1);
+    expect(second).toMatchObject({ intentId: first.intentId, status: first.status, amount: first.amount });
   });
 
   it("does not pay an invoice somebody else is billed for", async () => {
@@ -328,5 +328,269 @@ run("paying with a saved card", () => {
       await raw`update public.payment_profile set connection_id = ${connectionId} where customer_id = ${dana}`;
       await raw`delete from public.integration_connection where id = ${old!.id}`;
     }
+  });
+});
+
+/* =========================================== twice before the webhook === */
+
+/**
+ * PAYING TWICE BEFORE THE PROCESSOR'S WEBHOOK ARRIVES CHARGES ONCE.
+ *
+ * The fake here answers a repeated idempotency key with the intent it
+ * answered the first time, as Stripe does, so "how many charges" is how
+ * many different keys reached it.
+ */
+run("paying with a saved card twice before the webhook arrives", () => {
+  type Intent = { intentId: string; status: string; clientSecret: string };
+  let byKey: Map<string, Intent>;
+  /** What the next new charge answers, how long it takes, and whether the next ask is lost on the way back. */
+  let answer: string;
+  let delayMs: number;
+  let loseNext: boolean;
+
+  beforeEach(() => {
+    byKey = new Map();
+    answer = "succeeded";
+    delayMs = 0;
+    loseNext = false;
+    stripe.charge = async (request: ChargeRequest): Promise<ChargeOutcome> => {
+      stripe.charges.push(request);
+      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      let intent = byKey.get(request.idempotencyKey);
+      if (!intent) {
+        intent = {
+          intentId: `pi_twice_${byKey.size + 1}_${Math.random().toString(36).slice(2)}`,
+          status: answer,
+          clientSecret: `secret_${byKey.size + 1}`,
+        };
+        byKey.set(request.idempotencyKey, intent);
+      }
+      if (loseNext) {
+        loseNext = false;
+        throw new Error("socket hang up");
+      }
+      return { ok: true, intent: { ...intent, amountMinor: request.amountMinor, currency: "usd" } };
+    };
+  });
+
+  const keys = () => new Set(stripe.charges.map((c) => c.idempotencyKey)).size;
+  const attempts = (invoiceId: string) => raw<{ id: string; status: string }[]>`select id, status from public.integration_event
+    where organization_id = ${ORG} and event_type = 'payment.intent'
+      and request_payload->'allocations' @> ${raw.json([{ invoiceId }] as never)}
+    order by created_at`;
+  const webhook = async (kind: "succeeded" | "failed" | "cancelled", intentId: string, amountMinor: number) => {
+    const connection = (await payments.connectionById(db(), connectionId))!;
+    await payments.receive(db(), {
+      connection,
+      event: {
+        eventId: `evt_twice_${Math.random().toString(36).slice(2)}`, kind,
+        type: kind === "succeeded" ? "payment_intent.succeeded" : kind === "failed" ? "payment_intent.payment_failed" : "payment_intent.canceled",
+        intentId, amountMinor, currency: "usd", feeMinor: kind === "succeeded" ? 30 : null, refundedMinor: null,
+        metadata: {}, failureMessage: kind === "failed" ? "Your card was declined." : null,
+      },
+    });
+  };
+
+  it("gives a second press the first charge back, and asks the processor once", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "120.00");
+    const first = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    const second = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    expect(stripe.charges).toHaveLength(1);
+    expect(second).toMatchObject({ intentId: first.intentId, status: "succeeded", amount: "120.0000", tip: "0.0000" });
+    expect(await attempts(invoiceId)).toHaveLength(1);
+
+    // Once the webhook says the money moved, the invoice is paid and a third press is refused.
+    await webhook("succeeded", first.intentId, 12000);
+    await expect(savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps()))
+      .rejects.toThrow(/nothing outstanding/);
+    expect(stripe.charges).toHaveLength(1);
+  });
+
+  it("charges once when two requests arrive in the same instant", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "95.00");
+    /** Slow enough that the second request arrives while the first is still with the processor. */
+    delayMs = 300;
+    const [a, b] = await Promise.all([
+      savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps()),
+      savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps()),
+    ]);
+    expect(stripe.charges).toHaveLength(1);
+    expect(a.intentId).toBe(b.intentId);
+    expect(await attempts(invoiceId)).toHaveLength(1);
+  });
+
+  it("charges once when two tabs ask for different amounts in the same instant, and refuses the second in words", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const other = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "70.00");
+    const number = (await raw<{ number: number }[]>`select number from public.invoice where id = ${invoiceId}`)[0]!.number;
+    delayMs = 300;
+    const results = await Promise.allSettled([
+      savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps()),
+      savedCards.pay(db(), { token, invoiceId, cardId: other.id }, undefined, deps()),
+    ]);
+    expect(stripe.charges).toHaveLength(1);
+    const refused = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect(refused.reason).toBeInstanceOf(ConflictError);
+    expect((refused.reason as Error).message).toBe(
+      `A payment for invoice ${number} is already going through. Wait for it to finish before paying again.`,
+    );
+  });
+
+  it("refuses a different amount while the first charge is unresolved", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "150.00");
+    await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    /** Part of it was paid another way meanwhile, so the same press is now for a different amount. */
+    await raw`update public.invoice set balance = 100.0000, status = 'partially_paid' where id = ${invoiceId}`;
+    await expect(savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps()))
+      .rejects.toThrow(/is already going through\. Wait for it to finish before paying again\./);
+    expect(stripe.charges).toHaveLength(1);
+  });
+
+  it("frees the invoice for a fresh payment once the webhook says the first failed, or was cancelled", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "88.00");
+
+    answer = "requires_action";
+    const first = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    expect(first.status).toBe("requires_action");
+    await webhook("failed", first.intentId, 8800);
+    expect((await attempts(invoiceId)).map((a) => a.status)).toEqual(["failed"]);
+
+    answer = "succeeded";
+    const second = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    expect(second.intentId).not.toBe(first.intentId);
+    expect(keys()).toBe(2);
+
+    await webhook("cancelled", second.intentId, 8800);
+    expect((await attempts(invoiceId)).map((a) => a.status)).toEqual(["failed", "abandoned"]);
+    const third = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    expect(third.intentId).not.toBe(second.intentId);
+    expect(keys()).toBe(3);
+
+    // The invoice was never marked paid by any of it.
+    const [row] = await raw<{ status: string }[]>`select status from public.invoice where id = ${invoiceId}`;
+    expect(row!.status).toBe("open");
+  });
+
+  it("gives the bank's check back to a second tab with what it needs to finish it, from the same intent", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "64.00");
+    answer = "requires_action";
+    const first = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    const second = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    expect(second).toMatchObject({ intentId: first.intentId, status: "requires_action", clientSecret: first.clientSecret });
+    // Asked again for the client secret, which is never stored, with the first attempt's own key: one charge.
+    expect(stripe.charges).toHaveLength(2);
+    expect(keys()).toBe(1);
+  });
+
+  it("stops holding the invoice after the window: an hour for a bank check, three days otherwise", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const other = await saveACard(token);
+
+    const waiting = await anInvoice(dana, "40.00");
+    answer = "requires_action";
+    await savedCards.pay(db(), { token, invoiceId: waiting, cardId: card.id }, undefined, deps());
+    answer = "succeeded";
+    await expect(savedCards.pay(db(), { token, invoiceId: waiting, cardId: other.id }, undefined, deps()))
+      .rejects.toThrow(/already going through/);
+    await raw`update public.integration_event set created_at = now() - interval '61 minutes'
+      where request_payload->'allocations' @> ${raw.json([{ invoiceId: waiting }] as never)}`;
+    await savedCards.pay(db(), { token, invoiceId: waiting, cardId: other.id }, undefined, deps());
+    expect(keys()).toBe(2);
+
+    const moving = await anInvoice(dana, "41.00");
+    await savedCards.pay(db(), { token, invoiceId: moving, cardId: card.id }, undefined, deps());
+    await raw`update public.integration_event set created_at = now() - interval '71 hours'
+      where request_payload->'allocations' @> ${raw.json([{ invoiceId: moving }] as never)}`;
+    await expect(savedCards.pay(db(), { token, invoiceId: moving, cardId: other.id }, undefined, deps()))
+      .rejects.toThrow(/already going through/);
+    await raw`update public.integration_event set created_at = now() - interval '73 hours'
+      where request_payload->'allocations' @> ${raw.json([{ invoiceId: moving }] as never)}`;
+    await savedCards.pay(db(), { token, invoiceId: moving, cardId: other.id }, undefined, deps());
+    expect(keys()).toBe(4);
+    expect(payments.CHARGE_HOLD).toEqual({ moving: 72 * 3600_000, waiting: 3600_000 });
+  });
+
+  it("keeps a charge nobody heard back on, and asks the processor again with the same key", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const other = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "77.00");
+    loseNext = true;
+    await expect(savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps()))
+      .rejects.toThrow(payments.ChargeUnansweredError);
+    expect((await attempts(invoiceId)).map((a) => a.status)).toEqual(["pending"]);
+    // Another card meanwhile would be a second charge if the first went through.
+    await expect(savedCards.pay(db(), { token, invoiceId, cardId: other.id }, undefined, deps()))
+      .rejects.toThrow(/already going through/);
+
+    const again = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    expect(again.status).toBe("succeeded");
+    expect(stripe.charges).toHaveLength(2);
+    expect(keys()).toBe(1);
+    const [attempt] = await attempts(invoiceId);
+    expect(stripe.charges[0]!.metadata).toMatchObject({ otos_attempt: attempt!.id });
+
+    // The webhook finds the one attempt and the invoice is paid once.
+    await webhook("succeeded", again.intentId, 7700);
+    const [row] = await raw<{ status: string }[]>`select status from public.invoice where id = ${invoiceId}`;
+    expect(row!.status).toBe("paid");
+    const paid = await raw`select 1 from public.payment where processor_payment_id = ${again.intentId}`;
+    expect(paid).toHaveLength(1);
+  });
+
+  it("answers a repeat of the same request key with the first answer, even once paid, and asks the processor with a key made from it", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "52.00");
+    const meta = { idempotencyKey: `twice-key-${Math.random().toString(36).slice(2)}` };
+
+    // The answer to the first ask is lost, so the client sends it again with the same key.
+    loseNext = true;
+    await expect(savedCards.pay(db(), { token, invoiceId, cardId: card.id }, meta, deps()))
+      .rejects.toThrow(payments.ChargeUnansweredError);
+    const first = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, meta, deps());
+    expect(keys()).toBe(1);
+    expect(stripe.charges[0]!.idempotencyKey).toMatch(/^pay-[0-9a-f]{48}$/);
+    expect(stripe.charges[0]!.idempotencyKey).not.toContain(meta.idempotencyKey);
+
+    await webhook("succeeded", first.intentId, 5200);
+    const later = await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, meta, deps());
+    expect(later).toMatchObject({ intentId: first.intentId, status: "succeeded", amount: "52.0000" });
+    expect(keys()).toBe(1);
+
+    // The same key for another invoice is a different request, and is refused.
+    const another = await anInvoice(dana, "53.00");
+    await expect(savedCards.pay(db(), { token, invoiceId: another, cardId: card.id }, meta, deps()))
+      .rejects.toThrow(/already used for a different payment/);
+    // Another customer's request with the same key is their own.
+    const theirs = await signedIn(eli);
+    const theirCard = await saveACard(theirs);
+    const theirInvoice = await anInvoice(eli, "54.00");
+    const own = await savedCards.pay(db(), { token: theirs, invoiceId: theirInvoice, cardId: theirCard.id }, meta, deps());
+    expect(own.intentId).not.toBe(first.intentId);
+    expect(keys()).toBe(2);
+  });
+
+  it("refuses to start another card payment of the invoice from its link while the saved card's charge is unresolved", async () => {
+    const token = await signedIn(dana);
+    const card = await saveACard(token);
+    const invoiceId = await anInvoice(dana, "66.00");
+    await savedCards.pay(db(), { token, invoiceId, cardId: card.id }, undefined, deps());
+    await expect(payments.intent(owner(), { customerId: dana, invoiceIds: [invoiceId] }, deps()))
+      .rejects.toThrow(/already going through/);
+    expect(stripe.charges).toHaveLength(1);
   });
 });

@@ -305,7 +305,11 @@ them, `POST /v1/portal/cards/{cardId}/remove` tells Stripe to forget one and
 then marks it removed, and `POST /v1/portal/cards/{cardId}/pay` pays one
 invoice with it, confirmed on the spot. The invoice still changes only when
 Stripe's signed webhook says the money moved. A card pays only invoices the
-signed in customer is the one paying.
+signed in customer is the one paying. Pressing Pay again before the webhook
+arrives, or from a second tab, never charges twice: the same card and amount get
+the first payment back, and anything else is refused with "A payment for
+invoice 1042 is already going through. Wait for it to finish before paying
+again." until the first is resolved (M13 says for how long).
 
 ### Let the company charge a saved card, and pay bills automatically
 

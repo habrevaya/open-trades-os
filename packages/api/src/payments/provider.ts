@@ -165,6 +165,12 @@ export type PaymentEventKind =
    */
   | "processing"
   | "failed"
+  /**
+   * Cancelled before any money moved: from the processor's dashboard, or by
+   * the processor after a bank check the customer never finished. Nothing
+   * is booked or reversed; the attempt is resolved.
+   */
+  | "cancelled"
   /** The customer's bank pulled it back. Different from a refund we chose. */
   | "disputed"
   | "refunded"

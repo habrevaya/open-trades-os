@@ -40333,7 +40333,7 @@ export const OPERATIONS = {
   payOutCreditNote: { method: "POST", path: "/v1/credit-notes/{id}/payouts", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payment:refund"] },
   payPortalAccountInvoice: { method: "POST", path: "/v1/portal/account/pay", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   payPortalInvoice: { method: "POST", path: "/v1/portal/invoice/pay", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
-  payPortalInvoiceWithCard: { method: "POST", path: "/v1/portal/cards/{cardId}/pay", pathParams: ["cardId"], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
+  payPortalInvoiceWithCard: { method: "POST", path: "/v1/portal/cards/{cardId}/pay", pathParams: ["cardId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "grant", permissions: [] },
   payTips: { method: "POST", path: "/v1/payroll/tip-payments", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["payroll:export"] },
   pendingTimeOff: { method: "GET", path: "/v1/time-off/pending", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["timesheet:approve"] },
   pickUpRental: { method: "POST", path: "/v1/rentals/{id}/pickup", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["asset:write"] },
