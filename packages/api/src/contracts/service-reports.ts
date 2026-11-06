@@ -172,6 +172,10 @@ export const listServiceReports = defineRoute({
       jobId: Uuid,
       customerId: Uuid,
       propertyId: Uuid,
+      /** Who and where, so the list reads without opening each report. */
+      customerName: z.string(),
+      jobNumber: z.string(),
+      address: z.string(),
       status: Status,
       summary: z.string().nullable(),
       fieldCount: z.number(),

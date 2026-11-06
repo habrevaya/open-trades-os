@@ -536,6 +536,12 @@ substance means a new send and a new hash.
 for one hands back a `/pay/{token}` link, and a card taken there is held as a
 liability until Stripe confirms it. M13 covers deposits.
 
+**What happens to the deposit afterwards?** Once paid it shows in a Deposits
+panel on the estimate's page, where the office applies it to one of the
+customer's issued invoices, gives it back or keeps it, each with a sentence saying
+what it does to the money. The same panel is on the invoice and the customer. M13
+has the rules.
+
 **Why can a technician send but not approve?** Because approving on somebody
 else's behalf is a decision about their money. Handing them a link is not,
 and neither is turning the phone round so the customer chooses and signs for

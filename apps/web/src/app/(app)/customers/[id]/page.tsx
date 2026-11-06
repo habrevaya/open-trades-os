@@ -1,5 +1,6 @@
 import { CustomFieldsPanel } from "@/components/CustomFieldsPanel";
 import { RecordsPanel } from "@/components/RecordsPanel";
+import { HeldDeposits } from "@/components/HeldDeposits";
 import { notFound } from "next/navigation";
 import { requireSetupUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -395,6 +396,9 @@ export default async function CustomerPage({
           refundsDeletedInBooks={refundFlags}
         />
       )}
+
+      {/* Deposits they paid before the work: apply one to an invoice, give it back or keep it. */}
+      <HeldDeposits ctx={ctx} customerId={id} back={`/customers/${id}`} />
 
       {credits && (credits.length > 0 || can(user.actor, "invoice:credit")) && (
         <section aria-label="Credit">

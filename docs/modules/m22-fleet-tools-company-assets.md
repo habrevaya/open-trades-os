@@ -199,14 +199,24 @@ reason), collecting it with "back in service" unticked opens one from the
 collection, and putting it back in service closes it (`at`, or now). A can
 already tagged out when this history began has a repair with no start, said
 rather than guessed. A **customer hold** is the office keeping a can for
-somebody who asked ("Hold for a customer" on the register row, with who asked
-and why and since when, `POST /v1/rentable-assets/{id}/holds`): one still
+somebody who asked ("Hold for a customer" on the register row, with the
+customer on file it is for, why, and since when, `POST /v1/rentable-assets/{id}/holds`
+with `customerId`): one still
 running is refused for a can on a site, one that has already ended can be
 recorded after the fact with its end, two on one can at once are refused, and
 it ends with "End the hold" (`POST /v1/container-holds/{id}/end`) or when the
 can is delivered. `GET /v1/container-holds` lists them, and "Repairs and holds"
 on `/fleet/containers` shows the last thirty. All `asset:write` to change,
 `asset:read` to look, and on the audit log.
+
+The row's customer list, for somebody who may also read customers
+(`customer:read`), is the two hundred customers added most recently, or those
+matching a name, phone or email typed in **Find a customer to hold a can for**
+above the register; "Customer not on file" leaves the hold naming nobody, with
+the reason saying who asked. A running hold says who it is for on the register
+row ("Held for Builder Bob"), in the history, and on `GET /v1/rentable-assets`
+(`customerId`, `customerName` on each running hold). A customer of another
+company is not found.
 
 ### What it owes
 
@@ -768,8 +778,10 @@ this product's own board first.
   placement is counted beside as not known. The
   phone times a stop's haul only once the office has recorded the hire on it
   (a drop off booked before the can was chosen shows nothing to time), and a
-  time typed on the phone is the phone's own clock. A customer hold names the
-  customer only through the API: the board asks who asked and why in words.
+  time typed on the phone is the phone's own clock. A customer hold names one
+  customer on file or nobody; the board offers the newest two hundred or the
+  ones a search finds, and a hold's customer is not changed once it is placed
+  (end it and hold again).
   A hold or a repair running at any moment between a tip and the next drop
   leaves the whole turnaround out, not the hours it ran: the conservative
   reading of "EXCLUDES cans held", which the product owner has not ruled on.

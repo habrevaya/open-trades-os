@@ -3,8 +3,9 @@ import { schema, type Database } from "@opentradesos/db";
 import { can, field, labor, money as m, tax } from "@opentradesos/core";
 import { z } from "zod";
 import {
-  audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
+  audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError, scopeOf,
 } from "./context";
+import { technicianScopeFilter } from "./scope";
 import * as billing from "./billing";
 import { emit } from "./events";
 import { freezeRate } from "./labor";
@@ -1474,6 +1475,13 @@ export async function conflicts(ctx: ServiceContext, input: z.infer<typeof listC
       .where(and(
         eq(schema.fieldOperation.status, "conflicted"),
         input.includeResolved ? undefined : isNull(schema.fieldOperation.resolvedAt),
+        /**
+         * THE PEOPLE THIS PERSON MAY SEE THE DAY OF, by their visit scope.
+         * The list was read unscoped, so a technician (who holds
+         * `visit:read` for their own day) read every phone's conflicts in
+         * the company, and a branch manager every branch's.
+         */
+        technicianScopeFilter(scopeOf(ctx, "visit"), ctx.actor),
       ))
       .orderBy(desc(schema.fieldOperation.receivedAt))
       .limit(input.limit + 1);
@@ -1489,6 +1497,7 @@ export async function conflicts(ctx: ServiceContext, input: z.infer<typeof listC
       occurredAt: r.op.occurredAt.toISOString(),
       receivedAt: r.op.receivedAt.toISOString(),
       payload: r.op.payload,
+      resolvedAt: r.op.resolvedAt?.toISOString() ?? null,
       createdAt: r.op.createdAt.toISOString(),
       updatedAt: r.op.updatedAt.toISOString(),
     }));
@@ -1499,6 +1508,21 @@ export async function conflicts(ctx: ServiceContext, input: z.infer<typeof listC
 
 export async function resolve(ctx: ServiceContext, input: z.infer<typeof resolveConflict.input>) {
   return guardedWrite(ctx, "visit:write", async (tx) => {
+    /**
+     * One this person could see on the list, and a conflict at all: an id
+     * that is not one used to be marked resolved silently, with an audit row
+     * for a thing that did not exist.
+     */
+    const [found] = await tx.select({ id: schema.fieldOperation.id })
+      .from(schema.fieldOperation)
+      .innerJoin(schema.technician, eq(schema.technician.id, schema.fieldOperation.technicianId))
+      .where(and(
+        eq(schema.fieldOperation.id, input.id),
+        eq(schema.fieldOperation.status, "conflicted"),
+        technicianScopeFilter(scopeOf(ctx, "visit"), ctx.actor),
+      )).limit(1);
+    if (!found) throw new NotFoundError("Field conflict");
+
     // A retry is a no-op. Resolving something already resolved is the state
     // the caller was asking for.
     await tx.update(schema.fieldOperation).set({

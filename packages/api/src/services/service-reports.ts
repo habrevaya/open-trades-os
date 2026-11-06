@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
+import { work as workDoc } from "@opentradesos/core";
 import {
   guardedRead, guardedWrite, audit, scopeOf, ConflictError, NotFoundError,
   type ServiceContext,
@@ -519,6 +520,10 @@ export interface ReportSummary {
   jobId: string;
   customerId: string;
   propertyId: string;
+  /** Who and where, so a list of reports reads without opening each one. */
+  customerName: string;
+  jobNumber: string;
+  address: string;
   status: ReportStatus;
   summary: string | null;
   fieldCount: number;
@@ -593,12 +598,33 @@ export async function list(
 
     const countOf = new Map(tallies.map((t) => [t.reportId, t]));
 
+    /**
+     * The customer, the job's number and the street, in three grouped reads
+     * for the same reason as the tally: the office list is read every
+     * morning, and a row that says only ids is a row somebody has to open.
+     */
+    const [people, work, places] = await Promise.all([
+      tx.select({ id: schema.customer.id, name: schema.customer.name }).from(schema.customer)
+        .where(inArray(schema.customer.id, [...new Set(rows.map((r) => r.customerId))])),
+      tx.select({ id: schema.job.id, number: schema.job.number, prefix: schema.job.numberPrefix }).from(schema.job)
+        .where(inArray(schema.job.id, [...new Set(rows.map((r) => r.jobId))])),
+      tx.select({ id: schema.property.id, line1: schema.property.addressLine1, city: schema.property.city })
+        .from(schema.property)
+        .where(inArray(schema.property.id, [...new Set(rows.map((r) => r.propertyId))])),
+    ]);
+    const nameOf = new Map(people.map((p) => [p.id, p.name]));
+    const numberOf = new Map(work.map((j) => [j.id, workDoc.documentNumber(j.prefix, j.number)]));
+    const placeOf = new Map(places.map((p) => [p.id, [p.line1, p.city].filter(Boolean).join(", ")]));
+
     const reports = rows.map((row) => ({
       id: row.id,
       visitId: row.visitId,
       jobId: row.jobId,
       customerId: row.customerId,
       propertyId: row.propertyId,
+      customerName: nameOf.get(row.customerId) ?? "",
+      jobNumber: numberOf.get(row.jobId) ?? "",
+      address: placeOf.get(row.propertyId) ?? "",
       status: statusOf(row),
       summary: row.summary,
       fieldCount: countOf.get(row.id)?.total ?? 0,

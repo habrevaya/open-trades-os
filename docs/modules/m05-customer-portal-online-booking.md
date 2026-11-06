@@ -189,6 +189,19 @@ days it closes for a holiday, or opens shorter, are on `/settings/holidays`
 (M02), changed with the same permission; a booking request for a date that has
 since gone on the list is refused in words, as a full window is.
 
+A service already offered is changed under **Edit** beside the list on
+`/booking` (`PUT /v1/booking/services/{id}`, `booking:configure`): the name and
+description customers see, the price shown (blank is quoted on site), the
+notice, how far ahead and how many to a window, the deposit (none, a set
+amount, or a percent of the price shown), and **On the booking page**, which
+takes it off the public page without losing its terms and touches no booking
+already made. A deposit is an amount or a percent, never both, an amount above
+nothing and a percent above 0 and at most 100, refused in words otherwise, the
+same rule as offering one. The screen says the booking page takes no money: the
+deposit is what a website booking through the API is told is due
+(`depositDue`) and what the office asks for once it confirms the booking. Every
+change writes an audit row with the service as it was.
+
 `/settings/portal` shows the address customers sign in at (`/portal/{slug}`),
 turns tipping on and sets the suggested percentages, turns bank payments on,
 and chooses whether customers see every job photograph or only the ones
@@ -1095,6 +1108,14 @@ so this is not a wider door, and it is said here rather than hidden.
 
 ## What is not built
 
+The public booking page does not show a service's deposit or take one; the
+deposit set on a service is told to a website booking through the API and is
+asked for by the office after it confirms, because what the page itself tells a
+customer about money up front is a decision nobody has made. A service is
+offered for one job type and cannot be moved to another; a different job type is
+a new service, and a service that is no longer wanted is switched off rather
+than removed.
+
 A customer signs in with a code and nothing else: there is no password and
 no account creation, so somebody not already a customer cannot sign in, and a
 customer with neither an email nor a mobile number on their record (or on a
@@ -1111,7 +1132,7 @@ the office confirms that it does. One scan stands behind one card. The words,
 for the phone script and for the form, are the product's and the company
 cannot edit them. A layout is the company's, or a plan's for its
 members: it cannot differ by customer or by address, a plan's page has no schedule or start date, a customer's choice of plan page is not remembered and the company's own page is not one of the choices, a block's
-settings (which readings a trend shows) are not changed on the screen, and
+settings (which readings a trend shows, and which of them draw from the data rather than zero) are not changed on the screen, because which readings live in a narrow band is the trade's call per reading (above) and nobody has decided a company may override it, and
 going back to the pack's layout replaces the company's arrangement for good (the audit entry keeps the old blocks, and nothing on a screen restores them) and goes to the pack's current version, so a company still on an older version gets that layout without the rest of the upgrade. The documents block lists the statement, signed estimates and invoices as PDFs, the published service reports and the files the office marked, and no product labels; a file is only on a job or a visit, one at a time, and the customer cannot change or remove one the office added. A customer adds a file only from their own sign in, only a photo or a PDF, and only to a job or to a visit still to come; they cannot add one to an estimate, an invoice or their account as a whole, cannot rename one, and cannot see one again once sent except by its name in their list. Adding one raises one office task a day for the job and tells the job's technicians once a day; nobody in the office is told by name (the task is the queue's), the customer is not told when it was opened, and a technician who is on none of the job's visits still to come (only on one finished) is not told. "Opened" means somebody opened it from the job's page or through the API; looking at the technician's day does not count, on the web or on the phone (the phone reads a file with its own sign in, which is not opening it from the job's page, so it never marks it seen). The readings chart starts its scale at zero unless the trade pack names the reading as one that moves in a narrow band; a company cannot change that on a screen, and a reading no pack named (a pool's pH, with no pool pack) draws as a nearly flat line; the table under it has the values. A reading
 taken more than once on one day is drawn as the later one. Rescheduling
 from the portal is a request the office answers, deliberately: nothing a

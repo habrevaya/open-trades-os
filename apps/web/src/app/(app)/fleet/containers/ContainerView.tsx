@@ -18,7 +18,7 @@ export interface ContainerRow {
   currentAddress: string | null;
   active: boolean;
   /** What is keeping it off the road now: a repair, or a hold a customer asked for, with since when. */
-  holds?: Array<{ id: string; kind: "repair" | "customer"; startsAt: string | null; reason: string }>;
+  holds?: Array<{ id: string; kind: "repair" | "customer"; startsAt: string | null; reason: string; customerName?: string | null }>;
 }
 
 export interface HireRow {
@@ -191,7 +191,7 @@ export function Register({
             */}
             {(container.holds ?? []).map((hold) => (
               <span key={hold.id} className="ml-2 text-sm text-ink-700">
-                {hold.kind === "customer" ? <Chip tone="warning">Held for a customer</Chip> : null}
+                {hold.kind === "customer" ? <Chip tone="warning">{hold.customerName ? `Held for ${hold.customerName}` : "Held for a customer"}</Chip> : null}
                 <span className="ml-1">
                   {hold.startsAt ? `since ${moment(hold.startsAt, zone)}` : "since before repairs were recorded"}: {hold.reason}
                 </span>

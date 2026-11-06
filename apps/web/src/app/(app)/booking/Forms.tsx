@@ -27,7 +27,7 @@ export function OfferService({ jobTypes }: {
   if (jobTypes.length === 0) {
     return (
       <p className="mt-3 text-sm text-ink-500">
-        Every job type is already offered online. Edit one below to change its
+        Every job type is already offered online. Edit one above to change its
         terms or take it down.
       </p>
     );

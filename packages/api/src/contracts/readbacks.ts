@@ -194,7 +194,7 @@ export const listDeposits = defineRoute({
   path: "/v1/deposits",
   summary: "Money held against work not yet done",
   description:
-    "Outstanding is computed from received less applied less refunded rather than stored, because a fifth column can disagree with the four it comes from and the one it would disagree with is the liability on the balance sheet.",
+    "Outstanding is computed from received less applied, less refunded and less forfeited (read from the forfeiture's posting) rather than stored, because a fifth column can disagree with the four it comes from and the one it would disagree with is the liability on the balance sheet.",
   module: "M13",
   permissions: ["deposit:read"],
   input: z.object({
@@ -217,6 +217,8 @@ export const listDeposits = defineRoute({
       amountReceived: MoneyString,
       amountApplied: MoneyString,
       amountRefunded: MoneyString,
+      /** Kept under the customer's terms, earned without cash moving. */
+      amountForfeited: MoneyString,
       outstanding: MoneyString,
       requestedAt: z.string(),
       receivedAt: z.string().nullable(),

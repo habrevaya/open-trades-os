@@ -255,6 +255,16 @@ from what a customer adds from their own sign in: whoever filled the form in
 gave that customer's phone or email, which is not signing in as them, so the
 customer page shows them under "Sent with a lead form" and says so. They are
 private to the company, never on a job link and never shown to the customer.
+Once the work is booked, each one on the customer's page offers **Put it on the
+job** with the customer's own jobs to choose from (`POST /v1/attachments/{id}/job`,
+`document:read` and `job:write`, on the audit log): the file moves, not copies,
+to the job's page under the same heading, and keeps its kind, so who can see it
+does not change. It is still the office's with `document:read`, still cannot be
+shown to the customer (the switch takes only a photograph or a document), is not
+on the technician's phone (which lists only what a customer added from their
+sign in), and is not removed by a job's photographs retention rule (which
+removes photographs). It goes only onto a job of the same customer that the
+person can see, and a second press changes nothing.
 The call back task lists their names. The hosted page makes a photograph
 smaller before it sends it, as the technician's camera does.
 
@@ -1262,6 +1272,10 @@ lead forms, referrals, the ad platforms' state, every conversion sent and
 restated, and the overview;
 `adspend:write` manages channels, tracking campaigns, spend and lead forms,
 pulls a platform now, maps a platform's campaign and tries a send again.
+Moving a file a lead sent onto the customer's job
+(`POST /v1/attachments/{id}/job`) is `document:read` and `job:write`, neither of
+them a marketing permission, because it is a change to a job and a read of a
+file.
 Connecting an ad platform and signing in to it is `integration:write`, and so
 is connecting a marketplace and rotating the lead inbox (reading its address is
 `integration:read`). A lead offer and its thread, and the lead emails, are
@@ -1545,8 +1559,11 @@ sample and therefore not a test of anything.
   links left out in a text or an email; `{{ firstName }}` is the first word of
   the name answer as it was typed, with no attempt to tell a title or a
   surname written first from a first name. Files sent with a form are matched to a
-  customer only by the phone or email typed, the same as the lead itself, and
-  cannot be moved onto a job from the customer page.
+  customer only by the phone or email typed, the same as the lead itself. One is
+  moved onto one of that customer's jobs from the customer page, one job and one
+  file at a time, and not moved again from there or back; a file sent before
+  the lead matched any customer has no jobs to go on. A moved file is still
+  never shown to the customer, by the office's choice or otherwise.
 - **Referral rewards' limits.** One reward per referred customer, on their
   first paid job. A reward paid as owed is marked paid by hand; nothing pays it.
   A credit note reward is applied to an invoice by a person from the invoice,

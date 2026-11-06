@@ -15989,6 +15989,7 @@ export interface ListConflictsOutput {
     occurredAt: string;
     receivedAt: string;
     payload: Record<string, unknown>;
+    resolvedAt: string | null;
     createdAt: string;
     updatedAt: string;
   }>;
@@ -16716,6 +16717,7 @@ export interface ListDepositsOutput {
     amountReceived: string;
     amountApplied: string;
     amountRefunded: string;
+    amountForfeited: string;
     outstanding: string;
     requestedAt: string;
     receivedAt: string | null;
@@ -18952,6 +18954,8 @@ export interface ListRentableAssetsOutput {
       kind: "repair" | "customer";
       startsAt: string | null;
       reason: string;
+      customerId: string | null;
+      customerName: string | null;
     }>;
   }>;
 }
@@ -19536,6 +19540,9 @@ export interface ListServiceReportsOutput {
     jobId: string;
     customerId: string;
     propertyId: string;
+    customerName: string;
+    jobNumber: string;
+    address: string;
     status: "draft" | "submitted" | "published" | "skipped";
     summary: string | null;
     fieldCount: number;
@@ -21261,6 +21268,16 @@ export interface MoveExternalWorkOrderOutput {
   pendingPush: boolean;
   lastPushError: string | null;
   weMayMoveTo: Array<"offered" | "accepted" | "rejected" | "in_progress" | "completed" | "cancelled_by_client" | "reopened" | "invoiced" | "closed">;
+}
+
+export interface MoveFormFileToJobInput {
+  jobId: string;
+}
+
+export interface MoveFormFileToJobOutput {
+  id: string;
+  entityType: "job";
+  entityId: string;
 }
 
 export interface MoveProjectPhaseInput {
@@ -36573,6 +36590,10 @@ export interface MoveExternalWorkOrderParams {
   id: string;
 }
 
+export interface MoveFormFileToJobParams {
+  id: string;
+}
+
 export interface MoveProjectPhaseParams {
   id: string;
 }
@@ -38817,6 +38838,7 @@ export interface OperationTypes {
   mintSoftphoneToken: { input: MintSoftphoneTokenInput; output: MintSoftphoneTokenOutput };
   moveEquipment: { input: MoveEquipmentParams & MoveEquipmentInput; output: MoveEquipmentOutput };
   moveExternalWorkOrder: { input: MoveExternalWorkOrderParams & MoveExternalWorkOrderInput; output: MoveExternalWorkOrderOutput };
+  moveFormFileToJob: { input: MoveFormFileToJobParams & MoveFormFileToJobInput; output: MoveFormFileToJobOutput };
   moveProjectPhase: { input: MoveProjectPhaseParams & MoveProjectPhaseInput; output: MoveProjectPhaseOutput };
   nameJobLineHaul: { input: NameJobLineHaulParams & NameJobLineHaulInput; output: NameJobLineHaulOutput };
   numberStockUnits: { input: NumberStockUnitsInput; output: NumberStockUnitsOutput };
@@ -40134,6 +40156,7 @@ export const OPERATIONS = {
   mintSoftphoneToken: { method: "POST", path: "/v1/softphone/token", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   moveEquipment: { method: "POST", path: "/v1/equipment/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["equipment:write"] },
   moveExternalWorkOrder: { method: "POST", path: "/v1/external-work-orders/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["contract:write"] },
+  moveFormFileToJob: { method: "POST", path: "/v1/attachments/{id}/job", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["document:read","job:write"] },
   moveProjectPhase: { method: "POST", path: "/v1/project-phases/{id}/move", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   nameJobLineHaul: { method: "POST", path: "/v1/job-lines/{id}/haul", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   numberStockUnits: { method: "POST", path: "/v1/stock/numbering", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:adjust"] },
@@ -47874,6 +47897,15 @@ export abstract class GeneratedOperations {
    */
   moveExternalWorkOrder(input: MoveExternalWorkOrderParams & MoveExternalWorkOrderInput, options?: CallOptions): Promise<MoveExternalWorkOrderOutput> {
     return this.call("moveExternalWorkOrder", input, options);
+  }
+
+  /**
+   * Move a file sent with a lead form onto one of the customer's jobs.
+   *
+   * POST /v1/attachments/{id}/job. Needs document:read, job:write.
+   */
+  moveFormFileToJob(input: MoveFormFileToJobParams & MoveFormFileToJobInput, options?: CallOptions): Promise<MoveFormFileToJobOutput> {
+    return this.call("moveFormFileToJob", input, options);
   }
 
   /**

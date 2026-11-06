@@ -167,7 +167,9 @@ export function listAssets(ctx: ServiceContext, input: {
     const running = rows.length === 0 ? [] : await tx.select({
       id: schema.containerHold.id, assetId: schema.containerHold.assetId, kind: schema.containerHold.kind,
       startsAt: schema.containerHold.startsAt, reason: schema.containerHold.reason,
+      customerId: schema.containerHold.customerId, customerName: schema.customer.name,
     }).from(schema.containerHold)
+      .leftJoin(schema.customer, eq(schema.customer.id, schema.containerHold.customerId))
       .where(and(inArray(schema.containerHold.assetId, rows.map((row) => row.id)), isNull(schema.containerHold.endsAt)));
 
     return {
@@ -176,6 +178,8 @@ export function listAssets(ctx: ServiceContext, input: {
         currentAddress: row.currentPropertyId ? places.get(row.currentPropertyId) ?? null : null,
         holds: running.filter((h) => h.assetId === row.id).map((h) => ({
           id: h.id, kind: h.kind, startsAt: h.startsAt?.toISOString() ?? null, reason: h.reason,
+          /** The customer the hold names, so the row says who the can is kept for. */
+          customerId: h.customerId, customerName: h.customerName ?? null,
         })),
       })),
     };

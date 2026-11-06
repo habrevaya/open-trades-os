@@ -3,6 +3,7 @@ import { schema } from "@opentradesos/db";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { Table, Th, Td } from "@/components/Table";
 import { OfferService, Windows, Hours } from "./Forms";
+import { EditService } from "./EditService";
 
 /**
  * What may be booked, when somebody can arrive, and which days the company is
@@ -15,6 +16,12 @@ export async function BookingSections({ ctx }: { ctx: ServiceContext }) {
       id: schema.bookableService.id,
       publicName: schema.bookableService.publicName,
       displayPrice: schema.bookableService.displayPrice,
+      publicDescription: schema.bookableService.publicDescription,
+      depositAmount: schema.bookableService.depositAmount,
+      depositPercent: schema.bookableService.depositPercent,
+      minNoticeHours: schema.bookableService.minNoticeHours,
+      maxAdvanceDays: schema.bookableService.maxAdvanceDays,
+      maxPerWindow: schema.bookableService.maxPerWindow,
       isActive: schema.bookableService.isActive,
       jobTypeId: schema.bookableService.jobTypeId,
       jobTypeName: schema.jobType.name,
@@ -77,6 +84,11 @@ export async function BookingSections({ ctx }: { ctx: ServiceContext }) {
             </tr>
           ))}
         </Table>
+      )}
+      {data.services.length > 0 && (
+        <div className="mt-3 space-y-2" aria-label="Edit a service">
+          {data.services.map((service) => <EditService key={service.id} service={service} />)}
+        </div>
       )}
       <OfferService jobTypes={available} />
 

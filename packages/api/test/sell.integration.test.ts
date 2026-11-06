@@ -958,3 +958,52 @@ run("the windows and days a booking page is built from", () => {
     expect(rows[0]!.closed).toBe(true);
   });
 });
+
+run("changing what the public may book", () => {
+  async function offered(name: string) {
+    const [jt] = await raw<{ id: string }[]>`insert into public.job_type
+      (organization_id, name, capacity_model)
+      values (${ORG_A}, ${name}, 'technician_dispatch') returning id`;
+    return booking.createService(office(), {
+      jobTypeId: jt!.id, publicName: name, depositPercent: "0.10",
+      minNoticeHours: 24, maxAdvanceDays: 30, maxPerWindow: 2,
+    });
+  }
+  const terms = { minNoticeHours: 48, maxAdvanceDays: 14, maxPerWindow: 3 };
+
+  it("changes the terms, switches it off, and keeps what it was in the audit row", async () => {
+    const service = await offered("Edit me");
+    const changed = await booking.configureService(office(), {
+      id: service.id, publicName: "Edited", displayPrice: "150.00", depositAmount: "40.00", isActive: false, ...terms,
+    });
+    expect(changed).toMatchObject({ publicName: "Edited", depositAmount: "40.0000", depositPercent: null, minNoticeHours: 48 });
+    const [row] = await raw`select is_active from public.bookable_service where id = ${service.id}`;
+    expect(row!.is_active).toBe(false);
+    const listed = await booking.listServices(db(), { organizationSlug: "acme-sell" });
+    expect(listed.services.map((s) => s.id)).not.toContain(service.id);
+    const [audit] = await raw`select before from public.audit_log
+      where organization_id = ${ORG_A} and action = 'booking.service.configured' and entity_id = ${service.id}`;
+    expect((audit!.before as { publicName: string }).publicName).toBe("Edit me");
+  });
+
+  it("refuses both deposit terms at once, an amount of nothing and a percent over the whole price", async () => {
+    const service = await offered("Deposit rules");
+    const base = { id: service.id, publicName: "Deposit rules", isActive: true, ...terms };
+    await expect(booking.configureService(office(), { ...base, depositAmount: "50.00", depositPercent: "0.10" }))
+      .rejects.toThrow(/either an amount or a percent/i);
+    await expect(booking.configureService(office(), { ...base, depositAmount: "0" })).rejects.toThrow(/more than nothing/i);
+    await expect(booking.configureService(office(), { ...base, depositPercent: "1.5" })).rejects.toThrow(/no more than 100/i);
+    const [row] = await raw`select deposit_percent from public.bookable_service where id = ${service.id}`;
+    expect(row!.deposit_percent).toBe("0.100000");
+  });
+
+  it("refuses somebody who may not set up booking, and a service that is not there", async () => {
+    const service = await offered("Not yours");
+    await expect(booking.configureService(ctxFor(ORG_A, USER_A, ["csr"]), {
+      id: service.id, publicName: "Nope", isActive: false, ...terms,
+    })).rejects.toThrow(/booking:configure|permission|not allowed/i);
+    await expect(booking.configureService(office(), {
+      id: "11111111-1111-4111-8111-111111111111", publicName: "Gone", isActive: true, ...terms,
+    })).rejects.toThrow(/not found/i);
+  });
+});

@@ -3,8 +3,9 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
 import { files as f, assertCan, can, isSystem, type Permission } from "@opentradesos/core";
 import {
-  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, type ServiceContext,
+  audit, guardedRead, guardedWrite, NotFoundError, ConflictError, scopeOf, type ServiceContext,
 } from "./context";
+import { jobScopeFilter } from "./scope";
 import { fileStorage, FileStorageNotConfiguredError } from "../storage";
 import { afterOpened } from "./customer-uploads";
 
@@ -381,6 +382,64 @@ export async function shareWithCustomer(
     return { id: row.id, sharedWithCustomerAt: sharedAt?.toISOString() ?? null };
   });
 }
+
+/**
+ * A file a lead sent, moved from the customer onto one of their jobs.
+ *
+ * Moved rather than copied, so there is one record of what the lead sent and
+ * it is where the work is. It keeps its kind, `form_file`, and that is what
+ * keeps who can see it the same: sharing with the customer takes only a
+ * photograph or a document, a technician's day lists only what a customer
+ * added from their sign in, and a job's photographs retention rule removes
+ * only photographs. Only onto the same customer's job, and only one this
+ * person can see: the lead gave that customer's phone or email, which says
+ * nothing about anybody else's work.
+ */
+export async function moveFormFileToJob(ctx: ServiceContext, input: { id: string; jobId: string }) {
+  assertCan(ctx.actor, "job:write");
+  return guardedWrite(ctx, "document:read", async (tx) => {
+    const [row] = await tx.select().from(schema.attachment)
+      .where(and(
+        eq(schema.attachment.organizationId, ctx.actor.organizationId),
+        eq(schema.attachment.id, input.id),
+        isNull(schema.attachment.deletedAt),
+      )).limit(1);
+    if (!row) throw new NotFoundError("File");
+    if (row.kind !== FORM_FILE) {
+      throw new ConflictError("Only a file sent with a lead form is moved onto a job this way.");
+    }
+    /** A retry, or a second press: it is already where it was asked to go. */
+    if (row.entityType === "job" && row.entityId === input.jobId) {
+      return { id: row.id, entityType: "job" as const, entityId: row.entityId };
+    }
+    if (row.entityType !== "customer") {
+      throw new ConflictError(row.entityType === "job"
+        ? "That file is already on a job."
+        : "That file was sent before the lead was matched to a customer, so it has no customer's jobs to go on.");
+    }
+    const [job] = await tx.select({ id: schema.job.id, customerId: schema.job.customerId }).from(schema.job)
+      .where(and(
+        eq(schema.job.organizationId, ctx.actor.organizationId),
+        eq(schema.job.id, input.jobId),
+        isNull(schema.job.deletedAt),
+        jobScopeFilter(scopeOf(ctx, "job"), ctx.actor),
+      )).limit(1);
+    if (!job) throw new NotFoundError("Job");
+    if (job.customerId !== row.entityId) {
+      throw new ConflictError("That job is another customer's. A file a lead sent goes only onto that customer's own jobs.");
+    }
+    await tx.update(schema.attachment)
+      .set({ entityType: "job", entityId: job.id, updatedAt: new Date() })
+      .where(eq(schema.attachment.id, row.id));
+    await audit(tx, ctx, "attachment.moved", "attachment", row.id,
+      { entityType: row.entityType, entityId: row.entityId },
+      { entityType: "job", entityId: job.id });
+    return { id: row.id, entityType: "job" as const, entityId: job.id };
+  });
+}
+
+/** The kind a hosted form's files are kept under; `forms.ts` names it too. */
+const FORM_FILE = "form_file";
 
 /**
  * Somebody in the company has opened a file the customer added.
@@ -865,6 +924,8 @@ export const handlers = {
     const seen = await markSeen(ctx, { attachmentId: input.id });
     return { id: seen.id, seenAt: seen.seenAt };
   },
+
+  moveFormFileToJob: (ctx: ServiceContext, input: { id: string; jobId: string }) => moveFormFileToJob(ctx, input),
 } as const;
 
 /**

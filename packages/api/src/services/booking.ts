@@ -1668,6 +1668,16 @@ export async function configureService(
   ctx: ServiceContext, input: z.infer<typeof configureBookableService.input>,
 ) {
   return guardedWrite(ctx, "booking:configure", async (tx) => {
+    /**
+     * THE SAME DEPOSIT RULE AS CREATING ONE. An edit was the way round it: a
+     * service made with a percent could be given an amount as well here, and
+     * `depositDue` reads the amount first.
+     */
+    depositTermsOrRefuse(input);
+    const [before] = await tx.select().from(schema.bookableService)
+      .where(and(eq(schema.bookableService.id, input.id), isNull(schema.bookableService.deletedAt))).limit(1);
+    if (!before) throw new NotFoundError("Service");
+
     const [row] = await tx.update(schema.bookableService).set({
       publicName: input.publicName,
       publicDescription: input.publicDescription ?? null,
@@ -1682,7 +1692,7 @@ export async function configureService(
     }).where(eq(schema.bookableService.id, input.id)).returning();
     if (!row) throw new NotFoundError("Service");
 
-    await audit(tx, ctx, "booking.service.configured", "bookable_service", input.id, null, input);
+    await audit(tx, ctx, "booking.service.configured", "bookable_service", input.id, before, input);
 
     return shapeService(row);
   });
@@ -1830,6 +1840,26 @@ async function createCustomerFrom(
   return customer!.id;
 }
 
+/**
+ * A service's deposit terms, refused in words when they cannot be charged as
+ * written: both an amount and a percent (two answers to what the customer
+ * owes), an amount of nothing or less, or a percent outside more than nothing
+ * and the whole price.
+ */
+function depositTermsOrRefuse(input: { depositAmount?: string | undefined; depositPercent?: string | undefined }) {
+  if (input.depositAmount && input.depositPercent) {
+    throw new ConflictError(
+      "A deposit is either an amount or a percent. Two would be two answers to what the customer owes.",
+    );
+  }
+  if (input.depositAmount && !m.isPositive(usd(input.depositAmount))) {
+    throw new ConflictError("A deposit amount has to be more than nothing. Leave it empty to ask for no deposit.");
+  }
+  if (input.depositPercent && !(Number(input.depositPercent) > 0 && Number(input.depositPercent) <= 1)) {
+    throw new ConflictError("A deposit percent has to be more than 0 and no more than 100.");
+  }
+}
+
 /** Null when the company asks for nothing up front, which is the common case. */
 function depositDue(
   service: typeof schema.bookableService.$inferSelect,
@@ -1958,11 +1988,7 @@ export async function createService(
      * amount, so a company that set 10 percent and later typed a flat fifty
      * would silently start charging fifty.
      */
-    if (input.depositAmount && input.depositPercent) {
-      throw new ConflictError(
-        "A deposit is either an amount or a percent. Two would be two answers to what the customer owes.",
-      );
-    }
+    depositTermsOrRefuse(input);
 
     const [row] = await tx.insert(schema.bookableService).values({
       organizationId: ctx.actor.organizationId,
