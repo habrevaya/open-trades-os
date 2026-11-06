@@ -240952,6 +240952,13 @@
                   "type": "object",
                   "additionalProperties": {}
                 },
+                "resolvedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
                 "createdAt": {
                   "type": "string",
                   "format": "date-time"
@@ -240971,6 +240978,7 @@
                 "occurredAt",
                 "receivedAt",
                 "payload",
+                "resolvedAt",
                 "createdAt",
                 "updatedAt"
               ]
@@ -259476,6 +259484,15 @@
                   "type": "string",
                   "format": "uuid"
                 },
+                "customerName": {
+                  "type": "string"
+                },
+                "jobNumber": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": "string"
+                },
                 "status": {
                   "type": "string",
                   "enum": [
@@ -259516,6 +259533,9 @@
                 "jobId",
                 "customerId",
                 "propertyId",
+                "customerName",
+                "jobNumber",
+                "address",
                 "status",
                 "summary",
                 "fieldCount",

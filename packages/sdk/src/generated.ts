@@ -15645,6 +15645,7 @@ export interface ListConflictsOutput {
     occurredAt: string;
     receivedAt: string;
     payload: Record<string, unknown>;
+    resolvedAt: string | null;
     createdAt: string;
     updatedAt: string;
   }>;
@@ -19110,6 +19111,9 @@ export interface ListServiceReportsOutput {
     jobId: string;
     customerId: string;
     propertyId: string;
+    customerName: string;
+    jobNumber: string;
+    address: string;
     status: "draft" | "submitted" | "published" | "skipped";
     summary: string | null;
     fieldCount: number;

@@ -1387,3 +1387,47 @@ run("clocking in from the technician's own screen", () => {
     expect(entry!.technician_id).toBe(technicianId);
   });
 });
+
+run("the field conflicts list, by who is reading it", () => {
+  async function conflictOnAVisit() {
+    const { visitId } = await makeVisit("cancelled");
+    await fieldOps.sync(tech(), {
+      deviceId: await freshDevice(),
+      operations: [{
+        clientId: uuid(), sequence: 1, kind: "visit.arrive", subjectId: visitId,
+        occurredAt: new Date().toISOString(), payload: {},
+      }],
+    });
+    const all = await fieldOps.conflicts(ctxFor(["office_manager"]), { limit: 200, includeResolved: false });
+    return all.data.find((c) => c.subjectId === visitId)!;
+  }
+
+  it("shows a technician their own phone's conflicts and nobody else's", async () => {
+    const conflict = await conflictOnAVisit();
+    const asThem: ServiceContext = { actor: { userId: USER, organizationId: ORG, roles: ["technician"], technicianId }, db: db() };
+    const asSomebodyElse: ServiceContext = {
+      actor: { userId: USER, organizationId: ORG, roles: ["technician"], technicianId: uuid() }, db: db(),
+    };
+    expect((await fieldOps.conflicts(asThem, { limit: 200, includeResolved: false })).data.map((c) => c.id))
+      .toContain(conflict.id);
+    expect((await fieldOps.conflicts(asSomebodyElse, { limit: 200, includeResolved: false })).data.map((c) => c.id))
+      .not.toContain(conflict.id);
+  });
+
+  it("says when it was dealt with, and lists it again only when asked", async () => {
+    const conflict = await conflictOnAVisit();
+    expect(conflict.resolvedAt).toBeNull();
+    await fieldOps.resolve(ctxFor(["dispatcher"]), { id: conflict.id, note: "Rang the customer" });
+    const listed = await fieldOps.conflicts(ctxFor(["dispatcher"]), { limit: 200, includeResolved: true });
+    expect(listed.data.find((c) => c.id === conflict.id)!.resolvedAt).not.toBeNull();
+    const [audit] = await raw`select after from public.audit_log
+      where organization_id = ${ORG} and action = 'field.conflict.resolved' and entity_id = ${conflict.id}`;
+    expect((audit!.after as { note: string }).note).toBe("Rang the customer");
+  });
+
+  it("refuses to resolve something that is not a conflict, and refuses a technician", async () => {
+    await expect(fieldOps.resolve(ctxFor(["dispatcher"]), { id: uuid() })).rejects.toThrow(/not found/i);
+    const conflict = await conflictOnAVisit();
+    await expect(fieldOps.resolve(tech(), { id: conflict.id })).rejects.toThrow(PermissionError);
+  });
+});

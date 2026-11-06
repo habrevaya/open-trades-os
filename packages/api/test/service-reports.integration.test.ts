@@ -541,3 +541,15 @@ run("what this company asks a technician to record", () => {
       .rejects.toThrow(ConflictError);
   });
 });
+
+run("the office list of reports", () => {
+  it("names the customer, the job and the street on each row, so the list reads without opening one", async () => {
+    const id = await captured();
+    const { reports: listed } = await reports.list(owner(), { outOfRangeOnly: true });
+    const row = listed.find((r) => r.id === id)!;
+    expect(row.customerName).toBe("Reported Ltd");
+    expect(row.jobNumber).toBe("1");
+    expect(row.address).toBe("7 Report Road, Austin");
+    expect(row.outOfRangeCount).toBe(1);
+  });
+});

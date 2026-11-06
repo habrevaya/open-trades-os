@@ -105,6 +105,8 @@ export const NAV: NavGroup[] = [
           { href: "/schedule/technicians", label: "Technicians" },
           /** The board's own answer for the day's open visits, explained, for a dispatcher to apply. */
           { href: "/schedule/copilot", label: "Copilot" },
+          /** What a technician's phone recorded that the office has to look at, and the answers to it. */
+          { href: "/schedule/conflicts", label: "Field conflicts" },
         ],
       },
       { href: "/jobs", label: "Jobs", permission: "job:read", icon: "jobs" },
@@ -119,6 +121,8 @@ export const NAV: NavGroup[] = [
         ],
       },
       { href: "/recurring", label: "Recurring", permission: "job:read", icon: "recurring" },
+      /** What was recorded at each visit, the ones with a reading out of range, and publishing one to the customer. */
+      { href: "/service-reports", label: "Service reports", permission: "servicereport:read", icon: "servicereports" },
       /** Phased work under one contract, billed in draws. Work, because it is jobs. */
       { href: "/projects", label: "Projects", permission: "job:read", icon: "projects" },
       /**

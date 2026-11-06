@@ -22,9 +22,20 @@ export type IconName =
   | "dashboards" | "reports" | "automations" | "settings" | "inventory"
   | "timesheets" | "booking" | "purchasing" | "marketing" | "reviews" | "recurring"
   | "contracts" | "inspections" | "payroll" | "projects" | "certifications" | "fleet" | "compliance"
-  | "books" | "people" | "records" | "me";
+  | "books" | "people" | "records" | "me" | "servicereports";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  /**
+   * Service reports: a gauge with its needle, for the readings a technician
+   * takes at a visit. Not a clipboard, which is Inspections.
+   */
+  servicereports: (
+    <>
+      <path d="M4 16a8 8 0 0 1 16 0" />
+      <path d="M12 16l3.5-4.5" />
+      <path d="M4 19.5h16" />
+    </>
+  ),
   /**
    * My record: an id badge on a lanyard, for the one record that is the
    * person's own. Not the hard hat, which is everybody (People), and not a

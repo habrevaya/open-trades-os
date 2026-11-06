@@ -932,6 +932,8 @@ export const Conflict = z.object({
   occurredAt: z.string().datetime(),
   receivedAt: z.string().datetime(),
   payload: z.record(z.unknown()),
+  /** When somebody marked it dealt with, or null while it is still waiting. */
+  resolvedAt: z.string().datetime().nullable(),
 }).merge(Timestamps);
 
 /**

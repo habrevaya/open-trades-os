@@ -301,8 +301,11 @@ price book item's term (M06), not the unit's. The field app's sync
 matches with the office's rules, across the company, but it cannot ask the
 technician the office's question: a unit whose serial is on file at another
 address, or taken off a register, is held for the office on the field
-conflicts list with the match named, not added, until somebody records a
-move or adds it. A serial with no letters or digits in it matches nothing,
+conflicts list (Schedule, Field conflicts) with the match named, not added,
+until somebody records a move or adds it, which the list does in one press
+each: **Move it here** moves a live unit on file to the address, and **Add it
+as a different unit** adds the phone's unit there. A unit taken off a register
+is not moved from the list. A serial with no letters or digits in it matches nothing,
 and two units with no serial at all are never matched, which is the cost of
 a register without serials.
 

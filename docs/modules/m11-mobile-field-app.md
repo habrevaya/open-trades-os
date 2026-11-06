@@ -761,13 +761,54 @@ otherwise a content addressed key would be a capability anybody could type.
 
 `GET /v1/field/conflicts` is what the office has to resolve and
 `POST /v1/field/conflicts/{id}/resolve` resolves one. Both are visit permissions,
-because a conflict is a question about a visit.
+because a conflict is a question about a visit. The list is read in the person's
+visit scope, by the technician whose phone sent each one: a technician reads
+their own phone's conflicts, a crew lead their crew's, a branch manager their
+branch's people's. Each carries `resolvedAt`, set once somebody dealt with it
+(listed again with `includeResolved`). Resolving an id that is not a conflict
+this person could see is not found, and the note goes in the audit row.
+
+**In the office.** **Schedule, Field conflicts** (`/schedule/conflicts`,
+`visit:read`) lists them newest first: what the phone was doing in words, whose
+phone, when, the sentence the sync wrote, and a link to the visit, the report or
+the address it is about. **Mark it dealt with** (`visit:write`) takes an
+optional note of what was done; **Include the ones dealt with** shows those too,
+with when. A unit the phone could not add because its serial is on file
+elsewhere shows what the phone sent and the units on file with that serial, read
+when the page opens, with two answers that need `equipment:write` as well as
+`visit:write` (both checked before anything is written): **Move it here**
+records a move of the unit on file to the address the technician was at
+(`relocated`, with its history, as `POST /v1/equipment/{id}/move` does), and
+**Add it as a different unit** adds it there with the details the phone sent,
+confirmed as a different unit with the same serial, as `POST /v1/equipment`
+does. Either marks the conflict dealt with. A unit on file that was taken off
+the register is named with a link and is not moved from the list.
 
 ### Service reports
 
 `GET /v1/service-reports` and `GET /v1/service-reports/{id}` read them,
 `PATCH /v1/service-reports/{id}` annotates one from the office, and
-`POST /v1/service-reports/{id}/publish` puts it on the customer portal.
+`POST /v1/service-reports/{id}/publish` puts it on the customer portal. The list
+names the customer, the job's number and the street on each row
+(`customerName`, `jobNumber`, `address`).
+
+**In the office.** **Service reports** in the rail (`/service-reports`,
+`servicereport:read`, in the person's own scope, so a branch manager sees their
+branch's) lists them newest first with how many readings each has and how many
+are out of range, filtered by status and by **Out of range only**, the filters
+kept in the address. A report opens at `/service-reports/{id}` (and from its
+visit's page): the answers with the out of range ones marked and whether the
+customer sees each, a chemical application's regulated details, the
+technician's notes (shown, never editable, never shown to the customer), the
+summary and the **office note** (the report's observations, which the customer
+reads under "Noted for next time" once it is published, and which the screen
+says), **Publish to the customer** for a submitted report, **Take it back from
+the customer** with a reason that is added to the office note, and the report's
+retention hold (`compliance:read` to see, `compliance:write` to place or lift).
+The office note and summary are `servicereport:write`, which the owner and
+administrator hold and the office manager does not; publishing and taking back
+are `servicereport:publish`, which the office manager holds. A published report
+is not edited: the screen says to take it back first.
 Publishing is its own permission, because showing a customer what a technician
 wrote is a different decision from writing it. A report read back says what it
 was required to capture (`requiredFields`), or null for one written before that
@@ -810,7 +851,7 @@ regulated.
 |---|---|
 | Technician | `field:sync`, `timeclock:own`, writes service reports, reads their own work, takes payments on site (`payment:collect`), takes a customer's choice and signature on an estimate (`estimate:present`) and raises the invoice for their own visit (`invoice:raise_on_site`); with `field:sync` alone, calls off a visit on their own day that nobody has started (`visit.call_off`), where the office needs `visit:reschedule`, and asks the office for a part on a visit they are on (`part.request`), never placing a hold |
 | Crew lead | The same, scoped to the crew |
-| Dispatcher | Reads and resolves conflicts |
+| Dispatcher | Reads and resolves conflicts (and moves or adds a held unit only with `equipment:write`, which the preset does not hold) |
 | Office manager | Reads service reports and publishes them |
 | Owner, administrator | Everything |
 
@@ -840,6 +881,19 @@ working everywhere at once. Anything it had not sent is on the lost phone.
 device, and so an Expo app and the web page share one implementation.
 
 ## What is not built
+
+The field conflicts list keeps what the office typed when it dealt with a
+conflict in the audit row only: the list shows when, not what was said. Only a
+unit held for its serial has answers on the list (move it here, or add it as a
+different unit); every other conflict is looked into from the record it links to
+and then marked dealt with, because what to do about an arrival at a cancelled
+visit, or a figure the customer was shown that the office's prices do not make,
+is the office's call and not a button. The list shows the newest two hundred.
+A service report's office note and summary are written by whoever holds
+`servicereport:write` (the owner and administrator by default, not the office
+manager, whose role publishes but does not write on a report); a company that
+wants its office to write them gives the role that permission on Roles. The
+screen offers no office note on a skipped report.
 
 A truck's water is read for today only on the phone; a reading for an earlier
 day, or for a truck that was not the person's, is the office's to type on

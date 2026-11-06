@@ -269,8 +269,9 @@ has purging off, and nobody has put a hold on it. A clock that cannot be worked 
 age, for a claim or a dispute, and the call recordings sweep honours it too. A
 hold is placed and lifted on the record's own page as well as from the preview:
 an incident report (`/compliance/incidents/{id}`), a toolbox talk
-(`/compliance/safety/{id}`), a job's photographs (`/jobs/{id}`, under Photos) and
-a call's recording (`/marketing/calls/{id}`), each saying whether it is held, why
+(`/compliance/safety/{id}`), a job's photographs (`/jobs/{id}`, under Photos),
+a call's recording (`/marketing/calls/{id}`) and a service report
+(`/service-reports/{id}`), each saying whether it is held, why
 and since when. `GET /v1/compliance/retention/holds` takes a record's type and id
 for that. Every
 record removed leaves an audit line naming the rule, the clock and the day it became
@@ -377,9 +378,10 @@ that is gone; a key custody log, an application record and an occupant notice ar
 not records this product holds as their own kind. Removing a service report or an inspection removes that record and its
 photographs, not the job or the address it was about, and removing a job's
 photographs leaves the job. A rule's clock start cannot be changed once written,
-only its period and whether it purges. A service report, an inspection and a lead
-form submission have no page of their own in the office screens, so they are held
-from the preview or by kind and id there.
+only its period and whether it purges. An inspection and a lead form submission have
+no page of their own in the office screens, so they are held from the preview or
+by kind and id there; a service report is held on its own page
+(`/service-reports/{id}`).
 
 A permit inspection is typed in by the office: nothing reads an authority's
 portal, and the phone app does not record one. An inspection the inspector
