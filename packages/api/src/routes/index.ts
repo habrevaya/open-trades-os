@@ -432,6 +432,8 @@ export const handlers = {
   ...proposalTemplates.handlers,
   ...sandbox.handlers,
 
+  getWebhookHistoryKeeping: webhooks.handlers.getWebhookHistoryKeeping,
+  setWebhookHistoryKeeping: webhooks.handlers.setWebhookHistoryKeeping,
   registerWebhookEndpoint: webhooks.handlers.registerWebhookEndpoint,
   listWebhookEndpoints: webhooks.handlers.listWebhookEndpoints,
   rotateWebhookSecret: webhooks.handlers.rotateWebhookSecret,
