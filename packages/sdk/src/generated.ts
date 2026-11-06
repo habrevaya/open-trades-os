@@ -16338,6 +16338,7 @@ export interface ListDepositsOutput {
     amountReceived: string;
     amountApplied: string;
     amountRefunded: string;
+    amountForfeited: string;
     outstanding: string;
     requestedAt: string;
     receivedAt: string | null;

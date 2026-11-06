@@ -14,6 +14,7 @@ import { actOnEstimate, extendEstimate } from "../actions";
 import { ActionForm, Select, TextField } from "@/components/ActionForm";
 import { todayIn } from "@/lib/dates";
 import { FinancingPanel } from "@/components/FinancingPanel";
+import { HeldDeposits } from "@/components/HeldDeposits";
 
 export const dynamic = "force-dynamic";
 
@@ -174,6 +175,9 @@ export default async function EstimatePage({ params }: { params: Promise<{ id: s
           convert: can(user.actor, "estimate:write") && can(user.actor, "job:write"),
         }}
       />
+
+      {/* Money the customer paid against this estimate: apply it, give it back or keep it. */}
+      <HeldDeposits ctx={ctx} customerId={estimate.customerId} estimateId={id} back={`/estimates/${id}`} />
 
       {loan && offersFinancing ? (
         <FinancingPanel

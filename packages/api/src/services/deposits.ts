@@ -1,6 +1,6 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { schema, type Database } from "@opentradesos/db";
-import { estimate as est, ledger, money as m } from "@opentradesos/core";
+import { assertCan, estimate as est, ledger, money as m } from "@opentradesos/core";
 import type { z } from "zod";
 import {
   audit, type ServiceContext, guardedRead, guardedWrite, NotFoundError, ConflictError,
@@ -120,6 +120,16 @@ export async function record(
  * ceiling prevents: the remainder stays held against the next invoice.
  */
 export async function apply(ctx: ServiceContext, input: z.infer<typeof applyDeposit.input>) {
+  /**
+   * BOTH PERMISSIONS THE ROUTE DECLARES, not only the first.
+   *
+   * The route has always said `deposit:collect` and `invoice:write`, and the
+   * module doc says applying "needs `invoice:write` as well", but only the
+   * first was checked. A technician and the customer service role hold
+   * `deposit:collect` to take a deposit at the door, and neither may change
+   * what an invoice asks for, which is what applying a deposit does.
+   */
+  assertCan(ctx.actor, "invoice:write");
   return guardedWrite(ctx, "deposit:collect", async (tx) => {
     const row = await load(tx, input.id);
 
@@ -129,11 +139,32 @@ export async function apply(ctx: ServiceContext, input: z.infer<typeof applyDepo
 
     const [invoice] = await tx.select({
       id: schema.invoice.id,
+      customerId: schema.invoice.customerId,
       balance: schema.invoice.balance,
       depositHeld: schema.invoice.depositHeld,
       status: schema.invoice.status,
     }).from(schema.invoice).where(eq(schema.invoice.id, input.invoiceId)).limit(1);
     if (!invoice) throw new NotFoundError("Invoice");
+
+    /**
+     * THREE INVOICES A DEPOSIT CANNOT PAY.
+     *
+     * Another customer's: the money was held for this customer's work, and
+     * moving it onto somebody else's bill is a decision about two people's
+     * money that nothing here records. A draft: it is not owed yet and has
+     * posted nothing, so taking the deposit off a receivable that was never
+     * written would leave the receivable below zero until it is issued. A
+     * void or written off one: there is nothing left that it asks for.
+     */
+    if (invoice.customerId !== row.customerId) {
+      throw new ConflictError("This deposit was paid by a different customer. Apply it to one of their own invoices.");
+    }
+    if (invoice.status === "draft") {
+      throw new ConflictError("That invoice is still a draft. Issue it first, then apply the deposit.");
+    }
+    if (invoice.status === "void" || invoice.status === "written_off") {
+      throw new ConflictError(`That invoice is ${invoice.status === "void" ? "void" : "written off"}. A deposit cannot be applied to it.`);
+    }
 
     const amount = est.applicableDeposit({
       heldAmount: usd(row.amountReceived),
@@ -335,9 +366,11 @@ export interface DepositView {
   amountReceived: string;
   amountApplied: string;
   amountRefunded: string;
+  /** Kept under the customer's terms: earned without any cash moving. Read from the forfeiture's posting. */
+  amountForfeited: string;
   /**
-   * Still held: received, less what has been applied to an invoice and less
-   * what has been refunded.
+   * Still held: received, less what has been applied to an invoice, less
+   * what has been refunded and less what was kept.
    *
    * COMPUTED RATHER THAN STORED, because a stored "outstanding" column is a
    * fifth number that can disagree with the four it is derived from, and the
@@ -380,13 +413,43 @@ export async function list(ctx: ServiceContext, input: DepositQuery): Promise<{
       ))
       .orderBy(desc(schema.deposit.createdAt));
 
+    /**
+     * WHAT WAS KEPT, read back from the ledger.
+     *
+     * A forfeiture moves money out of the liability without moving cash, and
+     * the deposit row has no column for it: `amountRefunded` is cash given
+     * back, and nothing else is written. Left out, a forfeited deposit read
+     * as still held in full, here and in the total that should equal the
+     * liability account. The forfeiture's own posting is the record of how
+     * much was kept, so it is read rather than stored a second time.
+     */
+    const forfeitedIds = rows.filter((r) => r.status === "forfeited").map((r) => r.id);
+    const kept = new Map<string, string>();
+    if (forfeitedIds.length > 0) {
+      const sums = await tx.select({
+        id: schema.ledgerEntry.sourceId,
+        amount: sql<string>`sum(${schema.ledgerEntry.amount})`,
+      }).from(schema.ledgerEntry)
+        .where(and(
+          eq(schema.ledgerEntry.sourceType, "deposit_forfeiture"),
+          eq(schema.ledgerEntry.direction, "debit"),
+          inArray(schema.ledgerEntry.sourceId, forfeitedIds),
+        ))
+        .groupBy(schema.ledgerEntry.sourceId);
+      for (const s of sums) kept.set(s.id, s.amount);
+    }
+
     const views: DepositView[] = [];
     let total = m.money("0", "USD");
 
     for (const row of rows) {
+      const amountForfeited = kept.get(row.id) ?? "0";
       const outstanding = m.subtract(
         m.money(row.amountReceived, row.currency),
-        m.add(m.money(row.amountApplied, row.currency), m.money(row.amountRefunded, row.currency)),
+        m.add(
+          m.add(m.money(row.amountApplied, row.currency), m.money(row.amountRefunded, row.currency)),
+          m.money(amountForfeited, row.currency),
+        ),
       );
       /**
        * Filtered here rather than in SQL, because "still holding money" is
@@ -409,6 +472,7 @@ export async function list(ctx: ServiceContext, input: DepositQuery): Promise<{
         amountReceived: row.amountReceived,
         amountApplied: row.amountApplied,
         amountRefunded: row.amountRefunded,
+        amountForfeited: m.toString(m.money(amountForfeited, row.currency)),
         outstanding: m.toString(outstanding),
         requestedAt: row.createdAt.toISOString(),
         receivedAt: row.receivedAt?.toISOString() ?? null,

@@ -595,8 +595,38 @@ to the manager's person and never to a tenant's.
 ### Deposits
 
 `POST /v1/deposits` asks for one, `POST /v1/deposits/{id}/apply` puts it against
-an invoice and needs `invoice:write` as well, and
-`POST /v1/deposits/{id}/refund` returns or forfeits it.
+an invoice and needs `invoice:write` as well (both are checked, so a technician or
+the customer service role, who take deposits, cannot apply one), and
+`POST /v1/deposits/{id}/refund` returns or forfeits it under `deposit:refund`.
+
+A deposit goes only against an issued invoice of the customer who paid it: another
+customer's invoice, a draft (nothing is owed on it yet and it has posted nothing)
+and a void or written off invoice are refused in words. Applying takes what is
+still held or what the invoice owes, whichever is less, so the rest stays held and
+pressing twice applies nothing the second time. `GET /v1/deposits` reads each
+deposit back with `amountForfeited` beside what was applied and refunded, read
+from the forfeiture's own posting, and `outstanding` takes all three off, so a
+deposit that was kept no longer reads as held and is out of the total that should
+equal the customer deposits account.
+
+**In the office.** A deposit with money received shows in a **Deposits** panel on
+the estimate it was asked for on, on the customer's page, and on any invoice of
+that customer it could pay or already paid. The panel says what was paid, what was
+applied, given back or kept, and what is still held. On a held deposit:
+
+- **Apply to an invoice** (`deposit:collect` and `invoice:write`) picks one of the
+  customer's issued invoices with money owing, or on an invoice page applies to
+  that invoice. The screen says no new money comes in, the invoice's balance goes
+  down by what is held or by the whole balance if that is less, and the rest stays
+  held.
+- **Refund or forfeit** (`deposit:refund`, the finance role and owners) offers
+  **Give it back**, which records that the customer was paid back everything still
+  held and says plainly that it sends no money and refunds no card, and **Keep
+  it**, which earns everything still held under the customer's terms with no money
+  moving. Both ask why, and the reason goes in the audit row.
+
+Each is the API's own service call, with the same permission, posting and audit
+row as the route.
 
 ### Customer financing
 
@@ -721,6 +751,7 @@ different people doing those. The office manager and finance roles hold
 | `GET /v1/reports/sales-tax` | `report.financial:read` |
 | `GET /v1/deposits` | `deposit:read` |
 | `POST /v1/deposits` | `deposit:collect` |
+| `POST /v1/deposits/{id}/apply` | `deposit:collect` and `invoice:write` |
 | `POST /v1/deposits/{id}/refund` | `deposit:refund` |
 
 A payment list is paged on the received instant and then the id, because a
@@ -750,6 +781,14 @@ hold one for.
 
 ## What is not built
 
+A deposit is given back or kept whole from the office: the screen offers no part
+amount, because the service closes a deposit after one refund or one forfeit, and
+whatever a part refund left would then be stuck where nothing could apply it or
+give it back. A part amount is still accepted by `POST /v1/deposits/{id}/refund`,
+with that consequence. Giving a deposit back records it and moves no money: it
+does not refund the card the customer paid with, so the company pays them back
+itself. A deposit is applied to its own customer's invoice only, never to a payer's
+or another customer's, and never to a draft.
 A credit is paid back to a card only through one of the customer's own earlier
 card payments with enough left to refund, one payment per payout, and never to a
 card they did not pay with. A card payout waits for the processor's webhook like

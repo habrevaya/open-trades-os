@@ -24,6 +24,7 @@ import { fileClaim } from "../claims/actions";
 import { CREDIT_REASON, CREDIT_STATUS, CREDIT_TONE, REASON_OPTIONS } from "../credit-notes/labels";
 import { creditInvoice } from "../credit-notes/actions";
 import { FinancingPanel } from "@/components/FinancingPanel";
+import { HeldDeposits } from "@/components/HeldDeposits";
 import { chargeCardOnFile } from "./card-actions";
 import { addressInvoice } from "./bill-to-actions";
 import { applyReferralCredit } from "./referral-credit-actions";
@@ -394,6 +395,15 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           timezone={tz}
         />
       ) : null}
+
+      {/* A deposit this customer paid and that is still held can pay this invoice. */}
+      <HeldDeposits
+        ctx={ctx} customerId={invoice.customerId} back={`/invoices/${id}`}
+        invoice={{
+          id: invoice.id, number: invoice.number, numberPrefix: invoice.numberPrefix ?? null,
+          status: invoice.status, balance: invoice.balance ?? "0",
+        }}
+      />
 
       <InvoiceActions
         action={actOnInvoice}
