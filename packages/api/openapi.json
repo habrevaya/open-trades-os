@@ -69861,6 +69861,144 @@
         ]
       }
     },
+    "/v1/job-types/{id}/pack-marks": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setJobTypePackMarks",
+        "summary": "Mark a job type as the trade pack's troubleshooting call or drain call",
+        "description": "The whole list of hand marks, replaced; empty takes them off. `troubleshooting` counts the job type's jobs as troubleshooting calls in troubleshooting conversion, `drain` as drain calls in drain call conversion. A mark no number on the company's scorecard reads is refused in words. A code the pack marked stays marked by the pack. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetJobTypePackMarksInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mark a job type as the trade pack's troubleshooting call or drain call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetJobTypePackMarksOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
+        ]
+      }
+    },
     "/v1/jobs": {
       "description": "Served at this path: GET, POST. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
       "x-allowed-methods": [
@@ -108737,6 +108875,144 @@
         "x-authorization": "session",
         "x-permissions": [
           "pricebook:write"
+        ]
+      }
+    },
+    "/v1/pricebook/items/{id}/pack-marks": {
+      "description": "Served at this path: PUT. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "PUT"
+      ],
+      "put": {
+        "operationId": "setPriceBookItemPackMarks",
+        "summary": "Mark an item as a charge for finding a fault, or as drain call upsell work",
+        "description": "The whole list of hand marks, replaced; empty takes them off. `troubleshooting` makes the item a charge for finding the fault, so a call with only that on it has not turned into repair work; `drain_upsell` makes it a camera inspection, a lining or an excavation a drain call can turn into. A mark no number on the company's scorecard reads is refused in words. No price changes. Audited.\n\nRequires a session holding: settings:write.",
+        "tags": [
+          "M21"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": false,
+            "description": "Repeat the same key to retry this request without repeating its effect. A retry from a truck on bad signal must not become a second job or a second charge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPriceBookItemPackMarksInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mark an item as a charge for finding a fault, or as drain call upsell work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetPriceBookItemPackMarksOutput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body is not valid JSON, or is not a JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "settings:write"
         ]
       }
     },
@@ -149599,6 +149875,104 @@
         "x-authorization": "session",
         "x-permissions": [
           "timesheet:read"
+        ]
+      }
+    },
+    "/v1/trade-pack/marks": {
+      "description": "Served at this path: GET. Any other method answers 405 with an `allow` header listing these, rather than a 404 that would send you hunting for a typo in a correct URL.",
+      "x-allowed-methods": [
+        "GET"
+      ],
+      "get": {
+        "operationId": "listTradePackMarks",
+        "summary": "Which job types and items the scorecard counts as troubleshooting calls, drain calls and their work",
+        "description": "The company's job types and price book items, each with the marks the trade pack gives it by code (`fromPack`) and the ones given by hand (`byHand`). Only marks a number on the company's own scorecard reads are offered (`offered`), with what each means and which number reads it (`meanings`).\n\nRequires a session holding: report:read.",
+        "tags": [
+          "M21"
+        ],
+        "responses": {
+          "200": {
+            "description": "Which job types and items the scorecard counts as troubleshooting calls, drain calls and their work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListTradePackMarksOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session and no valid application token. Sign in, or present a token that has not been revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated and not allowed. Deliberately not a 401: telling a signed in user to sign in again will not help them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The record was not found, or is outside this caller's tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request conflicts with the current state of the record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The input did not match the schema. `issues` carries the field path for each failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unhandled error. The message is never echoed back, so nothing internal leaks into a browser.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "appToken": []
+          }
+        ],
+        "x-authorization": "session",
+        "x-permissions": [
+          "report:read"
         ]
       }
     },
@@ -263561,6 +263935,163 @@
           "programs"
         ]
       },
+      "ListTradePackMarksOutput": {
+        "type": "object",
+        "properties": {
+          "tradePack": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "offered": {
+            "type": "object",
+            "properties": {
+              "jobType": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "troubleshooting",
+                    "drain"
+                  ]
+                }
+              },
+              "item": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "troubleshooting",
+                    "drain_upsell"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "jobType",
+              "item"
+            ]
+          },
+          "meanings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "mark": {
+                  "type": "string"
+                },
+                "kpi": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "string"
+                },
+                "jobType": {
+                  "type": "string"
+                },
+                "item": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mark",
+                "kpi",
+                "number",
+                "jobType",
+                "item"
+              ]
+            }
+          },
+          "jobTypes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fromPack": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "byHand": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "code",
+                "fromPack",
+                "byHand"
+              ]
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fromPack": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "byHand": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "code",
+                "fromPack",
+                "byHand"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tradePack",
+          "offered",
+          "meanings",
+          "jobTypes",
+          "items"
+        ]
+      },
       "ListTradePacksOutput": {
         "type": "object",
         "properties": {
@@ -300273,6 +300804,41 @@
           "checked"
         ]
       },
+      "SetJobTypePackMarksInput": {
+        "type": "object",
+        "properties": {
+          "marks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "maxItems": 4
+          }
+        },
+        "required": [
+          "marks"
+        ]
+      },
+      "SetJobTypePackMarksOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "marks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "marks"
+        ]
+      },
       "SetLocationSharingInput": {
         "type": "object",
         "properties": {
@@ -303987,6 +304553,41 @@
           "id",
           "code",
           "active"
+        ]
+      },
+      "SetPriceBookItemPackMarksInput": {
+        "type": "object",
+        "properties": {
+          "marks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "maxItems": 4
+          }
+        },
+        "required": [
+          "marks"
+        ]
+      },
+      "SetPriceBookItemPackMarksOutput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "marks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "marks"
         ]
       },
       "SetProjectPhaseDatesInput": {

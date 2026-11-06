@@ -1573,6 +1573,19 @@ const markedItems = (trade: string, mark: "troubleshooting" | "drain_upsell"): s
   (packById(trade)?.priceBook ?? []).filter((i) => (i.marks ?? []).includes(mark)).map((i) => i.code);
 
 /**
+ * A job type (or an item) the KPI reads as marked: its code is one the pack
+ * seeded and marked, or the company marked it by hand (`pack_marks`, set on
+ * `/reports/scorecard/marks` through `services/pack-marks.ts`), so a type or
+ * item made under another code counts too.
+ */
+const typeMarked = (alias: string, trade: string, mark: "troubleshooting" | "drain") => sql`(
+  ${sql.raw(alias)}.code = any(${sql.param(markedJobTypes(trade, mark))}::text[])
+  or ${sql.raw(alias)}.pack_marks @> ${JSON.stringify([mark])}::jsonb)`;
+const itemMarked = (alias: string, trade: string, mark: "troubleshooting" | "drain_upsell") => sql`(
+  ${sql.raw(alias)}.code = any(${sql.param(markedItems(trade, mark))}::text[])
+  or ${sql.raw(alias)}.pack_marks @> ${JSON.stringify([mark])}::jsonb)`;
+
+/**
  * TROUBLESHOOTING CALLS, core's `reporting.troubleshootingOf` written again in
  * SQL. A call is a job of a type the trade pack marks as troubleshooting,
  * counted once, in the window its first visit that was done was finished. It
@@ -1596,7 +1609,7 @@ const troubleshootingCalls = (pick: "converted" | "denominator" | "excluded"): R
       limit 1
     ) fv
     where j.deleted_at is null
-      and jt.code = any(${sql.param(markedJobTypes(trade, "troubleshooting"))}::text[])
+      and ${typeMarked("jt", trade, "troubleshooting")}
       and jt.revenue_class::text <> 'internal'
       and fv.completed_at >= ${dayStart(from, zone)} and fv.completed_at < ${dayAfter(to, zone)}
   ),
@@ -1617,7 +1630,7 @@ const troubleshootingCalls = (pick: "converted" | "denominator" | "excluded"): R
                left join public.price_book_item_version piv on piv.id = jl.price_book_item_version_id
                left join public.price_book_item pi on pi.id = piv.item_id
                where jl.visit_id = x.visit_id and jl.deleted_at is null
-                 and (pi.code is null or not (pi.code = any(${sql.param(markedItems(trade, "troubleshooting"))}::text[])))
+                 and (pi.code is null or not ${itemMarked("pi", trade, "troubleshooting")})
              ) then 'converted'
              when x.arrived_at is not null and exists (
                select 1 from public.estimate e
@@ -1646,7 +1659,6 @@ const troubleshootingCalls = (pick: "converted" | "denominator" | "excluded"): R
  * before, on the same unit when both name one.
  */
 const drainCalls = (pick: "converted" | "denominator" | "repeat"): Records => (from, to, zone, trade) => {
-  const upsell = sql.param(markedItems(trade, "drain_upsell"));
   return sql`
   with calls as (
     select j.id, j.number, j.summary, j.property_id, j.equipment_id, j.completed_at, c.name as customer
@@ -1655,7 +1667,7 @@ const drainCalls = (pick: "converted" | "denominator" | "repeat"): Records => (f
     join public.customer c on c.id = j.customer_id
     where j.deleted_at is null and j.completed_at is not null
       and j.completed_at >= ${dayStart(from, zone)} and j.completed_at < ${dayAfter(to, zone)}
-      and jt.code = any(${sql.param(markedJobTypes(trade, "drain"))}::text[])
+      and ${typeMarked("jt", trade, "drain")}
       and jt.revenue_class::text <> 'internal'
   ),
   judged as (
@@ -1665,7 +1677,7 @@ const drainCalls = (pick: "converted" | "denominator" | "repeat"): Records => (f
                select 1 from public.job o
                join public.job_type ot on ot.id = o.job_type_id
                where o.id <> x.id and o.deleted_at is null and o.property_id = x.property_id
-                 and ot.code = any(${sql.param(markedJobTypes(trade, "drain"))}::text[])
+                 and ${typeMarked("ot", trade, "drain")}
                  and o.completed_at < x.completed_at
                  and o.completed_at >= x.completed_at - make_interval(days => ${reporting.DRAIN_REPEAT_DAYS})
                  and (o.equipment_id is null or x.equipment_id is null or o.equipment_id = x.equipment_id)
@@ -1677,7 +1689,7 @@ const drainCalls = (pick: "converted" | "denominator" | "repeat"): Records => (f
                join public.price_book_item_version piv on piv.id = jl.price_book_item_version_id
                join public.price_book_item pi on pi.id = piv.item_id
                where (w.id = x.id or (w.parent_job_id = x.id and w.deleted_at is null and w.status <> 'cancelled'))
-                 and pi.code = any(${upsell}::text[])
+                 and ${itemMarked("pi", trade, "drain_upsell")}
              ) or exists (
                select 1
                from public.job w
@@ -1687,7 +1699,7 @@ const drainCalls = (pick: "converted" | "denominator" | "repeat"): Records => (f
                join public.price_book_item_version piv on piv.id = el.price_book_item_version_id
                join public.price_book_item pi on pi.id = piv.item_id
                where (w.id = x.id or (w.parent_job_id = x.id and w.deleted_at is null and w.status <> 'cancelled'))
-                 and pi.code = any(${upsell}::text[])
+                 and ${itemMarked("pi", trade, "drain_upsell")}
              ) then 'converted'
              else 'not_converted'
            end as verdict

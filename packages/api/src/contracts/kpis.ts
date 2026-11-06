@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "../lib/define";
+import { Uuid } from "./common";
 
 /**
  * SIXTY THREE NUMBERS THE PACKS DEFINED AND NOTHING COMPUTED
@@ -247,4 +248,69 @@ export const getKpiSeries = defineRoute({
   }),
 });
 
-export const kpiRoutes = { getKpiScorecard, listKpiCatalogue, getKpiRecords, getKpiBreakdown, getKpiSeries } as const;
+/**
+ * THE TRADE PACK'S MARKS, GIVEN BY HAND
+ *
+ * Troubleshooting conversion and drain call conversion read the job types
+ * and items the trade pack marks, by the codes it seeded. A job type or item
+ * the company made under another code is marked here, and then counted the
+ * same way. A code the pack marked stays marked by the pack.
+ */
+const MarkedRow = z.object({
+  id: Uuid,
+  name: z.string(),
+  code: z.string().nullable(),
+  /** Marked by the trade pack through the code it seeded; not changed here. */
+  fromPack: z.array(z.string()),
+  /** Marked by hand. */
+  byHand: z.array(z.string()),
+});
+
+export const listTradePackMarks = defineRoute({
+  method: "get",
+  path: "/v1/trade-pack/marks",
+  summary: "Which job types and items the scorecard counts as troubleshooting calls, drain calls and their work",
+  description:
+    "The company's job types and price book items, each with the marks the trade pack gives it by code (`fromPack`) and the ones given by hand (`byHand`). Only marks a number on the company's own scorecard reads are offered (`offered`), with what each means and which number reads it (`meanings`).",
+  module: "M21",
+  permissions: ["report:read"],
+  input: z.object({}),
+  output: z.object({
+    tradePack: z.string().nullable(),
+    offered: z.object({ jobType: z.array(z.enum(["troubleshooting", "drain"])), item: z.array(z.enum(["troubleshooting", "drain_upsell"])) }),
+    meanings: z.array(z.object({ mark: z.string(), kpi: z.string(), number: z.string(), jobType: z.string(), item: z.string() })),
+    jobTypes: z.array(MarkedRow),
+    items: z.array(MarkedRow),
+  }),
+});
+
+export const setJobTypePackMarks = defineRoute({
+  method: "put",
+  path: "/v1/job-types/{id}/pack-marks",
+  summary: "Mark a job type as the trade pack's troubleshooting call or drain call",
+  description:
+    "The whole list of hand marks, replaced; empty takes them off. `troubleshooting` counts the job type's jobs as troubleshooting calls in troubleshooting conversion, `drain` as drain calls in drain call conversion. A mark no number on the company's scorecard reads is refused in words. A code the pack marked stays marked by the pack. Audited.",
+  module: "M21",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, marks: z.array(z.string().max(40)).max(4) }),
+  output: z.object({ id: Uuid, marks: z.array(z.string()) }),
+});
+
+export const setPriceBookItemPackMarks = defineRoute({
+  method: "put",
+  path: "/v1/pricebook/items/{id}/pack-marks",
+  summary: "Mark an item as a charge for finding a fault, or as drain call upsell work",
+  description:
+    "The whole list of hand marks, replaced; empty takes them off. `troubleshooting` makes the item a charge for finding the fault, so a call with only that on it has not turned into repair work; `drain_upsell` makes it a camera inspection, a lining or an excavation a drain call can turn into. A mark no number on the company's scorecard reads is refused in words. No price changes. Audited.",
+  module: "M21",
+  permissions: ["settings:write"],
+  idempotent: true,
+  input: z.object({ id: Uuid, marks: z.array(z.string().max(40)).max(4) }),
+  output: z.object({ id: Uuid, marks: z.array(z.string()) }),
+});
+
+export const kpiRoutes = {
+  getKpiScorecard, listKpiCatalogue, getKpiRecords, getKpiBreakdown, getKpiSeries,
+  listTradePackMarks, setJobTypePackMarks, setPriceBookItemPackMarks,
+} as const;

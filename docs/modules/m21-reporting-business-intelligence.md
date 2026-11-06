@@ -455,7 +455,8 @@ work to `revenue_class`; the plumbing pack (version two, M02) now marks its
 drain call and its camera inspection, lining and excavation items.
 
 - A **drain call** is a completed job of a type the company's trade pack marks as
-  a drain call, in the window it was completed.
+  a drain call (or one the company marked so by hand, below), in the window it
+  was completed.
 - It **produced** the upsell when it, or a job raised from it and not cancelled,
   carries a line of one of the marked items, or an estimate the customer
   approved whose chosen option does. An option the customer did not choose
@@ -483,7 +484,7 @@ owns, or no fault found. The technician answers it on the phone's readings, and
 the office reads the answer on the visit's page.
 
 - A **call** is a job of a type the company's trade pack marks as
-  troubleshooting, counted once, in the window its first visit that was done was
+  troubleshooting (or one the company marked so by hand, below), counted once, in the window its first visit that was done was
   finished.
 - It **converted** when, on that visit, the customer approved an estimate on the
   job between the visit's arrival and its finish, or work was recorded on the
@@ -498,6 +499,40 @@ The rule is core's `reporting.troubleshootingOf`, with unit tests, written again
 in SQL, and `kpi-troubleshooting.integration.test.ts` checks a month worked out
 by hand, puts the same calls through both, and checks the pack's template asks
 the question.
+
+### Marking a hand made job type or item as the trade pack's
+
+The pack marks its own job types and items by the codes it seeded, so a job
+type or item the company made under another code was not counted. It is marked
+by hand on **What the scorecard counts** (`/reports/scorecard/marks`, linked
+from the scorecard as "Choose what the scorecard counts" when the trade's
+scorecard has either number): each job type with a box for "Troubleshooting
+call" or "Drain call", the marked items, and "Mark an item" for any other. The
+page says what marking changes before anybody ticks a box: a job type marked as
+a drain call puts its finished jobs into the bottom of drain call conversion,
+and into the top when it sold the upsell; an item marked as drain call upsell
+lets a drain call that sold it count as converted, so the number can go up; an
+item marked as the charge for finding the fault is no longer repair work, so a
+call with only that on it no longer converts and the number can go down. A mark
+counts for every month, past ones too. No price changes.
+
+`GET /v1/trade-pack/marks` (`report:read`) lists the job types and items with
+the marks the pack gives by code (`fromPack`) and those given by hand
+(`byHand`), the marks the company's scorecard reads (`offered`) and what each
+means (`meanings`). `PUT /v1/job-types/{id}/pack-marks` and
+`PUT /v1/pricebook/items/{id}/pack-marks` (`settings:write`, the permission
+that applies the trade pack, idempotent, the whole list replaced, audited as
+`job_type.pack_marks_set` and `price_book_item.pack_marks_set`) set them.
+Only marks a number on the company's own scorecard reads are accepted: a drain
+mark on an electrical company is refused ("No number on your trade's scorecard
+reads a drain call, so marking it would change nothing."). The marks are kept on
+the record (`pack_marks`), and the two figures read a hand mark exactly as the
+pack's (`kpi-catalogue.ts`); `pack-marks.integration.test.ts` checks both
+numbers before and after marking and after taking the marks off.
+
+A mark the pack gave by code stays: a hand mark only adds, so a company cannot
+take the pack's own call out of its number (the conservative choice, said on the
+screen). To stop counting a pack job type, retire it.
 
 ### Water heater opportunity capture, and why the customer said no
 
@@ -1471,15 +1506,17 @@ the book in the chemical's own unit, because it has no place to pick the other; 
 office's visit page can record either.
 
 Drain call conversion reads the drain call and the upsell items the company's
-trade pack marks, by code: a camera inspection sold under an item the company
-made itself is not counted. A job that names no unit is read as being on the same
+trade pack marks by code and the ones the company marked by hand: a camera
+inspection sold under an item the company made itself is counted once it is
+marked, and not before. A job that names no unit is read as being on the same
 line as any drain job at its address, which leaves it out as a return rather than
 letting it count twice. A camera, lining or excavation done on a new job that was
 not raised from the drain call is not linked to it.
 
 Troubleshooting conversion reads the job types and charges the company's trade
-pack marks, by the codes it seeded: a troubleshooting job type made by hand under
-another code is not a call. A call whose technician never answered where the
+pack marks by the codes it seeded and the ones the company marked by hand: a
+troubleshooting job type made under another code is a call once it is marked,
+and not before. A pack's own mark cannot be taken off one of its codes. A call whose technician never answered where the
 fault was is counted, never left out; a report answered before the electrical
 pack's version two asked has no answer. Repair work done on the visit counts as
 approved by being done; a customer who agreed out loud to work booked for later,

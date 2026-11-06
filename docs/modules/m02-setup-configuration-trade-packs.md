@@ -76,7 +76,9 @@ one decides real behaviour and is set where the difference exists.
 say.** A job type can be marked as a troubleshooting call or a drain call, and a
 price book item as the charge for finding a fault or as the camera inspection,
 lining or excavation a drain call can turn into (`marks`). The scorecard reads
-the marks of the company's own trade pack against the codes it seeded (M21).
+the marks of the company's own trade pack against the codes it seeded, and
+the marks the company gave a job type or item it made itself by hand on What
+the scorecard counts (`pack_marks`, M21).
 Electrical marks its troubleshooting call and charges, and its service report
 asks where the fault was; plumbing marks its drain call and the camera, lining
 and excavation. A pack that declares troubleshooting conversion or drain call
@@ -572,10 +574,11 @@ again by an upgrade. An item's description or cost that a newer
 version removes is left as it was, because a price book version cannot clear
 either. Electrical and plumbing are at version two, for the marks above
 (electrical's also adds the "Where the fault was" question to its service
-report template); every other pack is at version one. The marks are read from
-the pack itself, not copied into a company's rows, so a job type or item the
-company made by hand under another code is not marked, and there is no screen
-to mark one.
+report template); every other pack is at version one. The pack's marks are read
+from the pack itself, not copied into a company's rows; a job type or item the
+company made by hand under another code is marked by hand on What the scorecard
+counts (M21), and only with a mark a number on its own scorecard reads. A hand
+mark only adds: the pack's own mark on one of its codes cannot be taken off.
 
 The 10DLC step records a registration made in the carrier's portal; it does
 not submit one to a carrier. Company licences are compliance documents rather

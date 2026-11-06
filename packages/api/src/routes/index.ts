@@ -11,7 +11,7 @@ import {
   messageTemplates, messagingRegistration, leadConnectors,
   invoiceDelivery, profitability, crews, serviceRoutes, onCall, commissions, payroll, ai, assets, compliance,
   people, projects, calendar, callTracking, company, timeOff, auditLog, ledgerReports, serviceReports,
-  apps, appRequestReminders, comms, consent, contacts, customerNotes, secrets, equipment, warrantyRegistration, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, contractLateRise, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, externalWorkCodes, kpis, backups, restore, spreadsheetImports,
+  apps, appRequestReminders, comms, consent, contacts, customerNotes, secrets, equipment, warrantyRegistration, customerLifecycle, tasks, workflows, inspections, creditNotes, creditPayouts, contractEscalation, contractBilling, contractLateRise, statements, visitAssets, deliveries, campaigns, unsubscribe, rentals, network, dataExport, externalWork, externalWorkCodes, kpis, packMarks, backups, restore, spreadsheetImports,
   dispatchMap, dispatchDays, geocoding, visits, visitCancellations, partRequests,
   liveLocation, invites,
   reports, deliverySchedules, statementDelivery,
@@ -991,6 +991,7 @@ export const handlers = {
   listExternalWorkSources: externalWork.handlers.listExternalWorkSources,
   // A client's own codes proposing the job and its lines (M31)
   ...externalWorkCodes.handlers,
+  ...packMarks.handlers,
 
   // KPIs (M21): the numbers the trade packs defined and nothing computed
   getKpiScorecard: kpis.handlers.getKpiScorecard,

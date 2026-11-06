@@ -19824,6 +19824,35 @@ export interface ListTradePackInspectionProgramsOutput {
   }>;
 }
 
+export interface ListTradePackMarksOutput {
+  tradePack: string | null;
+  offered: {
+    jobType: Array<"troubleshooting" | "drain">;
+    item: Array<"troubleshooting" | "drain_upsell">;
+  };
+  meanings: Array<{
+    mark: string;
+    kpi: string;
+    number: string;
+    jobType: string;
+    item: string;
+  }>;
+  jobTypes: Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    fromPack: string[];
+    byHand: string[];
+  }>;
+  items: Array<{
+    id: string;
+    name: string;
+    code: string | null;
+    fromPack: string[];
+    byHand: string[];
+  }>;
+}
+
 export interface ListTradePacksOutput {
   primaryTrade: string | null;
   packs: Array<{
@@ -27308,6 +27337,15 @@ export interface SetJobSkillsOutput {
   checked: string[];
 }
 
+export interface SetJobTypePackMarksInput {
+  marks: string[];
+}
+
+export interface SetJobTypePackMarksOutput {
+  id: string;
+  marks: string[];
+}
+
 export interface SetLocationSharingInput {
   enabled?: boolean;
   retentionDays?: number;
@@ -28041,6 +28079,15 @@ export interface SetPriceBookItemActiveOutput {
   id: string;
   code: string;
   active: boolean;
+}
+
+export interface SetPriceBookItemPackMarksInput {
+  marks: string[];
+}
+
+export interface SetPriceBookItemPackMarksOutput {
+  id: string;
+  marks: string[];
 }
 
 export interface SetProjectPhaseDatesInput {
@@ -35662,6 +35709,8 @@ export type ListTrackingNumbersInput = Record<string, never>;
 
 export type ListTradePackInspectionProgramsInput = Record<string, never>;
 
+export type ListTradePackMarksInput = Record<string, never>;
+
 export type ListTradePacksInput = Record<string, never>;
 
 export type ListTransferTargetsInput = Record<string, never>;
@@ -36673,6 +36722,10 @@ export interface SetJobSkillsParams {
   id: string;
 }
 
+export interface SetJobTypePackMarksParams {
+  id: string;
+}
+
 export interface SetMemberBranchParams {
   membershipId: string;
 }
@@ -36730,6 +36783,10 @@ export interface SetPortalCardAutopayBackupParams {
 }
 
 export interface SetPriceBookItemActiveParams {
+  id: string;
+}
+
+export interface SetPriceBookItemPackMarksParams {
   id: string;
 }
 
@@ -37997,6 +38054,7 @@ export interface OperationTypes {
   listTrackingCampaigns: { input: ListTrackingCampaignsInput; output: ListTrackingCampaignsOutput };
   listTrackingNumbers: { input: ListTrackingNumbersInput; output: ListTrackingNumbersOutput };
   listTradePackInspectionPrograms: { input: ListTradePackInspectionProgramsInput; output: ListTradePackInspectionProgramsOutput };
+  listTradePackMarks: { input: ListTradePackMarksInput; output: ListTradePackMarksOutput };
   listTradePacks: { input: ListTradePacksInput; output: ListTradePacksOutput };
   listTransferTargets: { input: ListTransferTargetsInput; output: ListTransferTargetsOutput };
   listTruckFills: { input: ListTruckFillsInput; output: ListTruckFillsOutput };
@@ -38346,6 +38404,7 @@ export interface OperationTypes {
   setJobHoldNudge: { input: SetJobHoldNudgeInput; output: SetJobHoldNudgeOutput };
   setJobParties: { input: SetJobPartiesParams & SetJobPartiesInput; output: SetJobPartiesOutput };
   setJobSkills: { input: SetJobSkillsParams & SetJobSkillsInput; output: SetJobSkillsOutput };
+  setJobTypePackMarks: { input: SetJobTypePackMarksParams & SetJobTypePackMarksInput; output: SetJobTypePackMarksOutput };
   setLocationSharing: { input: SetLocationSharingInput; output: SetLocationSharingOutput };
   setMarketingSettings: { input: SetMarketingSettingsInput; output: SetMarketingSettingsOutput };
   setMemberBranch: { input: SetMemberBranchParams & SetMemberBranchInput; output: SetMemberBranchOutput };
@@ -38375,6 +38434,7 @@ export interface OperationTypes {
   setPortalLayout: { input: SetPortalLayoutInput; output: SetPortalLayoutOutput };
   setPortalSettings: { input: SetPortalSettingsInput; output: SetPortalSettingsOutput };
   setPriceBookItemActive: { input: SetPriceBookItemActiveParams & SetPriceBookItemActiveInput; output: SetPriceBookItemActiveOutput };
+  setPriceBookItemPackMarks: { input: SetPriceBookItemPackMarksParams & SetPriceBookItemPackMarksInput; output: SetPriceBookItemPackMarksOutput };
   setProjectPhaseDates: { input: SetProjectPhaseDatesParams & SetProjectPhaseDatesInput; output: SetProjectPhaseDatesOutput };
   setProjectPhaseDependency: { input: SetProjectPhaseDependencyParams & SetProjectPhaseDependencyInput; output: SetProjectPhaseDependencyOutput };
   setProjectPhaseStatus: { input: SetProjectPhaseStatusParams & SetProjectPhaseStatusInput; output: SetProjectPhaseStatusOutput };
@@ -39295,6 +39355,7 @@ export const OPERATIONS = {
   listTrackingCampaigns: { method: "GET", path: "/v1/marketing/tracking-campaigns", pathParams: [], queryParams: ["channelId","include"], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTrackingNumbers: { method: "GET", path: "/v1/marketing/tracking-numbers", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["adspend:read"] },
   listTradePackInspectionPrograms: { method: "GET", path: "/v1/trade-packs/inspection-programs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["compliance:read"] },
+  listTradePackMarks: { method: "GET", path: "/v1/trade-pack/marks", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["report:read"] },
   listTradePacks: { method: "GET", path: "/v1/trade-packs", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:read"] },
   listTransferTargets: { method: "GET", path: "/v1/softphone/transfer-targets", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["call:place"] },
   listTruckFills: { method: "GET", path: "/v1/stock/truck-fills", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["inventory:read"] },
@@ -39644,6 +39705,7 @@ export const OPERATIONS = {
   setJobHoldNudge: { method: "PATCH", path: "/v1/job-hold-nudge", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setJobParties: { method: "PUT", path: "/v1/jobs/{id}/parties", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setJobSkills: { method: "PUT", path: "/v1/jobs/{id}/required-skills", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
+  setJobTypePackMarks: { method: "PUT", path: "/v1/job-types/{id}/pack-marks", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setLocationSharing: { method: "PUT", path: "/v1/dispatch/location-sharing", pathParams: [], queryParams: [], idempotent: false, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMarketingSettings: { method: "PATCH", path: "/v1/marketing/settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setMemberBranch: { method: "POST", path: "/v1/memberships/{membershipId}/branch", pathParams: ["membershipId"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["membership:write"] },
@@ -39673,6 +39735,7 @@ export const OPERATIONS = {
   setPortalLayout: { method: "PUT", path: "/v1/portal-layout", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPortalSettings: { method: "PATCH", path: "/v1/portal-settings", pathParams: [], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setPriceBookItemActive: { method: "POST", path: "/v1/pricebook/items/{id}/active", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["pricebook:write"] },
+  setPriceBookItemPackMarks: { method: "PUT", path: "/v1/pricebook/items/{id}/pack-marks", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["settings:write"] },
   setProjectPhaseDates: { method: "POST", path: "/v1/project-phases/{id}/dates", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProjectPhaseDependency: { method: "POST", path: "/v1/project-phases/{id}/dependency", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
   setProjectPhaseStatus: { method: "POST", path: "/v1/project-phases/{id}/status", pathParams: ["id"], queryParams: [], idempotent: true, dryRun: false, paginated: false, authorization: "session", permissions: ["job:write"] },
@@ -46467,6 +46530,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Which job types and items the scorecard counts as troubleshooting calls, drain calls and their work.
+   *
+   * GET /v1/trade-pack/marks. Needs report:read.
+   */
+  listTradePackMarks(input: ListTradePackMarksInput = {} as ListTradePackMarksInput, options?: CallOptions): Promise<ListTradePackMarksOutput> {
+    return this.call("listTradePackMarks", input, options);
+  }
+
+  /**
    * The trade packs this product ships, and the version the company is on.
    *
    * GET /v1/trade-packs. Needs settings:read.
@@ -49608,6 +49680,15 @@ export abstract class GeneratedOperations {
   }
 
   /**
+   * Mark a job type as the trade pack's troubleshooting call or drain call.
+   *
+   * PUT /v1/job-types/{id}/pack-marks. Needs settings:write.
+   */
+  setJobTypePackMarks(input: SetJobTypePackMarksParams & SetJobTypePackMarksInput, options?: CallOptions): Promise<SetJobTypePackMarksOutput> {
+    return this.call("setJobTypePackMarks", input, options);
+  }
+
+  /**
    * Turn location sharing on or off, and set how long positions are kept.
    *
    * PUT /v1/dispatch/location-sharing. Needs settings:write.
@@ -49866,6 +49947,15 @@ export abstract class GeneratedOperations {
    */
   setPriceBookItemActive(input: SetPriceBookItemActiveParams & SetPriceBookItemActiveInput, options?: CallOptions): Promise<SetPriceBookItemActiveOutput> {
     return this.call("setPriceBookItemActive", input, options);
+  }
+
+  /**
+   * Mark an item as a charge for finding a fault, or as drain call upsell work.
+   *
+   * PUT /v1/pricebook/items/{id}/pack-marks. Needs settings:write.
+   */
+  setPriceBookItemPackMarks(input: SetPriceBookItemPackMarksParams & SetPriceBookItemPackMarksInput, options?: CallOptions): Promise<SetPriceBookItemPackMarksOutput> {
+    return this.call("setPriceBookItemPackMarks", input, options);
   }
 
   /**

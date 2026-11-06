@@ -1317,6 +1317,13 @@
       "when": 1793929408840,
       "tag": "0187_colossal_talkback",
       "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1793930054974,
+      "tag": "0188_steady_the_hood",
+      "breakpoints": true
     }
   ]
 }
