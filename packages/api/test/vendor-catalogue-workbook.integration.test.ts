@@ -9,6 +9,7 @@ import { routes } from "../src/contracts/index";
 import { ConflictError, type ServiceContext } from "../src/services/context";
 import { seedOrg, testDb, fixtureId } from "./helpers";
 import { buildWorkbook, tamper, type Cell } from "./xlsx-builder";
+import { buildOds } from "./ods-builder";
 
 /**
  * A SUPPLIER'S CATALOGUE, FROM A WORKBOOK (M16, reading it through M30)
@@ -106,6 +107,33 @@ run("a supplier's catalogue sent as a workbook", () => {
     const [audit] = await raw`select after from public.audit_log
       where organization_id = ${ORG} and action = 'vendor_catalogue.applied'`;
     expect(audit!.after).toMatchObject({ sheet: "Prices", created: 1 });
+  });
+
+  it("reads an .ods from LibreOffice the same way: the same plan as the CSV, the sheet chosen, the rows numbered", async () => {
+    await item("FLT-16", "18.00", "6.00");
+    const ods = await buildOds([
+      { name: "Read me", rows: [["Prices for 2026"]] },
+      { name: "Prices", rows: [
+        ["Part #", "Description", "Net Price", "Supplier"],
+        ["C455R", "Capacitor, dual run 45/5", 12.5, "Ferguson"],
+        [null, null, null, null],
+        ["FLT-16", "Filter 16x25x1", { formula: "of:=5+0.25", value: 5.25 }, "Ferguson"],
+        ["BAD", "Broken", "call us", "Ferguson"],
+      ] },
+    ]);
+    const listed = await vendorCatalogue.sheets(owner(), { workbook: base64(ods) });
+    expect(listed.sheets.map((s) => [s.name, s.why === null])).toEqual([["Read me", false], ["Prices", true]]);
+
+    const fromOds = await vendorCatalogue.preview(owner(), { workbook: base64(ods), sheet: "Prices", margin: "0.4" });
+    const fromCsv = await vendorCatalogue.preview(owner(), { csv: CSV, margin: "0.4" });
+    expect(fromOds.counts).toEqual(fromCsv.counts);
+    expect(fromOds.rows.map((r) => [r.action, r.sku, r.line])).toEqual([["create", "C455R", 2], ["link", "FLT-16", 4]]);
+    expect(fromOds.problems).toEqual([{ line: 5, message: 'BAD has a cost of "call us", which is not an amount.' }]);
+
+    const applied = await vendorCatalogue.apply(owner(), { workbook: base64(ods), sheet: "Prices", margin: "0.4" });
+    expect(applied).toMatchObject({ created: 1, linked: 1 });
+    const links = await vendorCatalogue.links(owner(), { vendorId: ferguson });
+    expect(links.map((l) => [l.partNumber, l.cost])).toEqual([["C455R", "12.5000"], ["FLT-16", "5.2500"]]);
   });
 
   it("does not choose a sheet for the person, and says which sheets there are", async () => {

@@ -15,7 +15,7 @@ const SAYS: Record<Row["action"], string> = {
 /**
  * A SUPPLIER'S SPREADSHEET, PREVIEWED BEFORE ANYTHING IS WRITTEN
  *
- * Paste it or pick the file (a CSV, or an .xlsx workbook, which asks which
+ * Paste it or pick the file (a CSV, or an .xlsx or .ods workbook, which asks which
  * sheet), say which vendor it is from when the file does not, and how new parts
  * should be priced. The preview says what every row
  * would do and why a row would be skipped; untick anything to leave alone,
@@ -66,9 +66,9 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
     setSheet("");
     setTooBig(null);
     if (!file) return;
-    if (!/\.xlsx$/i.test(file.name)) {
-      if (/\.(xls|xlsm|xlsb|numbers|ods)$/i.test(file.name)) {
-        setSheets({ ok: false, refusal: "That kind of workbook cannot be read. In your spreadsheet program choose Save As or Download and pick Excel Workbook (.xlsx) or CSV, and bring in that file." });
+    if (!/\.(xlsx|ods)$/i.test(file.name)) {
+      if (/\.(xls|xlsm|xlsb|numbers)$/i.test(file.name)) {
+        setSheets({ ok: false, refusal: "That kind of workbook cannot be read. In your spreadsheet program choose Save As or Download and pick Excel Workbook (.xlsx), OpenDocument Spreadsheet (.ods) or CSV, and bring in that file." });
         return;
       }
       setCsv(await file.text());
@@ -96,8 +96,8 @@ export function CatalogueImport({ vendors, shelves, seesCost }: {
     <div className="space-y-6">
       <form {...previewForm} onSubmit={(event) => setSettings(new FormData(event.currentTarget))} className="space-y-4">
         <label className="block text-sm">
-          <span className="font-medium text-ink-700">The file: a CSV or an .xlsx workbook</span>
-          <input type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          <span className="font-medium text-ink-700">The file: a CSV or an .xlsx workbook (or .ods)</span>
+          <input type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.ods,application/vnd.oasis.opendocument.spreadsheet"
                  className="mt-1 block text-sm"
                  onChange={(event) => { void chosen(event.currentTarget.files?.[0]); }} />
         </label>

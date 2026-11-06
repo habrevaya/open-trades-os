@@ -153563,7 +153563,7 @@
       "post": {
         "operationId": "previewVendorCatalogue",
         "summary": "What a supplier's catalogue file would do, with nothing written",
-        "description": "The file is a CSV as `csv` or an .xlsx workbook as `workbook` with the `sheet` to read (a workbook with several sheets is refused until `sheet` says which), under the same size limit and refusals as the spreadsheet import; a row keeps its number from the spreadsheet. Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor (unless `createVendors`, when the vendors the file names are added on apply and listed in `newVendors`), a cost that is not an amount, a part number twice, a new part with no margin to price it. With a pack column, a part named twice for one vendor with two different packs is bought two ways: the second row is the link's second pack (`pack`). A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.\n\nRequires a session holding: vendor:write, pricebook:write.",
+        "description": "The file is a CSV as `csv` or an .xlsx or .ods workbook as `workbook` with the `sheet` to read (a workbook with several sheets is refused until `sheet` says which), under the same size limit and refusals as the spreadsheet import; a row keeps its number from the spreadsheet. Each row matched by the vendor's part number to an existing link (an update), else by our item code (a new link to that item), else created as a new item priced at `margin` over its cost. A row that cannot be read or matched is skipped with the reason: an unknown vendor (unless `createVendors`, when the vendors the file names are added on apply and listed in `newVendors`), a cost that is not an amount, a part number twice, a new part with no margin to price it. With a pack column, a part named twice for one vendor with two different packs is bought two ways: the second row is the link's second pack (`pack`). A POST because the file is too large for a query string; it writes nothing, so replaying it is harmless.\n\nRequires a session holding: vendor:write, pricebook:write.",
         "tags": [
           "M16"
         ],
@@ -153693,7 +153693,7 @@
       "post": {
         "operationId": "listVendorCatalogueSheets",
         "summary": "The sheets of a supplier's workbook, to choose one",
-        "description": "A workbook (.xlsx) sent as base64, of at most five megabytes. Each sheet comes back with its rows and the start of its header, or with why it cannot be read. Nothing is kept: send the workbook again to preview or apply with `sheet` set to the one chosen. Formulas are never worked out and macros are never opened.\n\nRequires a session holding: vendor:write, pricebook:write.",
+        "description": "A workbook (.xlsx, or .ods from LibreOffice or OpenOffice) sent as base64, of at most five megabytes. Each sheet comes back with its rows and the start of its header, or with why it cannot be read. Nothing is kept: send the workbook again to preview or apply with `sheet` set to the one chosen. Formulas are never worked out and macros are never opened.\n\nRequires a session holding: vendor:write, pricebook:write.",
         "tags": [
           "M16"
         ],

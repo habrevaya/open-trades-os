@@ -15,7 +15,7 @@ export type CatalogueState = (NonNullable<FormState> & {
 
 /**
  * The options both steps read from the same form, so the apply is exactly what was previewed.
- * The file is a workbook when an .xlsx came with the form (the sheet chosen beside it), and
+ * The file is a workbook when an .xlsx or .ods came with the form (the sheet chosen beside it), and
  * the pasted or picked CSV text otherwise. A name can lie, so the service still checks what is inside.
  */
 async function options(form: FormData) {
