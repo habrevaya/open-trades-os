@@ -430,7 +430,7 @@ route's stops due that date that have not been made yet (`madeVisits` says how
 many visits it read). Their own day is read too (`servicer`): a technician's
 own working hours when they keep some (their hours on the People screen), the
 hours the branch keeps that date otherwise, less any approved leave inside
-them; a crew works its own hours when it keeps some, its hours for the date's weekday first ("its hours", `hoursFrom: own`), the hours the branch
+them; a crew works its own hours when it keeps some, its hours for that date first, then for the date's weekday ("its hours", `hoursFrom: own`), and a crew off that date has no hours at all (`servicer.dayOff`), the hours the branch
 keeps that date otherwise, and the members on leave that day are
 named ("Ana is on leave that day, so the crew is short"). `fits` says whether
 the work and the whole drive fit the hours left, and `refusedBecause` says
@@ -623,6 +623,41 @@ screen a day with only a start or only a finish is refused too. The one day
 rebalance, the several day rebalance (date by date), a route's fit for a date
 and the board's lane all read it. The list says "Works 06:00 to 16:00, except
 Sat 07:00 to 11:00".
+
+**Hours on one date, and days off.** A crew can keep hours for one date only
+(a long day to finish a job, a short one before a holiday), be off on one
+date, and have weekdays it never works ("Days off and dates" on its row on
+`/schedule/crews`: tick the days it does not work and "Save days off"; choose a
+date with a start and a finish, or tick "Off that day", and "Save the date";
+each date still to come is listed with "Clear"). The API side is `dateHours`
+and `daysOff` on `POST /v1/crews` and `PATCH /v1/crews/{id}` (`visit:dispatch`,
+each list replaced whole, empty clearing it, audited as `crew.updated`). On a
+date the crew's day is, in this order: that date's own entry (its hours, or
+off); off on a weekday it does not work; its hours for that weekday; its one
+set of hours; the company's day (core's `routing.crewHoursOn`, with unit
+tests). So hours on one date put a crew to work on a weekday it usually has
+off. A date given twice, half a day, a day ending before it starts, a date
+marked off with hours, all seven weekdays off ("Retire the crew instead"), or a
+day off that also has hours by weekday is refused in words. The list says
+"Does not work Sun".
+
+A crew off on a date cannot be given work that day: the crew check
+(`GET /v1/crews/{id}/availability` and `GET /v1/crews/for-job`) refuses it with
+`crew_day_off` ("Post crew does not work on Sundays." or "Post crew is off on
+2026-11-10.", and "Give it hours on that date on Crews and on call if it is
+coming in."); sending a visit to it (`POST /v1/visits/{id}/crew`, and a drop on
+its lane) is refused in the same words; booking a visit with it
+(`POST /v1/jobs/{id}/visits` with a `crewId`, for work still to come) is
+refused ("Book it on a day the crew works, or give the crew hours on that date
+first."); the rebalance, one day and several, moves nothing onto it that day
+because it asks the same check; its lane on the board says it is off
+(`dayOff`) and marks every card on it outside its hours; and a route it runs
+has no room that date (`servicer.dayOff`, `refusedBecause` "Post crew is off on
+2026-11-10. Nothing on this route fits that day."). The crew check's answer
+says whose hours it read (`hoursFrom`: `date`, `weekday`, `own` or `company`,
+and `hours`), and asked about a date alone it counts a member off whose
+approved leave covers the crew's own hours that date, where it keeps some,
+rather than the company's.
 Routes are seen by whoever sees the technician or crew that runs them. Booking,
 assigning, sending a crew or running a route writes the visit's shop: the
 lead's start or membership shop, or the crew's base (`docs/modules/m01-core-tenancy-access.md`).
@@ -760,15 +795,18 @@ whose day starts off the map or carries containers. Each of its people is
 held to its window on their own day; the plan does not make them arrive
 together. The rebalance plans lunch and overtime from company settings and
 each person's and each crew's own hours, not from the overtime policy's
-thresholds. A crew's own hours are a start and a finish for each weekday or for
-every day: there are no hours a crew keeps on one date only, a weekday cannot
-be marked as one the crew does not work (it keeps its usual hours, and its
-people's leave says who is off), and a crew on a day its branch is closed is
-still planned in its hours; the board's lane says the day is closed. Lunch and the most
-overtime a plan may use are the company's for a crew, as for a person. The crew
-check (`GET /v1/crews/{id}/availability`) asked about a date alone still reads
-the company's working hours for whether a member's leave covers the day, not
-the crew's own.
+thresholds. A crew's own hours are a start and a finish: one set, one per
+weekday, or one per date, and a crew is either off all of a day or works one
+stretch of it (no split shift). A crew on a day its branch is closed is still
+planned in its hours; the board's lane says the day is closed, and a crew's
+day off is its own, not its branch's. Work already on a crew before it was
+marked off that day stays on it, said on its lane, until somebody moves it
+(the rebalance proposes moving it to a crew that works that day, as it does
+for a crew whose people are on leave); nothing moves it on its own. A crew's day off is not checked when a day of a
+route is made (as a closed branch is not), only said on the route's fit for
+that date. Booking a visit with a crew for a window already over, or bringing
+one in from history, is not refused for a day off. Lunch and the most
+overtime a plan may use are the company's for a crew, as for a person.
 A technician whose day has no start
 on the map is left out of it, with their work where it is, and so is a
 driver whose day has containers on it, which "Optimise route" orders by

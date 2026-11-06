@@ -1320,14 +1320,21 @@ export interface PlannedCrew {
   hours: { startsAt: string; endsAt: string } | null;
   /** Its own hours on particular weekdays (`crew.weekday_hours`), read before `hours` on that weekday. */
   weekdayHours?: routing.CrewWeekdayHours[] | undefined;
+  /** Its hours or a day off on particular dates (`crew.date_hours`), read before everything else. */
+  dateHours?: routing.CrewDateHours[] | undefined;
+  /** The weekdays it does not work (`crew.days_off`). */
+  daysOff?: number[] | undefined;
 }
 
 /**
- * The hours a planned crew works on a date: its own for that weekday, its
- * one set of hours, or null for the company's day (core's `crewHoursOn`).
+ * The hours a planned crew works on a date: its own for that date, for that
+ * weekday, its one set of hours, or null for the company's day (core's
+ * `crewHoursOn`). A crew off that day is planned in the company's day for
+ * the work already on it; the crew check refuses it anything new that day
+ * (`crews.crewRefusals`), so no move lands on it.
  */
 export const crewHoursOnDay = (crew: PlannedCrew, date: string) =>
-  routing.crewHoursOn({ workday: crew.hours, weekdayHours: crew.weekdayHours }, date).hours;
+  routing.crewHoursOn({ workday: crew.hours, weekdayHours: crew.weekdayHours, dateHours: crew.dateHours, daysOff: crew.daysOff }, date).hours;
 
 export const CREW = "crew:";
 export const crewKey = (id: string) => `${CREW}${id}`;
@@ -1389,6 +1396,8 @@ export async function crewsOver(tx: Database, ctx: ServiceContext, days: Day[]):
         id: c.id, name: c.name, color: c.color, start: placeOfLocation(c.homeLocationId ?? lead?.home ?? null),
         hours: c.workday && HHMM.test(c.workday.startsAt) && HHMM.test(c.workday.endsAt) ? c.workday : null,
         weekdayHours: c.weekdayHours,
+        dateHours: c.dateHours,
+        daysOff: c.daysOff,
       };
     });
 }

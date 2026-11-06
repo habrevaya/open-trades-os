@@ -3565,6 +3565,13 @@ export interface CreateCrewInput {
     endsAt: string;
     dayOfWeek: number;
   }>;
+  dateHours?: Array<{
+    date: string;
+    off?: boolean;
+    startsAt?: string | null;
+    endsAt?: string | null;
+  }>;
+  daysOff?: number[];
 }
 
 export interface CreateCrewOutput {
@@ -8469,7 +8476,7 @@ export interface GetCrewAvailabilityOutput {
   on: string;
   canTake: boolean;
   blockers: Array<{
-    code: "crew_inactive" | "no_members" | "everybody_off" | "lead_off" | "missing_equipment" | "equipment_unavailable" | "missing_skills" | "different_business_unit";
+    code: "crew_inactive" | "no_members" | "everybody_off" | "lead_off" | "missing_equipment" | "equipment_unavailable" | "missing_skills" | "different_business_unit" | "crew_day_off";
     explanation: string;
   }>;
   missingEquipment: string[];
@@ -8491,6 +8498,11 @@ export interface GetCrewAvailabilityOutput {
     name: string;
     hours: string;
   }>;
+  hoursFrom: "date" | "weekday" | "own" | "company";
+  hours: {
+    startsAt: string;
+    endsAt: string;
+  } | null;
   leadDesignated: boolean;
   equipmentBasis: "job_type" | "none_declared";
   registeredEquipment: string[];
@@ -8861,9 +8873,10 @@ export interface GetDispatchBoardOutput {
     hours: {
       startsAt: string;
       endsAt: string;
-      from: "weekday" | "own" | "company";
+      from: "date" | "weekday" | "own" | "company";
     };
     branchClosed: string | null;
+    dayOff: string | null;
     visits: Array<{
       outsideHours: boolean;
       id: string;
@@ -13611,6 +13624,7 @@ export interface GetServiceRouteDensityOutput {
     availableMinutes: number | null;
     offAllDay: boolean;
     membersOff: string[];
+    dayOff: string | null;
   } | null;
   fits: boolean | null;
   refusedBecause: string | null;
@@ -15938,7 +15952,7 @@ export interface ListCrewsForJobOutput {
     on: string;
     canTake: boolean;
     blockers: Array<{
-      code: "crew_inactive" | "no_members" | "everybody_off" | "lead_off" | "missing_equipment" | "equipment_unavailable" | "missing_skills" | "different_business_unit";
+      code: "crew_inactive" | "no_members" | "everybody_off" | "lead_off" | "missing_equipment" | "equipment_unavailable" | "missing_skills" | "different_business_unit" | "crew_day_off";
       explanation: string;
     }>;
     missingEquipment: string[];
@@ -15960,6 +15974,11 @@ export interface ListCrewsForJobOutput {
       name: string;
       hours: string;
     }>;
+    hoursFrom: "date" | "weekday" | "own" | "company";
+    hours: {
+      startsAt: string;
+      endsAt: string;
+    } | null;
     leadDesignated: boolean;
     equipmentBasis: "job_type" | "none_declared";
     registeredEquipment: string[];
@@ -15986,6 +16005,13 @@ export interface ListCrewsOutput {
       endsAt: string;
       dayOfWeek: number;
     }>;
+    dateHours: Array<{
+      date: string;
+      off: boolean;
+      startsAt: string | null;
+      endsAt: string | null;
+    }>;
+    daysOff: number[];
     active: boolean;
     members: Array<{
       technicianId: string;
@@ -30349,6 +30375,13 @@ export interface UpdateCrewInput {
     endsAt: string;
     dayOfWeek: number;
   }>;
+  dateHours?: Array<{
+    date: string;
+    off?: boolean;
+    startsAt?: string | null;
+    endsAt?: string | null;
+  }>;
+  daysOff?: number[];
   active?: boolean;
 }
 

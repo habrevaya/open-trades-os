@@ -24,6 +24,7 @@ import { awayBetween } from "./time-off";
 import { costPerUseUnit, inForceAt } from "./pricebook";
 import { gate as qualificationGate, workDay, workSkills } from "./qualification";
 import { heldAgainst } from "./booking";
+import { crewDayOffOn } from "./crews";
 import * as acquisition from "./acquisition";
 import * as marketing from "./marketing";
 import { closeOpenHold } from "./job-holds";
@@ -371,6 +372,21 @@ async function assertDispatchable(
       .where(and(eq(schema.crew.id, crewId), crews)).limit(1);
     if (!ours) throw new NotFoundError("Crew");
   }
+}
+
+/**
+ * A visit booked with a crew is booked on a day the crew works: not a date
+ * it is marked off, nor a weekday it does not work (M09, `crews.crewDayOffOn`).
+ * Work still to come only, as leave is checked: a window already over is a
+ * record of what happened.
+ */
+async function assertCrewWorks(
+  tx: Database, organizationId: string, crewId: string | null, windowStart: Date, windowEnd: Date,
+): Promise<void> {
+  if (crewId === null || windowEnd.getTime() < Date.now()) return;
+  const on = time.dateIn(windowStart, await timezoneOf(tx, organizationId));
+  const off = await crewDayOffOn(tx, organizationId, crewId, on);
+  if (off) throw new ConflictError(`${off} Book it on a day the crew works, or give the crew hours on ${on} first.`);
 }
 
 async function assertAvailable(
@@ -1250,6 +1266,7 @@ export async function addVisit(
      * a certificate that has lapsed or was never written down here.
      */
     if (input.windowStart && input.windowEnd && input.status !== "cancelled" && history === null) {
+      await assertCrewWorks(tx, ctx.actor.organizationId, input.crewId ?? null, new Date(input.windowStart), new Date(input.windowEnd));
       await assertAvailable(
         tx, ctx.actor.organizationId, input.technicianIds,
         new Date(input.windowStart), new Date(input.windowEnd),

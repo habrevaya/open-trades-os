@@ -86,6 +86,46 @@ export async function act(_previous: CrewState, form: FormData): Promise<CrewSta
         await crews.update(ctx, { id, weekdayHours });
         return { message: weekdayHours.length > 0 ? "Saved. Its hours by day are kept." : "Saved. It works its usual hours every day." };
       }
+      case "daysOff": {
+        /** The whole list of weekdays it does not work, replaced. None ticked clears them. */
+        const daysOff = fields(form, "dayOff").map(Number).filter((d) => Number.isInteger(d));
+        await crews.update(ctx, { id, daysOff });
+        return {
+          message: daysOff.length > 0
+            ? `Saved. The crew does not work on ${daysOff.map((d) => `${DAYS[d]}s`).join(", ")}.`
+            : "Saved. The crew works every day of the week.",
+        };
+      }
+      case "dateHours": {
+        /**
+         * One date's hours, or off that day. The crew's other dates are kept:
+         * the service replaces the whole list, so this reads it and changes
+         * the one date.
+         */
+        const date = field(form, "date");
+        if (!date) throw new ConflictError("Choose the date.");
+        const off = form.get("off") === "on";
+        const startsAt = field(form, "startsAt");
+        const endsAt = field(form, "endsAt");
+        if (!off && (startsAt === undefined || endsAt === undefined)) {
+          throw new ConflictError("Give the time the crew starts and finishes that day, or tick Off that day.");
+        }
+        const kept = (await crews.list(ctx)).find((c) => c.id === id)?.dateHours ?? [];
+        await crews.update(ctx, {
+          id,
+          dateHours: [
+            ...kept.filter((d) => d.date !== date),
+            off ? { date, off: true } : { date, startsAt: startsAt ?? null, endsAt: endsAt ?? null },
+          ],
+        });
+        return { message: off ? `Saved. The crew is off on ${date}.` : `Saved. The crew works ${startsAt} to ${endsAt} on ${date}.` };
+      }
+      case "dateClear": {
+        const date = field(form, "date");
+        const kept = (await crews.list(ctx)).find((c) => c.id === id)?.dateHours ?? [];
+        await crews.update(ctx, { id, dateHours: kept.filter((d) => d.date !== date) });
+        return { message: `Cleared. On ${date} the crew works its usual hours.` };
+      }
       case "retire":
         await crews.update(ctx, { id, active: false });
         return;

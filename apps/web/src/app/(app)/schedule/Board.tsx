@@ -725,13 +725,18 @@ function CrewColumn({ crew, time, draggable, dragging, onDragStart, onDrop }: {
           {crew.leadName ? `Led by ${crew.leadName}` : "No lead named"}
           {crew.memberNames.length > 0 ? `, ${crew.memberNames.length} ${crew.memberNames.length === 1 ? "person" : "people"}` : ""}
         </p>
-        {hours ? (
+        {hours && !crew.dayOff ? (
           <p className="mt-0.5 text-xs text-ink-700" aria-label={`${crew.name} works`}>
             Works {clock(hours.startsAt)} to {clock(hours.endsAt)}
-            {hours.from === "weekday" ? " today" : hours.from === "company" ? ", the company's day" : ""}
+            {hours.from === "weekday" || hours.from === "date" ? " today" : hours.from === "company" ? ", the company's day" : ""}
           </p>
         ) : null}
       </header>
+      {crew.dayOff ? (
+        <p className={`px-3 py-2 text-sm ${crew.visits.length > 0 ? "bg-red-tint text-red-600" : "text-ink-500"}`} aria-label={`${crew.name} is off`}>
+          {crew.dayOff}
+        </p>
+      ) : null}
       {crew.branchClosed ? (
         <p className={`px-3 py-2 text-sm ${crew.visits.length > 0 ? "bg-red-tint text-red-600" : "text-ink-500"}`}>
           {crew.branchClosed}

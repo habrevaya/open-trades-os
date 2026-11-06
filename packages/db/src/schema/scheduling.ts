@@ -255,6 +255,18 @@ export const crew = pgTable("crew", {
    * `routing.crewHoursOn` is the rule. 0 is Sunday.
    */
   weekdayHours: jsonb("weekday_hours").$type<{ dayOfWeek: number; startsAt: string; endsAt: string }[]>().notNull().default([]),
+  /**
+   * Hours for one date only (a long day to finish a job), or the crew off on
+   * that date, read before everything else on that date. Off has no times.
+   * Checked by core's `routing.checkCrewDateHours`.
+   */
+  dateHours: jsonb("date_hours")
+    .$type<{ date: string; off: boolean; startsAt: string | null; endsAt: string | null }[]>().notNull().default([]),
+  /**
+   * The weekdays this crew does not work, 0 for Sunday. A date with hours of
+   * its own still puts the crew to work on one.
+   */
+  daysOff: jsonb("days_off").$type<number[]>().notNull().default([]),
   active: boolean("active").notNull().default(true),
   ...timestamps,
 }, (t) => ({ orgIdx: index("crew_org_idx").on(t.organizationId) }));
