@@ -51,8 +51,8 @@ import * as comms from "./comms";
  *
  * VISITS AND MESSAGES are groups behind the permissions that read them.
  * A visit (`visit:read`, through its job and the reader's visit scope) is found
- * by both of its notes, its job's summary and number and the customer's name,
- * and opens its own page. A message (`message:read`, through the conversation's
+ * by both of its notes, its job's summary and number, the customer's name, who
+ * is assigned to it and the crew it is booked to, and opens its own page. A message (`message:read`, through the conversation's
  * scope) is found by its body and its subject, and opens its thread. Neither has
  * a list screen the words could be handed to, so each group's "See all" is this
  * page showing that group alone, as addresses' is.
@@ -188,7 +188,11 @@ export async function everything(
       hits: found.rows.map(({ row: v, close }) => ({
         id: v.id,
         title: `Visit ${v.sequence} on job ${v.jobNumber}: ${v.jobSummary}`,
-        detail: joined([v.customerName, v.day ? inWords(v.day) : "not scheduled"], ", ") || null,
+        detail: joined([
+          v.customerName,
+          v.day ? inWords(v.day) : "not scheduled",
+          v.crewName ? `crew ${v.crewName}` : v.people ? `with ${v.people}` : null,
+        ], ", ") || null,
         href: `/visits/${v.id}`,
         close,
       })),
